@@ -109,9 +109,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          HEALTH_JSON="$(curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 "${PREVIEW_URL}/health")"
-          SHOWS_JSON="$(curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 "${PREVIEW_URL}/api/shows?status=airing")"
-          SYNC_JSON="$(curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 "${PREVIEW_URL}/api/sync-status")"
+          HEALTH_JSON=""
+          for attempt in $(seq 1 20); do
+            if HEALTH_JSON="$(curl --fail --silent --show-error "${PREVIEW_URL}/health" 2>/dev/null)"; then
+              break
+            fi
+            echo "Preview not ready yet (${attempt}/20)"
+            sleep 3
+          done
+          test -n "${HEALTH_JSON}" || { echo "Preview /health did not become ready"; exit 1; }
+
+          SHOWS_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PREVIEW_URL}/api/shows?status=airing")"
+          SYNC_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PREVIEW_URL}/api/sync-status")"
 
           HEALTH_JSON="${HEALTH_JSON}" node -e '
             const data = JSON.parse(process.env.HEALTH_JSON);
@@ -227,36 +236,56 @@ jobs:
       - name: Run unit tests
         run: npm test
 
-      - name: Validate Cloudflare credentials
+      - name: Validate production credentials
         shell: bash
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API repository secret is missing; production deployment is blocked"; exit 1; }
 
       - name: Apply production D1 migrations
         run: npx --yes wrangler@"${WRANGLER_VERSION}" d1 migrations apply "${PRODUCTION_DB_NAME}" --remote
 
-      - name: Deploy main to production
+      - name: Bootstrap production TMDB secret
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "${TMDB_API_TOKEN:-}" ]; then
-            node <<'NODE'
-            const fs = require('fs');
-            fs.writeFileSync('.tmdb-secrets.json', JSON.stringify({
-              TMDB_API_TOKEN: process.env.TMDB_API_TOKEN
-            }));
-            NODE
-            npx --yes wrangler@"${WRANGLER_VERSION}" deploy --secrets-file .tmdb-secrets.json
-            rm -f .tmdb-secrets.json
-          else
-            echo "TMDB_API repository secret is not configured; deploying Phase 1 core without live ingestion"
-            npx --yes wrangler@"${WRANGLER_VERSION}" deploy
-          fi
+          node <<'NODE'
+          const fs = require('fs');
+          fs.writeFileSync('.tmdb-secrets.json', JSON.stringify({
+            TMDB_API_TOKEN: process.env.TMDB_API_TOKEN
+          }));
+          NODE
+          trap 'rm -f .tmdb-secrets.json' EXIT
+          npx --yes wrangler@"${WRANGLER_VERSION}" secret bulk .tmdb-secrets.json --name series-hub
+          SECRET_LIST="$(npx --yes wrangler@"${WRANGLER_VERSION}" secret list --name series-hub)"
+          printf '%s' "${SECRET_LIST}" | jq -e '.[] | select(.name == "TMDB_API_TOKEN")' >/dev/null
+
+      - name: Deploy main to production
+        run: npx --yes wrangler@"${WRANGLER_VERSION}" deploy
+
+      - name: Verify TMDB binding before sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          READY=0
+          for attempt in $(seq 1 20); do
+            if HEALTH_JSON="$(curl --fail --silent --show-error "${PRODUCTION_URL}/health" 2>/dev/null)"; then
+              if HEALTH_JSON="${HEALTH_JSON}" node -e '
+                const data = JSON.parse(process.env.HEALTH_JSON);
+                process.exit(data.ok === true && data.phase === "1-tmdb-core" && data.tmdbConfigured === true ? 0 : 1);
+              '; then
+                READY=1
+                break
+              fi
+            fi
+            echo "Production TMDB binding not ready yet (${attempt}/20)"
+            sleep 3
+          done
+          test "${READY}" -eq 1 || { echo "Production Worker does not expose TMDB_API_TOKEN"; exit 1; }
 
       - name: Run immediate TMDB catalog sync
-        if: env.TMDB_API_TOKEN != ''
         shell: bash
         run: |
           set -euo pipefail
@@ -291,36 +320,24 @@ jobs:
 
           HEALTH_JSON="${HEALTH_JSON}" node -e '
             const data = JSON.parse(process.env.HEALTH_JSON);
-            if (data.ok !== true || data.databaseConfigured !== true || data.databaseReachable !== true) {
+            if (data.ok !== true || data.databaseConfigured !== true || data.databaseReachable !== true || data.phase !== "1-tmdb-core" || data.tmdbConfigured !== true) {
               console.error("Production health failed:", data);
-              process.exit(1);
-            }
-            if (data.phase !== "1-tmdb-core") {
-              console.error("Unexpected production phase:", data.phase);
-              process.exit(1);
-            }
-            if (process.env.TMDB_API_TOKEN && data.tmdbConfigured !== true) {
-              console.error("TMDB secret was supplied but Worker does not report it configured");
               process.exit(1);
             }
           '
 
           SHOWS_JSON="${SHOWS_JSON}" node -e '
             const data = JSON.parse(process.env.SHOWS_JSON);
-            if (!Array.isArray(data.data) || data.meta?.phase !== "1-tmdb-core") {
+            if (!Array.isArray(data.data) || data.meta?.phase !== "1-tmdb-core" || data.data.length < 1) {
               console.error("Production shows API failed:", data);
-              process.exit(1);
-            }
-            if (process.env.TMDB_API_TOKEN && data.data.length < 1) {
-              console.error("TMDB is configured but catalog is still empty");
               process.exit(1);
             }
           '
 
           SYNC_JSON="${SYNC_JSON}" node -e '
             const data = JSON.parse(process.env.SYNC_JSON);
-            if (!("data" in data)) {
-              console.error("Production sync status API failed:", data);
+            if (!data.data || !["success", "success_with_warnings"].includes(data.data.status)) {
+              console.error("Production sync status failed:", data);
               process.exit(1);
             }
           '
