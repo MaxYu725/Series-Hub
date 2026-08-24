@@ -12,35 +12,46 @@ Chinese naming is a first-class data layer. A show may have different preferred 
 
 ## Current phase
 
-**Phase 0 — Foundation**
+**Phase 0 — Complete**
 
-Phase 0 intentionally contains no TMDB, TVmaze or official-network ingestion. It establishes a deployable baseline before external data is introduced.
+Phase 0 contains no TMDB, TVmaze or official-network ingestion. It establishes the deployable and database-backed baseline before external series data is introduced.
+
+**Next: Phase 1 — TMDB US scripted-series MVP.**
 
 ### Phase 0 deliverables
 
 - Cloudflare Worker with Static Assets
 - `/health` API endpoint
-- `/api/shows` empty baseline endpoint
+- `/api/shows` baseline endpoint
 - Vanilla HTML/CSS/JavaScript frontend
+- Cloudflare D1 database bound as `DB`
 - Initial D1 schema and migration
 - Architecture and data-model documentation
-- GitHub → Cloudflare browser-only deployment workflow
+- Browser-only GitHub Actions → Cloudflare deployment workflow
+- Per-PR isolated D1 + Worker preview validation
+- `main` production deploy plus live post-deploy validation
 
 ## Architecture
 
 ```text
-GitHub
-  │
-  │ push / PR
-  ▼
-Cloudflare Workers Builds
+GitHub branch / PR
   │
   ▼
-series-hub Worker
-  ├── Static Assets (public/)
-  └── /api/*
-        │
-        └── D1 binding: DB   (enabled after database creation)
+GitHub Actions
+  ├── PR
+  │    ├── PR-specific D1
+  │    ├── migrations
+  │    └── Cloudflare preview + smoke tests
+  │
+  └── main
+       └── wrangler deploy + production smoke test
+                         │
+                         ▼
+                 Cloudflare Worker
+                 ├── Static Assets (public/)
+                 └── /api/*
+                       │
+                       └── D1 binding: DB → series-hub-db
 ```
 
 Static files and API routes are intentionally deployed as one Cloudflare Worker. This reduces moving parts while keeping the frontend and backend logically separated.
@@ -52,18 +63,20 @@ The normal project workflow does **not** require a local clone, PowerShell, a lo
 ```text
 GitHub branch
    ↓
-Cloudflare preview build
-   ↓
-Review / browser testing
-   ↓
 Pull request
+   ↓
+Isolated preview D1 + Cloudflare preview
+   ↓
+Runtime validation
+   ↓
+Review / merge
    ↓
 main
    ↓
-Production deployment
+GitHub Actions production deployment
 ```
 
-`package.json` pins Wrangler for Cloudflare Workers Builds; it is not a requirement for local development.
+`package.json` pins Wrangler for CI/Cloudflare operations; it is not a requirement for local development.
 
 ## Repository layout
 
@@ -72,6 +85,8 @@ Series-Hub/
 ├── README.md
 ├── package.json
 ├── wrangler.jsonc
+├── .github/
+│   └── workflows/
 ├── src/
 │   └── index.js
 ├── public/
@@ -90,11 +105,11 @@ Series-Hub/
 
 ### `GET /health`
 
-Returns service health and whether a D1 binding is currently configured.
+Returns service health plus D1 binding/reachability state. A healthy Phase 0 deployment reports the database as configured and reachable.
 
 ### `GET /api/shows`
 
-Before D1 is connected, returns an empty list and `databaseConfigured: false`. After D1 is connected and migrated, it reads the `shows` table.
+Reads the `shows` table and returns a JSON `data` array. It remains empty until Phase 1 begins ingesting series metadata.
 
 ## Planned data sources
 
@@ -112,31 +127,41 @@ External APIs must be normalized into Series Hub's own schema. Source-specific p
 2. **Original network/service and regional availability are separate concepts.**
 3. **Chinese titles are aliases with locale/region/source metadata.**
 4. **Every externally derived fact should remain attributable to a source.**
-5. **No secrets in GitHub or frontend assets.** API tokens belong in Cloudflare secrets/environment bindings.
+5. **No secrets in source control or frontend assets.** Runtime/API credentials remain secret-bound.
 6. **No R2 in the initial architecture.** Image URLs can be referenced from upstream metadata until image storage has a demonstrated need.
+7. **Applied migrations are immutable.** Future schema changes use new numbered migration files.
+8. **Unmerged code never runs against production D1 in automated preview tests.** Each PR uses its own temporary D1 database.
+9. **Production schema mutation is separately controlled.** Ordinary PR validation and application deployment do not silently migrate production.
 
 ## Roadmap
 
-- **Phase 0:** deployable foundation, D1 model, empty API.
-- **Phase 1:** TMDB US scripted-series MVP.
+- **Phase 0 — Complete:** deployable foundation, D1 model, empty API, browser-only CI/deployment path.
+- **Phase 1 — Next:** TMDB US scripted-series MVP.
 - **Phase 2:** TVmaze episode/schedule normalization.
 - **Phase 3:** Chinese title and regional alias refinement.
 - **Phase 4:** renewal / production / official-announcement lifecycle engine.
 - **Phase 5:** personal tracking and optional notifications.
 - **Phase 6:** expansion beyond US series.
 
-## Phase 0 acceptance criteria
+## Phase 0 acceptance record
 
-Phase 0 is complete when:
+Completed and validated:
 
-- the Worker deploys from GitHub through Cloudflare Workers Builds;
-- the static application loads successfully;
-- `/health` returns HTTP 200;
-- `/api/shows` returns a valid JSON response;
-- a D1 database is created and bound as `DB`;
-- migration `0001_initial.sql` has been applied successfully;
-- a post-migration `/health` response reports the database binding as available.
+- static Worker assets and API routing;
+- `/health` HTTP runtime endpoint;
+- `/api/shows` JSON runtime endpoint;
+- production D1 database `series-hub-db` bound as `DB`;
+- `0001_initial.sql` applied;
+- eight core production schema tables remotely verified;
+- Worker dry-run with D1 and Static Assets bindings;
+- PR-specific D1 provisioning and migration validation;
+- isolated Cloudflare Worker preview deployment;
+- preview `/health` and `/api/shows` runtime validation;
+- production `/health` and `/api/shows` runtime validation;
+- automatic preview-D1 cleanup when a PR closes;
+- browser-only GitHub Actions credential path using repository secrets;
+- merges to `main` have an explicit GitHub Actions → Wrangler production deployment path.
 
 ## Project status
 
-Foundation in progress. External series data ingestion has not started.
+Phase 0 foundation is complete. External series data ingestion has not started. Phase 1 will introduce TMDB behind the existing normalization and API boundary.
