@@ -28,7 +28,7 @@ Phase 0 contains no TMDB, TVmaze or official-network ingestion. It establishes t
 - Initial D1 schema and migration
 - Architecture and data-model documentation
 - Browser-only GitHub Actions → Cloudflare deployment workflow
-- Pull-request dry-run, isolated preview, and runtime smoke validation
+- Per-PR isolated D1 + Worker preview validation
 - `main` production deploy plus live post-deploy validation
 
 ## Architecture
@@ -38,8 +38,13 @@ GitHub branch / PR
   │
   ▼
 GitHub Actions
-  ├── PR: dry-run + Cloudflare preview + smoke tests
-  └── main: wrangler deploy + production smoke test
+  ├── PR
+  │    ├── PR-specific D1
+  │    ├── migrations
+  │    └── Cloudflare preview + smoke tests
+  │
+  └── main
+       └── wrangler deploy + production smoke test
                          │
                          ▼
                  Cloudflare Worker
@@ -60,7 +65,9 @@ GitHub branch
    ↓
 Pull request
    ↓
-Cloudflare preview + runtime validation
+Isolated preview D1 + Cloudflare preview
+   ↓
+Runtime validation
    ↓
 Review / merge
    ↓
@@ -123,7 +130,8 @@ External APIs must be normalized into Series Hub's own schema. Source-specific p
 5. **No secrets in source control or frontend assets.** Runtime/API credentials remain secret-bound.
 6. **No R2 in the initial architecture.** Image URLs can be referenced from upstream metadata until image storage has a demonstrated need.
 7. **Applied migrations are immutable.** Future schema changes use new numbered migration files.
-8. **PR validation never silently mutates production schema.** Schema migration is a separately controlled operation.
+8. **Unmerged code never runs against production D1 in automated preview tests.** Each PR uses its own temporary D1 database.
+9. **Production schema mutation is separately controlled.** Ordinary PR validation and application deployment do not silently migrate production.
 
 ## Roadmap
 
@@ -142,15 +150,16 @@ Completed and validated:
 - static Worker assets and API routing;
 - `/health` HTTP runtime endpoint;
 - `/api/shows` JSON runtime endpoint;
-- D1 database `series-hub-db` bound as `DB`;
+- production D1 database `series-hub-db` bound as `DB`;
 - `0001_initial.sql` applied;
-- eight core schema tables remotely verified;
-- Worker dry-run with `env.DB` and `env.ASSETS` bindings;
+- eight core production schema tables remotely verified;
+- Worker dry-run with D1 and Static Assets bindings;
+- PR-specific D1 provisioning and migration validation;
 - isolated Cloudflare Worker preview deployment;
 - preview `/health` and `/api/shows` runtime validation;
 - production `/health` and `/api/shows` runtime validation;
+- automatic preview-D1 cleanup when a PR closes;
 - browser-only GitHub Actions credential path using repository secrets;
-- PR validation no longer provisions databases or mutates production schema;
 - merges to `main` have an explicit GitHub Actions → Wrangler production deployment path.
 
 ## Project status
