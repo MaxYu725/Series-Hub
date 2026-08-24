@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const PRODUCTION_URL = "https://series-hub.max-yu-jp.workers.dev";
+const SUCCESS_STATUSES = new Set(["success", "success_with_warnings"]);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -54,16 +55,35 @@ async function waitForPhase2bAssets() {
   assert.fail("Production did not expose Phase 2B assets within the audit window");
 }
 
-test("Phase 2B production UI and live schedule contract are complete", { timeout: 180000 }, async () => {
+async function waitForTvmazeSync() {
+  let latest = null;
+
+  for (let attempt = 1; attempt <= 40; attempt += 1) {
+    latest = await fetchJson("/api/sync-status?source=tvmaze");
+    const status = latest?.data?.status;
+
+    if (SUCCESS_STATUSES.has(status)) return { payload: latest, attempt };
+    if (status && status !== "running") {
+      assert.fail(`TVmaze sync reached terminal failure state: ${status}`);
+    }
+
+    console.log(`TVmaze production bootstrap still ${status || "unavailable"} (${attempt}/40)`);
+    await sleep(3000);
+  }
+
+  assert.fail(`TVmaze sync did not finish successfully; latest status: ${latest?.data?.status || "missing"}`);
+}
+
+test("Phase 2B production UI and live schedule contract are complete", { timeout: 240000 }, async () => {
   if (!process.env.CI) return;
 
-  const { home, app, attempt } = await waitForPhase2bAssets();
-  const [utils, health, catalog, schedule, tvmazeSync] = await Promise.all([
+  const { home, app, attempt: assetsAttempt } = await waitForPhase2bAssets();
+  const { payload: tvmazeSync, attempt: syncAttempt } = await waitForTvmazeSync();
+  const [utils, health, catalog, schedule] = await Promise.all([
     fetchText("/schedule-utils.js"),
     fetchJson("/health"),
     fetchJson("/api/shows?limit=60"),
-    fetchJson("/api/schedule?days=14"),
-    fetchJson("/api/sync-status?source=tvmaze")
+    fetchJson("/api/schedule?days=14")
   ]);
 
   assert.match(home, /Phase 2/);
@@ -119,8 +139,7 @@ test("Phase 2B production UI and live schedule contract are complete", { timeout
     `Chinese title coverage too low: ${chineseTitleCount}/${schedule.data.length}`);
 
   assert.ok(tvmazeSync.data, "TVmaze sync record missing");
-  assert.ok(["success", "success_with_warnings"].includes(tvmazeSync.data.status),
-    `TVmaze sync is ${tvmazeSync.data.status}`);
+  assert.ok(SUCCESS_STATUSES.has(tvmazeSync.data.status), `TVmaze sync is ${tvmazeSync.data.status}`);
   assert.equal(tvmazeSync.meta?.source, "tvmaze");
 
   const exactTimestampCount = schedule.data.filter((episode) => episode.air_timestamp).length;
@@ -128,7 +147,8 @@ test("Phase 2B production UI and live schedule contract are complete", { timeout
 
   console.log("SERIES_HUB_PHASE2B_LIVE_AUDIT");
   console.log(JSON.stringify({
-    assets_ready_attempt: attempt,
+    assets_ready_attempt: assetsAttempt,
+    tvmaze_sync_ready_attempt: syncAttempt,
     catalog_count: catalog.data.length,
     schedule_14d_count: schedule.data.length,
     chinese_title_coverage: `${chineseTitleCount}/${schedule.data.length}`,
