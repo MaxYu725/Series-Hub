@@ -6,6 +6,7 @@ const JSON_HEADERS = {
 };
 
 const PUBLIC_STATUSES = new Set(["airing", "upcoming", "planned", "completed", "unknown"]);
+const SYNC_KEY_CONTEXT = "series-hub:tmdb-sync:v1:";
 
 function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -267,6 +268,58 @@ async function lastSync(env) {
   }
 }
 
+function bytesToHex(bytes) {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function deriveTmdbSyncKey(token) {
+  if (!token) return null;
+  const encoded = new TextEncoder().encode(`${SYNC_KEY_CONTEXT}${token}`);
+  const digest = await crypto.subtle.digest("SHA-256", encoded);
+  return bytesToHex(new Uint8Array(digest));
+}
+
+function constantTimeEqual(left, right) {
+  if (typeof left !== "string" || typeof right !== "string" || left.length !== right.length) {
+    return false;
+  }
+
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return difference === 0;
+}
+
+async function runTmdbSync(request, env) {
+  if (!env.TMDB_API_TOKEN) {
+    return json(
+      { ok: false, error: "tmdb_not_configured" },
+      { status: 503 }
+    );
+  }
+
+  const provided = request.headers.get("x-series-hub-sync-key") || "";
+  const expected = await deriveTmdbSyncKey(env.TMDB_API_TOKEN);
+  if (!constantTimeEqual(provided, expected)) {
+    return json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const result = await syncTmdbCatalog(env);
+    return json(result, { status: result.ok ? 200 : 503 });
+  } catch (error) {
+    return json(
+      {
+        ok: false,
+        error: "tmdb_sync_failed",
+        detail: error instanceof Error ? error.message : String(error)
+      },
+      { status: 502 }
+    );
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -281,6 +334,10 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/api/sync-status") {
       return lastSync(env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/internal/tmdb-sync") {
+      return runTmdbSync(request, env);
     }
 
     if (url.pathname.startsWith("/api/")) {
