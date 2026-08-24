@@ -32,10 +32,11 @@ assert.ok(exact?.id, "Murder in a Small Town must resolve in TMDB search");
 
 const details = await tmdb(`/tv/${exact.id}`, { language: "en-US" });
 
-async function feed(sortBy, extra = {}) {
+async function feed(label, sortBy, extra = {}) {
   const data = await tmdb("/discover/tv", { ...base, sort_by: sortBy, ...extra });
   const rows = data.results || [];
   return {
+    label,
     sortBy,
     extra,
     targetRank: rows.findIndex((item) => item.id === exact.id) + 1 || null,
@@ -44,10 +45,11 @@ async function feed(sortBy, extra = {}) {
 }
 
 const feeds = [
-  await feed("popularity.desc"),
-  await feed("first_air_date.desc"),
-  await feed("popularity.desc", { "first_air_date.gte": "2024-01-01" }),
-  await feed("first_air_date.desc", { "first_air_date.gte": "2024-01-01" })
+  await feed("current", "popularity.desc"),
+  await feed("recent-from-2022", "popularity.desc", { "first_air_date.gte": "2022-01-01" }),
+  await feed("recent-from-2023", "popularity.desc", { "first_air_date.gte": "2023-01-01" }),
+  await feed("recent-from-2024", "popularity.desc", { "first_air_date.gte": "2024-01-01" }),
+  await feed("newest-first", "first_air_date.desc")
 ];
 
 console.log(JSON.stringify({
