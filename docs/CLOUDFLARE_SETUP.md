@@ -16,9 +16,9 @@ The deployed Worker exposes:
 
 - `/` — Series Hub frontend shell
 - `/health` — service and D1 binding health
-- `/api/shows` — Phase 0 shows API
+- `/api/shows` — baseline shows API
 
-Before D1 is connected, `/health` can report `databaseConfigured: false`. After the Phase 0 bootstrap completes, it must report both `databaseConfigured: true` and `databaseReachable: true`.
+Phase 0 requires `/health` to report both `databaseConfigured: true` and `databaseReachable: true`.
 
 ## 3. Cloudflare credentials for automation
 
@@ -32,63 +32,84 @@ The workflow maps them at runtime to Wrangler's expected environment variables:
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 
-Neither credential is written into the repository, Worker source, frontend assets, logs intentionally, or `wrangler.jsonc`.
+Neither credential is committed to the repository, Worker source, frontend assets, or `wrangler.jsonc`.
 
-## 4. Automated D1 bootstrap
+## 4. Phase 0 D1 bootstrap — completed
 
-`.github/workflows/phase0-cloudflare-bootstrap.yml` handles the Phase 0 D1 bootstrap from a pull request.
+The one-time Phase 0 bootstrap has been completed.
 
-It performs these operations:
-
-1. validates the GitHub Actions Cloudflare credentials;
-2. reuses an existing `series-hub-db`, or creates it with the APAC location hint;
-3. resolves the real D1 UUID;
-4. adds the `DB` binding to a validation worktree;
-5. applies the migrations in `migrations/` remotely;
-6. verifies the expected Phase 0 tables;
-7. runs `wrangler deploy --dry-run`;
-8. uploads a non-production Worker version for validation.
-
-The bootstrap is intentionally idempotent: re-running it must reuse the named D1 database and only apply migrations that have not already been recorded.
-
-The D1 UUID is an infrastructure identifier, not a secret. Once resolved and validated, it is committed to `wrangler.jsonc` so source control remains the authoritative Worker configuration.
-
-## 5. D1 binding
-
-The final binding has this shape:
-
-```jsonc
-"d1_databases": [
-  {
-    "binding": "DB",
-    "database_name": "series-hub-db",
-    "database_id": "<REAL_DATABASE_UUID>",
-    "migrations_dir": "migrations"
-  }
-]
-```
-
-Application code accesses the database through `env.DB`.
-
-## 6. Post-binding verification
-
-After the binding reaches production:
-
-- `/health` must return HTTP 200;
-- `databaseConfigured` must be `true`;
-- `databaseReachable` must be `true`;
-- `/api/shows` must return HTTP 200 and an empty data set until Phase 1 inserts series records.
-
-## Preview workflow
-
-Infrastructure and application changes follow:
+Production D1:
 
 ```text
-branch → PR validation/preview → review → main → production
+name: series-hub-db
+binding: DB
+region: APAC
 ```
 
-Production traffic must not be used as the first validation target for schema, routing, or deployment-configuration changes.
+The initial migration in `migrations/0001_initial.sql` has been applied and the following core tables were verified remotely:
+
+- `shows`
+- `seasons`
+- `episodes`
+- `title_aliases`
+- `providers`
+- `availability`
+- `sources`
+- `sync_runs`
+
+The real D1 UUID is stored in `wrangler.jsonc` as infrastructure configuration. It is an identifier, not an API credential.
+
+## 5. Normal PR validation
+
+The repository workflow `.github/workflows/phase0-cloudflare-bootstrap.yml` no longer provisions D1 or applies production migrations on every pull request.
+
+For each same-repository PR it now:
+
+1. validates that the GitHub Actions Cloudflare credentials are present;
+2. runs a Wrangler production-equivalent dry-run;
+3. uploads an isolated non-production Worker version with a PR preview alias;
+4. requests the preview `/health` and `/api/shows` endpoints;
+5. requires the preview D1 binding to be configured and reachable;
+6. requests the production `/health` and `/api/shows` endpoints as a regression smoke test.
+
+This keeps PR validation read-only with respect to the production D1 schema.
+
+## 6. D1 migrations after Phase 0
+
+New schema changes must be added as new numbered files under `migrations/`. Existing applied migrations must not be edited retroactively.
+
+A future schema-change workflow may apply migrations as a separately controlled deployment step. Ordinary feature PR validation must not create databases or mutate the production schema.
+
+## 7. Runtime acceptance
+
+A healthy deployment must satisfy:
+
+- `/health` returns HTTP 200;
+- `ok` is `true`;
+- `databaseConfigured` is `true`;
+- `databaseReachable` is `true`;
+- `/api/shows` returns HTTP 200 with a JSON `data` array.
+
+Until Phase 1 inserts series records, the `data` array is expected to be empty.
+
+## Development path
+
+```text
+GitHub branch
+   ↓
+Pull request
+   ↓
+Wrangler dry-run + isolated Cloudflare preview
+   ↓
+Preview runtime smoke test
+   ↓
+Production regression smoke test
+   ↓
+Review / merge
+   ↓
+main → Cloudflare production deployment
+```
 
 ## Dashboard fallback
 
-Cloudflare Dashboard remains available as a recovery/fallback path, but normal Series Hub development should not require manually creating D1 resources or editing Worker bindings in the dashboard while the GitHub automation is healthy.
+Cloudflare Dashboard remains a recovery/fallback path. Normal Series Hub development should not require manual D1 creation, binding edits, local Wrangler, PowerShell, Docker, or a local Node.js environment.
