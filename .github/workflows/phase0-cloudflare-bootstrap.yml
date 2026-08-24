@@ -80,7 +80,10 @@ jobs:
         run: npx --yes wrangler@"${WRANGLER_VERSION}" deploy --dry-run --outdir .wrangler-dry-run
 
       - name: Upload non-production Worker version
-        run: npx --yes wrangler@"${WRANGLER_VERSION}" versions upload --message "Phase 0 D1 validation for PR #${{ github.event.pull_request.number }}"
+        shell: bash
+        run: |
+          npx --yes wrangler@"${WRANGLER_VERSION}" versions upload \
+            --message "Phase 0 D1 validation for PR ${{ github.event.pull_request.number }}"
 
       - name: Publish bootstrap result
         shell: bash
