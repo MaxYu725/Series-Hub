@@ -20,6 +20,7 @@ env:
   CI: "true"
   WRANGLER_VERSION: "4.125.0"
   PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+  PRODUCTION_DB_NAME: "series-hub-db"
 
 jobs:
   preview:
@@ -30,12 +31,16 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
       PREVIEW_DB_NAME: series-hub-pr-${{ github.event.pull_request.number }}
+      PREVIEW_WORKER_NAME: series-hub-pr-${{ github.event.pull_request.number }}
 
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Run unit tests
+        run: npm test
 
       - name: Validate Cloudflare credentials
         shell: bash
@@ -61,7 +66,7 @@ jobs:
           test -n "${DB_ID}" && test "${DB_ID}" != "null"
           echo "database_id=${DB_ID}" >> "${GITHUB_OUTPUT}"
 
-      - name: Point preview Worker at isolated D1
+      - name: Configure fully isolated preview Worker
         env:
           PREVIEW_DB_ID: ${{ steps.preview_db.outputs.database_id }}
         shell: bash
@@ -73,8 +78,10 @@ jobs:
           const config = JSON.parse(fs.readFileSync(path, 'utf8'));
           const binding = config.d1_databases?.find((item) => item.binding === 'DB');
           if (!binding) throw new Error('DB binding is missing from wrangler.jsonc');
+          config.name = process.env.PREVIEW_WORKER_NAME;
           binding.database_name = process.env.PREVIEW_DB_NAME;
           binding.database_id = process.env.PREVIEW_DB_ID;
+          config.triggers = { crons: [] };
           fs.writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
           NODE
 
@@ -84,15 +91,12 @@ jobs:
       - name: Validate Worker build
         run: npx --yes wrangler@"${WRANGLER_VERSION}" deploy --dry-run --outdir .wrangler-dry-run
 
-      - name: Upload isolated preview version
+      - name: Deploy isolated preview Worker
         id: preview
         shell: bash
         run: |
           set -euo pipefail
-          ALIAS="pr-${{ github.event.pull_request.number }}"
-          OUTPUT="$(npx --yes wrangler@"${WRANGLER_VERSION}" versions upload \
-            --preview-alias "${ALIAS}" \
-            --message "PR ${{ github.event.pull_request.number }} validation" 2>&1)"
+          OUTPUT="$(npx --yes wrangler@"${WRANGLER_VERSION}" deploy 2>&1)"
           printf '%s\n' "${OUTPUT}"
           PREVIEW_URL="$(printf '%s\n' "${OUTPUT}" | grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' | tail -n 1)"
           test -n "${PREVIEW_URL}" || { echo "Preview URL was not returned by Wrangler"; exit 1; }
@@ -105,7 +109,8 @@ jobs:
         run: |
           set -euo pipefail
           HEALTH_JSON="$(curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 "${PREVIEW_URL}/health")"
-          SHOWS_JSON="$(curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 "${PREVIEW_URL}/api/shows")"
+          SHOWS_JSON="$(curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 "${PREVIEW_URL}/api/shows?status=airing")"
+          SYNC_JSON="$(curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 "${PREVIEW_URL}/api/sync-status")"
 
           HEALTH_JSON="${HEALTH_JSON}" node -e '
             const data = JSON.parse(process.env.HEALTH_JSON);
@@ -113,12 +118,24 @@ jobs:
               console.error("Preview health failed:", data);
               process.exit(1);
             }
+            if (data.phase !== "1-tmdb-core") {
+              console.error("Unexpected preview phase:", data.phase);
+              process.exit(1);
+            }
           '
 
           SHOWS_JSON="${SHOWS_JSON}" node -e '
             const data = JSON.parse(process.env.SHOWS_JSON);
-            if (!Array.isArray(data.data)) {
+            if (!Array.isArray(data.data) || data.meta?.phase !== "1-tmdb-core") {
               console.error("Preview shows API failed:", data);
+              process.exit(1);
+            }
+          '
+
+          SYNC_JSON="${SYNC_JSON}" node -e '
+            const data = JSON.parse(process.env.SYNC_JSON);
+            if (!("data" in data)) {
+              console.error("Preview sync status API failed:", data);
               process.exit(1);
             }
           '
@@ -154,14 +171,15 @@ jobs:
           {
             echo "## Cloudflare PR validation"
             echo
-            echo "- Worker dry-run: passed"
+            echo "- Unit tests: passed"
+            echo "- Preview Worker: ${PREVIEW_WORKER_NAME} (isolated)"
+            echo "- Preview D1: ${PREVIEW_DB_NAME} (isolated)"
             echo "- Preview runtime: passed"
             echo "- Preview URL: ${PREVIEW_URL}"
-            echo "- Preview D1: ${PREVIEW_DB_NAME} (isolated)"
             echo "- Production regression check: passed"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-  cleanup-preview-db:
+  cleanup-preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -169,8 +187,16 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
       PREVIEW_DB_NAME: series-hub-pr-${{ github.event.pull_request.number }}
+      PREVIEW_WORKER_NAME: series-hub-pr-${{ github.event.pull_request.number }}
 
     steps:
+      - name: Delete isolated preview Worker
+        shell: bash
+        run: |
+          set +e
+          npx --yes wrangler@"${WRANGLER_VERSION}" delete --name "${PREVIEW_WORKER_NAME}"
+          exit 0
+
       - name: Delete isolated preview D1
         shell: bash
         run: |
@@ -195,12 +221,18 @@ jobs:
       - name: Checkout main
         uses: actions/checkout@v4
 
+      - name: Run unit tests
+        run: npm test
+
       - name: Validate Cloudflare credentials
         shell: bash
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+
+      - name: Apply production D1 migrations
+        run: npx --yes wrangler@"${WRANGLER_VERSION}" d1 migrations apply "${PRODUCTION_DB_NAME}" --remote
 
       - name: Deploy main to production
         run: npx --yes wrangler@"${WRANGLER_VERSION}" deploy
@@ -210,7 +242,8 @@ jobs:
         run: |
           set -euo pipefail
           HEALTH_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/health")"
-          SHOWS_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/shows")"
+          SHOWS_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/shows?status=airing")"
+          SYNC_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/sync-status")"
 
           HEALTH_JSON="${HEALTH_JSON}" node -e '
             const data = JSON.parse(process.env.HEALTH_JSON);
@@ -218,12 +251,24 @@ jobs:
               console.error("Production health failed:", data);
               process.exit(1);
             }
+            if (data.phase !== "1-tmdb-core") {
+              console.error("Unexpected production phase:", data.phase);
+              process.exit(1);
+            }
           '
 
           SHOWS_JSON="${SHOWS_JSON}" node -e '
             const data = JSON.parse(process.env.SHOWS_JSON);
-            if (!Array.isArray(data.data)) {
+            if (!Array.isArray(data.data) || data.meta?.phase !== "1-tmdb-core") {
               console.error("Production shows API failed:", data);
+              process.exit(1);
+            }
+          '
+
+          SYNC_JSON="${SYNC_JSON}" node -e '
+            const data = JSON.parse(process.env.SYNC_JSON);
+            if (!("data" in data)) {
+              console.error("Production sync status API failed:", data);
               process.exit(1);
             }
           '
