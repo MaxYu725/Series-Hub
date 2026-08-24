@@ -1,0 +1,156 @@
+name: Title alias override
+
+on:
+  workflow_dispatch:
+    inputs:
+      show_id:
+        description: "Series Hub show ID"
+        required: true
+        type: string
+      region:
+        description: "Chinese title region"
+        required: true
+        default: HK
+        type: choice
+        options:
+          - HK
+          - TW
+          - CN
+      action:
+        description: "Override action"
+        required: true
+        default: set-preferred
+        type: choice
+        options:
+          - set-preferred
+          - add-alias
+          - remove-alias
+      title:
+        description: "Exact Chinese title"
+        required: true
+        type: string
+      confidence:
+        description: "Editorial confidence"
+        required: true
+        default: high
+        type: choice
+        options:
+          - official
+          - high
+          - normal
+
+permissions:
+  contents: read
+
+concurrency:
+  group: title-alias-override
+  cancel-in-progress: false
+
+env:
+  WRANGLER_VERSION: "4.125.0"
+  PRODUCTION_DB_NAME: "series-hub-db"
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      SHOW_ID: ${{ inputs.show_id }}
+      TITLE_REGION: ${{ inputs.region }}
+      TITLE_ACTION: ${{ inputs.action }}
+      TITLE_VALUE: ${{ inputs.title }}
+      TITLE_CONFIDENCE: ${{ inputs.confidence }}
+
+    steps:
+      - name: Validate credentials and inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+          node <<'NODE'
+          const showId = Number(process.env.SHOW_ID);
+          const region = process.env.TITLE_REGION;
+          const action = process.env.TITLE_ACTION;
+          const title = String(process.env.TITLE_VALUE || "").trim();
+          const confidence = process.env.TITLE_CONFIDENCE;
+
+          if (!Number.isSafeInteger(showId) || showId <= 0) throw new Error("show_id must be a positive integer");
+          if (!["HK", "TW", "CN"].includes(region)) throw new Error("invalid title region");
+          if (!["set-preferred", "add-alias", "remove-alias"].includes(action)) throw new Error("invalid action");
+          if (!["official", "high", "normal"].includes(confidence)) throw new Error("invalid confidence");
+          if (!title || title.length > 160 || /[\u0000-\u001f]/.test(title)) throw new Error("title must be 1-160 printable characters");
+          NODE
+
+      - name: Build safe D1 mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("fs");
+          const showId = Number(process.env.SHOW_ID);
+          const region = process.env.TITLE_REGION;
+          const action = process.env.TITLE_ACTION;
+          const title = String(process.env.TITLE_VALUE || "").trim();
+          const confidence = process.env.TITLE_CONFIDENCE;
+          const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;
+
+          const scope = `show_id = ${showId} AND season_id IS NULL AND locale = 'zh' AND region = ${quote(region)} AND source_key = 'manual'`;
+          const exact = `${scope} AND title = ${quote(title)}`;
+          const lines = [
+            "PRAGMA foreign_keys = ON;",
+            "BEGIN TRANSACTION;",
+            `SELECT CASE WHEN EXISTS (SELECT 1 FROM shows WHERE id = ${showId}) THEN 1 ELSE RAISE(ABORT, 'show_id not found') END;`
+          ];
+
+          if (action === "set-preferred") {
+            lines.push(`UPDATE title_aliases SET is_preferred = 0, updated_at = CURRENT_TIMESTAMP WHERE ${scope};`);
+            lines.push(`DELETE FROM title_aliases WHERE ${exact};`);
+            lines.push(
+              `INSERT INTO title_aliases (show_id, season_id, locale, region, title, source_key, is_preferred, confidence, created_at, updated_at) ` +
+              `VALUES (${showId}, NULL, 'zh', ${quote(region)}, ${quote(title)}, 'manual', 1, ${quote(confidence)}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`
+            );
+          } else if (action === "add-alias") {
+            lines.push(`DELETE FROM title_aliases WHERE ${exact};`);
+            lines.push(
+              `INSERT INTO title_aliases (show_id, season_id, locale, region, title, source_key, is_preferred, confidence, created_at, updated_at) ` +
+              `VALUES (${showId}, NULL, 'zh', ${quote(region)}, ${quote(title)}, 'manual', 0, ${quote(confidence)}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`
+            );
+          } else {
+            lines.push(`DELETE FROM title_aliases WHERE ${exact};`);
+          }
+
+          lines.push("COMMIT;");
+          fs.writeFileSync(".title-alias-override.sql", `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Apply production title override
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f .title-alias-override.sql' EXIT
+          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --file .title-alias-override.sql
+
+      - name: Verify resolved regional title
+        shell: bash
+        run: |
+          set -euo pipefail
+          QUERY="SELECT s.id, s.english_title, p.title_zh_hk, p.title_zh_hk_source, p.title_zh_tw, p.title_zh_tw_source, p.title_zh_cn, p.title_zh_cn_source FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id = s.id WHERE s.id = ${SHOW_ID};"
+          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --command "${QUERY}"
+
+      - name: Publish summary
+        shell: bash
+        run: |
+          {
+            echo "## Title alias override"
+            echo
+            echo "- Show ID: ${SHOW_ID}"
+            echo "- Region: ${TITLE_REGION}"
+            echo "- Action: ${TITLE_ACTION}"
+            echo "- Title: ${TITLE_VALUE}"
+            echo "- Confidence: ${TITLE_CONFIDENCE}"
+            echo "- Source: manual"
+            echo "- Future TMDB refreshes delete only TMDB-source aliases, so this manual record is preserved."
+          } >> "${GITHUB_STEP_SUMMARY}"
