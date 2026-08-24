@@ -5,8 +5,8 @@ let source = fs.readFileSync(path, "utf8");
 
 const replacements = [
   [
-    'db.prepare("INSERT OR REPLACE INTO show_genres (show_id, network_id) VALUES (?1, ?2)")',
-    'db.prepare("INSERT OR REPLACE INTO show_genres (show_id, genre_id) VALUES (?1, ?2)")'
+    '"INSERT OR REPLACE INTO show_genres (show_id, network_id) VALUES (?1, ?2)"',
+    '"INSERT OR REPLACE INTO show_genres (show_id, genre_id) VALUES (?1, ?2)"'
   ],
   [
     "const maxShows = Math.min(Math.max(Number(options.maxShows) || 30, 1), 30);",
