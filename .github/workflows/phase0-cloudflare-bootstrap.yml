@@ -82,6 +82,7 @@ jobs:
           binding.database_name = process.env.PREVIEW_DB_NAME;
           binding.database_id = process.env.PREVIEW_DB_ID;
           config.triggers = { crons: [] };
+          delete config.secrets;
           fs.writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
           NODE
 
@@ -118,8 +119,8 @@ jobs:
               console.error("Preview health failed:", data);
               process.exit(1);
             }
-            if (data.phase !== "1-tmdb-core") {
-              console.error("Unexpected preview phase:", data.phase);
+            if (data.phase !== "1-tmdb-core" || data.tmdbConfigured !== false) {
+              console.error("Preview must be Phase 1 with no production TMDB secret:", data);
               process.exit(1);
             }
           '
@@ -174,6 +175,7 @@ jobs:
             echo "- Unit tests: passed"
             echo "- Preview Worker: ${PREVIEW_WORKER_NAME} (isolated)"
             echo "- Preview D1: ${PREVIEW_DB_NAME} (isolated)"
+            echo "- Production secrets inherited by preview: no"
             echo "- Preview runtime: passed"
             echo "- Preview URL: ${PREVIEW_URL}"
             echo "- Production regression check: passed"
@@ -216,6 +218,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
 
     steps:
       - name: Checkout main
@@ -235,14 +238,55 @@ jobs:
         run: npx --yes wrangler@"${WRANGLER_VERSION}" d1 migrations apply "${PRODUCTION_DB_NAME}" --remote
 
       - name: Deploy main to production
-        run: npx --yes wrangler@"${WRANGLER_VERSION}" deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${TMDB_API_TOKEN:-}" ]; then
+            node <<'NODE'
+            const fs = require('fs');
+            fs.writeFileSync('.tmdb-secrets.json', JSON.stringify({
+              TMDB_API_TOKEN: process.env.TMDB_API_TOKEN
+            }));
+            NODE
+            npx --yes wrangler@"${WRANGLER_VERSION}" deploy --secrets-file .tmdb-secrets.json
+            rm -f .tmdb-secrets.json
+          else
+            echo "TMDB_API repository secret is not configured; deploying Phase 1 core without live ingestion"
+            npx --yes wrangler@"${WRANGLER_VERSION}" deploy
+          fi
+
+      - name: Run immediate TMDB catalog sync
+        if: env.TMDB_API_TOKEN != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          SYNC_KEY="$(node -e '
+            const crypto = require("crypto");
+            process.stdout.write(
+              crypto.createHash("sha256")
+                .update("series-hub:tmdb-sync:v1:" + process.env.TMDB_API_TOKEN)
+                .digest("hex")
+            );
+          ')"
+          SYNC_JSON="$(curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 \
+            -X POST \
+            -H "x-series-hub-sync-key: ${SYNC_KEY}" \
+            "${PRODUCTION_URL}/api/internal/tmdb-sync")"
+          SYNC_JSON="${SYNC_JSON}" node -e '
+            const data = JSON.parse(process.env.SYNC_JSON);
+            if (data.ok !== true || Number(data.recordsChanged || 0) < 1) {
+              console.error("TMDB bootstrap sync failed:", data);
+              process.exit(1);
+            }
+            console.log(`TMDB sync accepted ${data.recordsChanged} shows from ${data.recordsSeen} candidates`);
+          '
 
       - name: Verify production runtime
         shell: bash
         run: |
           set -euo pipefail
           HEALTH_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/health")"
-          SHOWS_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/shows?status=airing")"
+          SHOWS_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/shows?limit=60")"
           SYNC_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/sync-status")"
 
           HEALTH_JSON="${HEALTH_JSON}" node -e '
@@ -255,12 +299,20 @@ jobs:
               console.error("Unexpected production phase:", data.phase);
               process.exit(1);
             }
+            if (process.env.TMDB_API_TOKEN && data.tmdbConfigured !== true) {
+              console.error("TMDB secret was supplied but Worker does not report it configured");
+              process.exit(1);
+            }
           '
 
           SHOWS_JSON="${SHOWS_JSON}" node -e '
             const data = JSON.parse(process.env.SHOWS_JSON);
             if (!Array.isArray(data.data) || data.meta?.phase !== "1-tmdb-core") {
               console.error("Production shows API failed:", data);
+              process.exit(1);
+            }
+            if (process.env.TMDB_API_TOKEN && data.data.length < 1) {
+              console.error("TMDB is configured but catalog is still empty");
               process.exit(1);
             }
           '
