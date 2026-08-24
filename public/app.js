@@ -14,13 +14,33 @@ const views = {
   planned: { title: "計劃播出", kicker: "PLANNED", type: "catalog", status: "planned" }
 };
 
+const TITLE_REGION_STORAGE_KEY = "series-hub-title-region";
+const TITLE_REGION_LABELS = Object.freeze({ HK: "香港", TW: "台灣", CN: "中國大陸" });
 const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Local";
+
+function storedTitleRegion() {
+  try {
+    const value = window.localStorage.getItem(TITLE_REGION_STORAGE_KEY);
+    return Object.hasOwn(TITLE_REGION_LABELS, value) ? value : "HK";
+  } catch {
+    return "HK";
+  }
+}
+
+function saveTitleRegion(region) {
+  try {
+    window.localStorage.setItem(TITLE_REGION_STORAGE_KEY, region);
+  } catch {
+    // Storage is optional. The active in-memory preference still works.
+  }
+}
 
 const state = {
   view: "today",
   shows: [],
   episodes: [],
   query: "",
+  titleRegion: storedTitleRegion(),
   loading: false,
   requestId: 0
 };
@@ -38,6 +58,9 @@ const emptyState = document.querySelector("#empty-state");
 const emptyTitle = document.querySelector("#empty-title");
 const emptyCopy = document.querySelector("#empty-copy");
 const searchInput = document.querySelector("#search-input");
+const titleRegionSelect = document.querySelector("#title-region-select");
+
+titleRegionSelect.value = state.titleRegion;
 
 function setHealth(type, text) {
   statusDot.className = `status-dot ${type}`;
@@ -102,8 +125,28 @@ function formatSyncStamp(value) {
 }
 
 function chineseTitle(item) {
-  const titles = [item.title_zh_hk, item.title_zh_tw, item.title_zh_cn].filter(Boolean);
-  return [...new Set(titles)].join(" / ");
+  if (item.display_title_zh) return item.display_title_zh;
+  const requested = item[`title_zh_${state.titleRegion.toLowerCase()}`];
+  if (requested) return requested;
+  return item.title_zh_hk || item.title_zh_tw || item.title_zh_cn || "";
+}
+
+function titleSourceNote(item) {
+  const notes = [];
+  if (item.display_title_zh_source === "manual") notes.push("人工校正");
+  if (item.display_title_zh_fallback && item.display_title_zh_region) {
+    notes.push(`使用${TITLE_REGION_LABELS[item.display_title_zh_region] || item.display_title_zh_region}譯名`);
+  }
+  return notes.join(" · ");
+}
+
+function appendTitleSourceNote(container, item) {
+  const text = titleSourceNote(item);
+  if (!text) return;
+  const note = document.createElement("span");
+  note.className = "title-source-note";
+  note.textContent = text;
+  container.append(note);
 }
 
 function statusLine(show) {
@@ -112,11 +155,9 @@ function statusLine(show) {
   if (show.status === "airing") {
     return scheduleDate ? `下集 ${formatDate(scheduleDate)}` : "播映中";
   }
-
   if (show.status === "upcoming") {
     return scheduleDate ? `首播 ${formatDate(scheduleDate)}` : "已公布播映日期";
   }
-
   if (show.status === "planned") return "已續訂／製作中 · 日期待定";
   return show.tmdb_status || show.status || "狀態待確認";
 }
@@ -164,6 +205,7 @@ function createShowCard(show) {
   const zhTitle = document.createElement("p");
   zhTitle.className = "chinese-title";
   zhTitle.textContent = chineseTitle(show) || "中文譯名待補";
+  appendTitleSourceNote(zhTitle, show);
 
   const meta = document.createElement("div");
   meta.className = "show-meta";
@@ -171,13 +213,11 @@ function createShowCard(show) {
 
   const footer = document.createElement("div");
   footer.className = "show-card-footer";
-
   if (Number(show.vote_average) > 0) {
     const rating = document.createElement("span");
     rating.textContent = `★ ${Number(show.vote_average).toFixed(1)}`;
     footer.append(rating);
   }
-
   if (show.genres) {
     const genre = document.createElement("span");
     genre.textContent = show.genres.split(" · ").slice(0, 2).join(" · ");
@@ -195,7 +235,6 @@ function createScheduleRow(episode) {
 
   const posterWrap = document.createElement("div");
   posterWrap.className = "schedule-poster-wrap";
-
   if (episode.poster_url) {
     const poster = document.createElement("img");
     poster.className = "schedule-poster";
@@ -213,7 +252,6 @@ function createScheduleRow(episode) {
 
   const body = document.createElement("div");
   body.className = "schedule-body";
-
   const zh = chineseTitle(episode);
   const title = document.createElement("h4");
   title.textContent = zh || episode.english_title || episode.original_title;
@@ -222,6 +260,7 @@ function createScheduleRow(episode) {
     const english = document.createElement("p");
     english.className = "schedule-english";
     english.textContent = episode.english_title;
+    appendTitleSourceNote(english, episode);
     body.append(title, english);
   } else {
     body.append(title);
@@ -229,8 +268,7 @@ function createScheduleRow(episode) {
 
   const episodeLine = document.createElement("p");
   episodeLine.className = "episode-line";
-  const code = episodeCode(episode);
-  episodeLine.textContent = [code, episode.episode_name].filter(Boolean).join(" · ") || "集數資料待補";
+  episodeLine.textContent = [episodeCode(episode), episode.episode_name].filter(Boolean).join(" · ") || "集數資料待補";
 
   const meta = document.createElement("div");
   meta.className = "schedule-meta";
@@ -244,7 +282,6 @@ function createScheduleRow(episode) {
     runtime.textContent = `${Number(episode.runtime_minutes)} 分鐘`;
     meta.append(runtime);
   }
-
   body.append(episodeLine, meta);
 
   const side = document.createElement("div");
@@ -283,6 +320,7 @@ function matchesScheduleQuery(episode, query) {
     episode.title_zh_hk,
     episode.title_zh_tw,
     episode.title_zh_cn,
+    episode.chinese_aliases,
     episode.episode_name,
     episode.networks
   ].filter(Boolean).some((value) => String(value).toLocaleLowerCase().includes(needle));
@@ -291,7 +329,6 @@ function matchesScheduleQuery(episode, query) {
 function renderSchedule() {
   scheduleList.replaceChildren();
   const groups = new Map();
-
   for (const episode of state.episodes) {
     const dateKey = episodeLocalDateKey(episode, browserTimeZone) || episode.air_date || "unknown";
     if (!groups.has(dateKey)) groups.set(dateKey, []);
@@ -301,7 +338,6 @@ function renderSchedule() {
   for (const [dateKey, episodes] of groups) {
     const day = document.createElement("section");
     day.className = "schedule-day";
-
     const heading = document.createElement("div");
     heading.className = "schedule-day-heading";
     const title = document.createElement("h4");
@@ -313,7 +349,6 @@ function renderSchedule() {
     const rows = document.createElement("div");
     rows.className = "schedule-rows";
     for (const episode of episodes) rows.append(createScheduleRow(episode));
-
     day.append(heading, rows);
     scheduleList.append(day);
   }
@@ -322,9 +357,12 @@ function renderSchedule() {
 function render() {
   const view = views[state.view];
   const isSchedule = view.type === "schedule";
+  const regionLabel = TITLE_REGION_LABELS[state.titleRegion];
   viewTitle.textContent = view.title;
   viewKicker.textContent = view.kicker;
-  viewContext.textContent = isSchedule ? `有精確 timestamp 時按 ${browserTimeZone} 顯示；否則保留 TVmaze 來源日期。` : "Series lifecycle 由 TMDB 主資料正規化。";
+  viewContext.textContent = isSchedule
+    ? `中文名優先使用${regionLabel}譯名；時間有精確 timestamp 時按 ${browserTimeZone} 顯示。`
+    : `中文名優先使用${regionLabel}譯名；缺少時才跨區 fallback。Series lifecycle 仍由 TMDB 主資料正規化。`;
 
   showGrid.hidden = isSchedule;
   scheduleList.hidden = !isSchedule;
@@ -334,7 +372,6 @@ function render() {
 
   const count = isSchedule ? state.episodes.length : state.shows.length;
   showCount.textContent = state.loading ? "載入中…" : isSchedule ? `${count} 集` : `${count} 套`;
-
   const isEmpty = !state.loading && count === 0;
   emptyState.hidden = !isEmpty;
 
@@ -352,7 +389,7 @@ function render() {
 }
 
 async function loadCatalog(view, requestId) {
-  const params = new URLSearchParams({ status: view.status, limit: "60" });
+  const params = new URLSearchParams({ status: view.status, limit: "60", region: state.titleRegion });
   if (state.query) params.set("q", state.query);
   const response = await fetch(`/api/shows?${params}`, { cache: "no-store" });
   if (!response.ok) throw new Error(`Shows ${response.status}`);
@@ -366,7 +403,7 @@ async function loadSchedule(view, requestId) {
   const today = localDateKey();
   const from = addDateKeyDays(today, -1);
   const apiDays = Math.min(view.days + 2, 14);
-  const params = new URLSearchParams({ from, days: String(apiDays) });
+  const params = new URLSearchParams({ from, days: String(apiDays), region: state.titleRegion });
   const response = await fetch(`/api/schedule?${params}`, { cache: "no-store" });
   if (!response.ok) throw new Error(`Schedule ${response.status}`);
   const payload = await response.json();
@@ -406,12 +443,13 @@ async function loadSystemStatus() {
       fetch("/api/sync-status?source=tmdb", { cache: "no-store" }),
       fetch("/api/sync-status?source=tvmaze", { cache: "no-store" })
     ]);
-
     if (!healthResponse.ok) throw new Error(`Health ${healthResponse.status}`);
     const health = await healthResponse.json();
 
     if (health.databaseConfigured && health.databaseReachable && health.tmdbConfigured && health.tvmazeEnabled) {
-      setHealth("ok", "API 正常 · D1 已連接 · TMDB + TVmaze 已啟用");
+      setHealth("ok", health.titleAliasPolicy === "phase-3a"
+        ? "API 正常 · D1 已連接 · 地區譯名政策已啟用"
+        : "API 正常 · D1 已連接 · TMDB + TVmaze 已啟用");
     } else if (health.databaseConfigured && health.databaseReachable && health.tvmazeEnabled) {
       setHealth("warn", "API 正常 · D1 已連接 · TVmaze 排程可用");
     } else if (health.databaseConfigured) {
@@ -439,6 +477,16 @@ searchInput.addEventListener("input", () => {
     state.query = searchInput.value.trim();
     loadCurrentView();
   }, 250);
+});
+
+titleRegionSelect.addEventListener("change", () => {
+  const region = titleRegionSelect.value;
+  if (!Object.hasOwn(TITLE_REGION_LABELS, region) || region === state.titleRegion) return;
+  state.titleRegion = region;
+  saveTitleRegion(region);
+  state.shows = [];
+  state.episodes = [];
+  loadCurrentView();
 });
 
 document.querySelectorAll(".filter").forEach((button) => {
