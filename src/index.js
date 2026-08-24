@@ -1,5 +1,6 @@
 import { syncTmdbCatalog } from "./tmdb.js";
 import { syncTvmazeEpisodes } from "./tvmaze.js";
+import { applyTitleOverride } from "./title-admin.js";
 import { normalizeTitleRegion, withResolvedChineseTitle } from "./title-aliases.js";
 
 const JSON_HEADERS = {
@@ -476,6 +477,18 @@ async function authorizeSync(request, env) {
   return constantTimeEqual(provided, expected);
 }
 
+async function runTitleOverride(request, env) {
+  if (!env.TMDB_API_TOKEN) return json({ ok: false, error: "title_admin_not_configured" }, { status: 503 });
+  if (!(await authorizeSync(request, env))) return json({ ok: false, error: "unauthorized" }, { status: 401 });
+
+  try {
+    const result = await applyTitleOverride(request, env);
+    return json(result.body, { status: result.status });
+  } catch (error) {
+    return json({ ok: false, error: "title_override_failed", detail: error instanceof Error ? error.message : String(error) }, { status: 502 });
+  }
+}
+
 async function runTmdbSync(request, env) {
   if (!env.TMDB_API_TOKEN) return json({ ok: false, error: "tmdb_not_configured" }, { status: 503 });
   if (!(await authorizeSync(request, env))) return json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -516,6 +529,7 @@ export default {
     const episodeMatch = request.method === "GET" && url.pathname.match(/^\/api\/shows\/(\d+)\/episodes$/);
     if (episodeMatch) return listShowEpisodes(env, Number(episodeMatch[1]), url);
 
+    if (request.method === "POST" && url.pathname === "/api/internal/title-override") return runTitleOverride(request, env);
     if (request.method === "POST" && url.pathname === "/api/internal/tmdb-sync") return runTmdbSync(request, env);
     if (request.method === "POST" && url.pathname === "/api/internal/tvmaze-sync") return runTvmazeSync(request, env);
 
