@@ -31,19 +31,23 @@ async function waitForFinalSync() {
   throw new Error(`Final Phase 1B production sync did not become ready: ${JSON.stringify(last)}`);
 }
 
+function showTitle(show) {
+  return show.english_title || show.original_title || `TMDB ${show.tmdb_id}`;
+}
+
 function networkText(show) {
-  return String(show.networks || show.network || "");
+  return String(show.networks || "");
 }
 
 function genreNames(show) {
-  const raw = show.genres;
-  if (Array.isArray(raw)) {
-    return raw.map((genre) => typeof genre === "string" ? genre : genre?.name).filter(Boolean);
-  }
-  return String(raw || "")
+  return String(show.genres || "")
     .split(/[·,|]/)
     .map((value) => value.trim())
     .filter(Boolean);
+}
+
+function chineseTitle(show) {
+  return show.title_zh_hk || show.title_zh_tw || show.title_zh_cn || null;
 }
 
 test("final Phase 1B production catalog is clean, active and network-balanced", async () => {
@@ -52,29 +56,30 @@ test("final Phase 1B production catalog is clean, active and network-balanced", 
   assert.equal(health.tmdbConfigured, true);
 
   const sync = await waitForFinalSync();
-  const showsPayload = await getJson("/api/shows");
+  const showsPayload = await getJson("/api/shows?limit=100");
   const shows = showsPayload?.data;
 
   assert.ok(Array.isArray(shows));
   assert.ok(shows.length > 0);
 
   for (const show of shows) {
-    assert.ok(["airing", "upcoming", "planned"].includes(show.status), `${show.title}: ${show.status}`);
+    const title = showTitle(show);
+    assert.ok(["airing", "upcoming", "planned"].includes(show.status), `${title}: ${show.status}`);
 
     for (const genre of genreNames(show)) {
-      assert.equal(EXCLUDED_GENRES.has(genre), false, `${show.title}: ${genre}`);
+      assert.equal(EXCLUDED_GENRES.has(genre), false, `${title}: ${genre}`);
     }
   }
 
-  const titles = new Set(shows.map((show) => show.title));
+  const titles = new Set(shows.map(showTitle));
   assert.equal(titles.has("Raw"), false, "WWE Raw must not remain in the scripted catalog");
   assert.equal(titles.has("Sesame Street"), false, "Kids programming must not remain in the scripted catalog");
 
   const fxShows = shows.filter((show) => /(^| · |, )(FX|FXX)( · |, |$)/.test(networkText(show)));
   assert.ok(fxShows.length >= 1, "Expected at least one active FX/FXX series after network-seeded discovery");
 
-  const chineseCoverage = shows.filter((show) => show.zh_hk || show.zh_tw || show.zh_cn).length;
-  const posterCoverage = shows.filter((show) => show.poster_url || show.poster).length;
+  const chineseCoverage = shows.filter((show) => chineseTitle(show)).length;
+  const posterCoverage = shows.filter((show) => show.poster_url).length;
   assert.ok(chineseCoverage / shows.length >= 0.8, `Chinese title coverage ${chineseCoverage}/${shows.length}`);
   assert.ok(posterCoverage / shows.length >= 0.9, `Poster coverage ${posterCoverage}/${shows.length}`);
 
@@ -95,18 +100,18 @@ test("final Phase 1B production catalog is clean, active and network-balanced", 
     chinese_title_coverage: `${chineseCoverage}/${shows.length}`,
     poster_coverage: `${posterCoverage}/${shows.length}`,
     fx_titles: fxShows.map((show) => ({
-      title: show.title,
-      zh_hk: show.zh_hk,
+      title: showTitle(show),
+      title_zh_hk: show.title_zh_hk,
       status: show.status,
       next_air_date: show.next_air_date,
       networks: networkText(show)
     })),
     network_counts: networkCounts,
     sample: shows.slice(0, 30).map((show) => ({
-      title: show.title,
-      zh_hk: show.zh_hk,
+      title: showTitle(show),
+      title_zh_hk: show.title_zh_hk,
       status: show.status,
-      season: show.season,
+      season: show.latest_season_number,
       next_air_date: show.next_air_date,
       networks: networkText(show),
       genres: show.genres
