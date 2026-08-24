@@ -129,8 +129,8 @@ jobs:
               console.error("Preview health failed:", data);
               process.exit(1);
             }
-            if (data.phase !== "2-tvmaze-schedule" || data.tmdbConfigured !== false || data.tvmazeEnabled !== true) {
-              console.error("Preview must be Phase 2 with no production TMDB secret:", data);
+            if (data.phase !== "3-regional-titles" || data.tmdbConfigured !== false || data.tvmazeEnabled !== true) {
+              console.error("Preview must be Phase 3 with no production TMDB secret:", data);
               process.exit(1);
             }
           '
@@ -139,8 +139,8 @@ jobs:
             const shows = JSON.parse(process.env.SHOWS_JSON);
             const schedule = JSON.parse(process.env.SCHEDULE_JSON);
             const sync = JSON.parse(process.env.SYNC_JSON);
-            if (!Array.isArray(shows.data) || shows.meta?.phase !== "2-tvmaze-schedule") process.exit(1);
-            if (!Array.isArray(schedule.data) || schedule.meta?.phase !== "2-tvmaze-schedule") process.exit(1);
+            if (!Array.isArray(shows.data) || shows.meta?.phase !== "3-regional-titles") process.exit(1);
+            if (!Array.isArray(schedule.data) || schedule.meta?.phase !== "3-regional-titles") process.exit(1);
             if (!("data" in sync) || sync.meta?.source !== "tvmaze") process.exit(1);
           '
 
@@ -155,7 +155,7 @@ jobs:
             const health = JSON.parse(process.env.HEALTH_JSON);
             const shows = JSON.parse(process.env.SHOWS_JSON);
             if (health.ok !== true || health.databaseConfigured !== true || health.databaseReachable !== true) process.exit(1);
-            if (!["1-tmdb-core", "2-tvmaze-schedule"].includes(health.phase)) process.exit(1);
+            if (!["2-tvmaze-schedule", "3-regional-titles"].includes(health.phase)) process.exit(1);
             if (!Array.isArray(shows.data)) process.exit(1);
           '
 
@@ -171,7 +171,7 @@ jobs:
             echo "- Preview Worker: ${PREVIEW_WORKER_NAME} (isolated)"
             echo "- Preview D1: ${PREVIEW_DB_NAME} (isolated)"
             echo "- Production secrets inherited by preview: no"
-            echo "- Phase 2 schedule API: passed"
+            echo "- Phase 3 regional-title API: passed"
             echo "- Preview URL: ${PREVIEW_URL}"
             echo "- Production regression check: passed"
           } >> "${GITHUB_STEP_SUMMARY}"
@@ -249,7 +249,7 @@ jobs:
       - name: Deploy main to production
         run: npx --yes wrangler@"${WRANGLER_VERSION}" deploy
 
-      - name: Verify Phase 2 runtime before sync
+      - name: Verify Phase 3 runtime before sync
         shell: bash
         run: |
           set -euo pipefail
@@ -258,16 +258,16 @@ jobs:
             if HEALTH_JSON="$(curl --fail --silent --show-error "${PRODUCTION_URL}/health" 2>/dev/null)"; then
               if HEALTH_JSON="${HEALTH_JSON}" node -e '
                 const data = JSON.parse(process.env.HEALTH_JSON);
-                process.exit(data.ok === true && data.phase === "2-tvmaze-schedule" && data.tmdbConfigured === true && data.tvmazeEnabled === true ? 0 : 1);
+                process.exit(data.ok === true && data.phase === "3-regional-titles" && data.tmdbConfigured === true && data.tvmazeEnabled === true ? 0 : 1);
               '; then
                 READY=1
                 break
               fi
             fi
-            echo "Production Phase 2 runtime not ready yet (${attempt}/20)"
+            echo "Production Phase 3 runtime not ready yet (${attempt}/20)"
             sleep 3
           done
-          test "${READY}" -eq 1 || { echo "Production Worker did not become Phase 2 ready"; exit 1; }
+          test "${READY}" -eq 1 || { echo "Production Worker did not become Phase 3 ready"; exit 1; }
 
       - name: Derive internal sync key
         id: sync_key
@@ -336,7 +336,7 @@ jobs:
             const tmdb = JSON.parse(process.env.TMDB_SYNC_JSON);
             const tvmaze = JSON.parse(process.env.TVMAZE_SYNC_JSON);
             if (health.ok !== true || health.phase !== "2-tvmaze-schedule" || health.tmdbConfigured !== true || health.tvmazeEnabled !== true) process.exit(1);
-            if (!Array.isArray(shows.data) || shows.meta?.phase !== "2-tvmaze-schedule" || shows.data.length < 1) process.exit(1);
+            if (!Array.isArray(shows.data) || shows.meta?.phase !== "3-regional-titles" || shows.data.length < 1) process.exit(1);
             if (!Array.isArray(schedule.data) || schedule.meta?.source !== "TVmaze") process.exit(1);
             if (!tmdb.data || !["success", "success_with_warnings"].includes(tmdb.data.status)) process.exit(1);
             if (!tvmaze.data || !["success", "success_with_warnings"].includes(tvmaze.data.status) || Number(tvmaze.data.records_changed || 0) < 1) process.exit(1);
