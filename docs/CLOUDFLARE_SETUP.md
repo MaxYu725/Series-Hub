@@ -1,6 +1,6 @@
 # Cloudflare Setup — Browser-Only
 
-Series Hub is operated without a local development requirement. Production deployment is connected directly from GitHub to Cloudflare Workers Builds.
+Series Hub is operated without a local development requirement. GitHub is the source of code and deployment orchestration; Cloudflare Workers is the runtime.
 
 ## 1. GitHub → Cloudflare deployment
 
@@ -8,7 +8,12 @@ Cloudflare Worker/project name: `series-hub`
 
 Production branch: `main`
 
-The repository contains `wrangler.jsonc`, so deployment configuration is treated as source-controlled infrastructure. Production changes should flow through a branch and pull request before reaching `main`.
+The repository contains `wrangler.jsonc`, so Worker configuration is source-controlled. The GitHub Actions workflow `.github/workflows/phase0-cloudflare-bootstrap.yml` is the authoritative deployment path:
+
+- pull requests run dry-run + isolated Cloudflare preview validation;
+- pushes/merges to `main` run `wrangler deploy` to production and then verify the live runtime.
+
+This avoids relying on an out-of-band dashboard deployment state to keep production synchronized with `main`.
 
 ## 2. Foundation endpoints
 
@@ -61,26 +66,39 @@ The real D1 UUID is stored in `wrangler.jsonc` as infrastructure configuration. 
 
 ## 5. Normal PR validation
 
-The repository workflow `.github/workflows/phase0-cloudflare-bootstrap.yml` no longer provisions D1 or applies production migrations on every pull request.
-
-For each same-repository PR it now:
+For each same-repository pull request the workflow:
 
 1. validates that the GitHub Actions Cloudflare credentials are present;
 2. runs a Wrangler production-equivalent dry-run;
 3. uploads an isolated non-production Worker version with a PR preview alias;
 4. requests the preview `/health` and `/api/shows` endpoints;
 5. requires the preview D1 binding to be configured and reachable;
-6. requests the production `/health` and `/api/shows` endpoints as a regression smoke test.
+6. requests production `/health` and `/api/shows` as a regression smoke test.
 
-This keeps PR validation read-only with respect to the production D1 schema.
+PR validation does not create D1 databases or apply production migrations.
 
-## 6. D1 migrations after Phase 0
+## 6. Production deployment
+
+A push to `main` runs a separate workflow job which:
+
+1. checks out the exact `main` commit;
+2. runs `wrangler deploy` using the repository's pinned Wrangler version;
+3. requests production `/health` and `/api/shows`;
+4. fails the deployment workflow if the live Worker cannot reach D1 or returns an invalid API shape.
+
+The production URL is:
+
+```text
+https://series-hub.max-yu-jp.workers.dev
+```
+
+## 7. D1 migrations after Phase 0
 
 New schema changes must be added as new numbered files under `migrations/`. Existing applied migrations must not be edited retroactively.
 
-A future schema-change workflow may apply migrations as a separately controlled deployment step. Ordinary feature PR validation must not create databases or mutate the production schema.
+A future schema-change workflow may apply migrations as a separately controlled deployment step. Ordinary feature PR validation and ordinary application deployment must not silently mutate the production schema.
 
-## 7. Runtime acceptance
+## 8. Runtime acceptance
 
 A healthy deployment must satisfy:
 
@@ -107,7 +125,11 @@ Production regression smoke test
    ↓
 Review / merge
    ↓
-main → Cloudflare production deployment
+push main
+   ↓
+GitHub Actions → wrangler deploy
+   ↓
+Production runtime verification
 ```
 
 ## Dashboard fallback
