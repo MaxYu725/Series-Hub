@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "series-hub",
+  "main": "./src/index.js",
+  "compatibility_date": "2026-08-23",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/health"]
+  },
+  "observability": {
+    "enabled": true
+  }
+
+  // Phase 0 bootstrap note:
+  // Add the real D1 binding only after the database has been created in the
+  // Cloudflare dashboard. Never commit a made-up database UUID.
+  //
+  // "d1_databases": [
+  //   {
+  //     "binding": "DB",
+  //     "database_name": "series-hub-db",
+  //     "database_id": "<REAL_DATABASE_UUID>",
+  //     "migrations_dir": "migrations"
+  //   }
+  // ]
+}

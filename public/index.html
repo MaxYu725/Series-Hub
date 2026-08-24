@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b0d12">
+  <title>Series Hub</title>
+  <meta name="description" content="集中整理播映中、即將播映及已計劃播出的美劇。">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand-wrap">
+      <div class="brand-mark" aria-hidden="true">SH</div>
+      <div>
+        <p class="eyebrow">US SERIES TRACKER</p>
+        <h1>Series Hub</h1>
+      </div>
+    </div>
+    <div class="phase-chip">Phase 0</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <p class="eyebrow">FOUNDATION PREVIEW</p>
+      <h2>美劇播映資訊，集中整理。</h2>
+      <p class="hero-copy">第一階段先建立穩定資料架構。TMDB、TVmaze 及官方消息來源會在後續 Phase 接入。</p>
+
+      <div class="health-line" aria-live="polite">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="health-text">正在檢查 API…</span>
+      </div>
+    </section>
+
+    <nav class="filters" aria-label="劇集狀態">
+      <button type="button" class="filter active" data-view="airing">播映中</button>
+      <button type="button" class="filter" data-view="upcoming">即將播映</button>
+      <button type="button" class="filter" data-view="planned">計劃播出</button>
+    </nav>
+
+    <section class="content-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow" id="view-kicker">AIRING</p>
+          <h3 id="view-title">播映中</h3>
+        </div>
+        <span id="show-count">0 套</span>
+      </div>
+
+      <div id="show-grid" class="show-grid" aria-live="polite"></div>
+
+      <div id="empty-state" class="empty-state">
+        <div class="empty-poster" aria-hidden="true"></div>
+        <div>
+          <h4>Phase 0 暫未匯入劇集</h4>
+          <p>這是預期狀態。資料來源會由 Phase 1 開始接入，現在先驗證部署、API 與 D1 基線。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Series Hub</span>
+    <span>GitHub → Cloudflare Workers</span>
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
