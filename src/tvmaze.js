@@ -1,4 +1,5 @@
 const TVMAZE_API_BASE = "https://api.tvmaze.com";
+const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const ACTIVE_STATUSES = new Set(["airing", "upcoming", "planned"]);
 const SHOWS_PER_SYNC = 10;
 const RETAIN_PAST_DAYS = 90;
@@ -74,6 +75,21 @@ async function tvmazeRequest(pathname, params = {}, { allow404 = false } = {}) {
   throw new Error(`TVmaze request retries exhausted: ${pathname}`);
 }
 
+async function tmdbExternalIds(env, tmdbId) {
+  if (!env.TMDB_API_TOKEN || !tmdbId) return null;
+  const response = await fetch(`${TMDB_API_BASE}/tv/${tmdbId}/external_ids`, {
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${env.TMDB_API_TOKEN}`
+    }
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error(`TMDB ${response.status} external_ids: ${detail}`);
+  }
+  return response.json();
+}
+
 export function selectRelevantEpisodes(episodes, now = new Date()) {
   const today = todayUtc(now);
   const threshold = daysAgoDate(RETAIN_PAST_DAYS, now);
@@ -135,6 +151,26 @@ export function lookupParamsForShow(show) {
   if (show?.imdb_id) return { imdb: show.imdb_id };
   if (show?.thetvdb_id) return { thetvdb: show.thetvdb_id };
   return null;
+}
+
+async function enrichExternalIds(env, db, show) {
+  if (show.imdb_id || show.thetvdb_id || !show.tmdb_id) return show;
+  const external = await tmdbExternalIds(env, show.tmdb_id);
+  const imdbId = typeof external?.imdb_id === "string" && external.imdb_id ? external.imdb_id : null;
+  const thetvdbId = Number.isFinite(Number(external?.tvdb_id)) ? Number(external.tvdb_id) : null;
+
+  await db
+    .prepare(
+      `UPDATE shows
+       SET imdb_id = COALESCE(?1, imdb_id),
+           thetvdb_id = COALESCE(?2, thetvdb_id),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?3`
+    )
+    .bind(imdbId, thetvdbId, show.id)
+    .run();
+
+  return { ...show, imdb_id: imdbId, thetvdb_id: thetvdbId };
 }
 
 async function lookupTvmazeShow(show) {
@@ -204,6 +240,7 @@ async function selectShowsForSync(db, limit) {
     .prepare(
       `SELECT
         id,
+        tmdb_id,
         english_title,
         status,
         imdb_id,
@@ -212,7 +249,7 @@ async function selectShowsForSync(db, limit) {
         tvmaze_synced_at
        FROM shows
        WHERE status IN ('airing', 'upcoming', 'planned')
-         AND (tvmaze_id IS NOT NULL OR imdb_id IS NOT NULL OR thetvdb_id IS NOT NULL)
+         AND (tvmaze_id IS NOT NULL OR tmdb_id IS NOT NULL OR imdb_id IS NOT NULL OR thetvdb_id IS NOT NULL)
        ORDER BY
          CASE WHEN tvmaze_synced_at IS NULL THEN 0 ELSE 1 END,
          tvmaze_synced_at ASC,
@@ -329,11 +366,13 @@ export async function syncTvmazeEpisodes(env, options = {}) {
     const shows = await selectShowsForSync(env.DB, limit);
     recordsSeen = shows.length;
 
-    for (const show of shows) {
+    for (const originalShow of shows) {
+      let show = originalShow;
       try {
+        show = await enrichExternalIds(env, env.DB, show);
         const mapped = await lookupTvmazeShow(show);
         if (!mapped?.id) {
-          warnings.push(`${show.english_title || show.id}: no TVmaze lookup match`);
+          warnings.push(`${show.english_title || show.id}: no exact TVmaze lookup match`);
           await markShowSync(env.DB, show.id);
           continue;
         }
