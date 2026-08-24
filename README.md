@@ -6,7 +6,7 @@ The core model is **series → seasons → episodes**. Season is first-class bec
 
 ## Current status
 
-**Phase 2 — TVmaze schedule integration: COMPLETE**
+**Phase 3 — Chinese regional titles and manual override: COMPLETE**
 
 Completed:
 
@@ -14,9 +14,11 @@ Completed:
 - Phase 1A — TMDB catalog core;
 - Phase 1B — US scripted catalog quality, lifecycle and network balancing;
 - Phase 2A — exact TVmaze mapping + normalized episode/schedule API;
-- Phase 2B — Today / This Week schedule UI with browser-local timezone handling and production live acceptance.
+- Phase 2B — Today / This Week schedule UI with browser-local timezone handling and production live acceptance;
+- Phase 3A — HK/TW/CN preferred-title resolution, provenance, fallback and controlled manual override;
+- Phase 3B — production title-quality audit and proof that editorial overrides survive a real TMDB refresh.
 
-**Next planned phase: Phase 3 — Chinese title and regional alias refinement/manual override layer.**
+**Next planned phase: Phase 4 — official renewal / cancellation / production lifecycle engine.**
 
 ## Product views
 
@@ -100,6 +102,22 @@ The first Phase 2B audit sampled the sync endpoint while the post-deploy TVmaze 
 
 Acceptance counts are snapshots, not permanent catalog targets.
 
+## Phase 3 live acceptance — 2026-08-24
+
+- active catalog: **28 series**;
+- any Chinese title: **28/28 (100%)**;
+- HK-specific titles: **28/28 (100%)**;
+- TW-specific titles: **28/28 (100%)**;
+- CN-specific titles: **24/28 (85.7%)**;
+- manual preferred-title shows: **1**;
+- verified editorial case: **The Shards → 青春碎片 (HK)**, `manual / official`;
+- real post-override TMDB refresh: `success`, **137 candidates seen / 23 shows changed**;
+- the manual HK preferred alias survived that refresh;
+- Chinese alias search, fallback metadata and unauthenticated-write rejection were live-verified;
+- **36/36 tests**, isolated D1/Worker preview and production regression passed.
+
+The four CN-specific gaps (`Ted Lasso`, `Wednesday`, `For All Mankind`, `Severance`) intentionally use fallback until reliable mainland-China-specific evidence exists. Coverage is not a reason to invent a regional title.
+
 ## Architecture
 
 ```text
@@ -179,14 +197,18 @@ Series-Hub/
 │   ├── 0002_phase1_tmdb.sql
 │   ├── 0003_phase1b_catalog_scope.sql
 │   ├── 0004_phase1b_excluded_genres.sql
-│   └── 0005_phase2_tvmaze.sql
+│   ├── 0005_phase2_tvmaze.sql
+│   └── 0006_phase3_title_aliases.sql
 ├── src/
 │   ├── index.js
 │   ├── tmdb.js
-│   └── tvmaze.js
+│   ├── tvmaze.js
+│   ├── title-aliases.js
+│   └── title-admin.js
 ├── public/
 │   ├── index.html
 │   ├── styles.css
+│   ├── phase3.css
 │   ├── app.js
 │   └── schedule-utils.js
 └── test/
@@ -206,7 +228,7 @@ Reports current service phase, D1 reachability, TMDB configuration and whether T
 Current production phase identifier:
 
 ```text
-2-tvmaze-schedule
+3-regional-titles
 ```
 
 ### `GET /api/shows`
@@ -216,6 +238,7 @@ Query parameters:
 - `status=airing|upcoming|planned|completed|unknown`
 - `q=<English or Chinese title>`
 - `limit=1..100`
+- `region=HK|TW|CN` (default `HK`)
 
 The response includes normalized TMDB catalog data plus TVmaze-derived last/next episode dates when available.
 
@@ -225,8 +248,17 @@ Query parameters:
 
 - `from=YYYY-MM-DD`
 - `days=1..14`
+- `region=HK|TW|CN` (default `HK`)
 
 Returns normalized TVmaze episode facts joined to Series Hub show/season/title/network data.
+
+### `GET /api/title-audit`
+
+Reports HK/TW/CN coverage, missing regional titles and manual preferred-title usage.
+
+### `GET /api/shows/:id/aliases`
+
+Returns all attributed aliases plus the resolved regional preferred title.
 
 ### `GET /api/shows/:id/episodes`
 
@@ -240,6 +272,7 @@ Returns the latest sync run for the requested source.
 
 - `POST /api/internal/tmdb-sync`
 - `POST /api/internal/tvmaze-sync`
+- `POST /api/internal/title-override`
 
 Both are protected by a one-way key derived from the production TMDB token. Preview Workers do not receive the token and cannot invoke production-style ingestion.
 
@@ -281,20 +314,11 @@ The frontend requests a one-day buffer around the local schedule window so a US 
 - **Phase 1B — Complete:** catalog scope, quality, lifecycle and network balancing.
 - **Phase 2A — Complete:** exact TVmaze mapping and episode/schedule normalization.
 - **Phase 2B — Complete:** Today / This Week schedule UI and timezone-safe display.
-- **Phase 3 — Next:** Chinese title refinement and manual override layer.
-- **Phase 4:** official renewal / cancellation / production lifecycle engine.
+- **Phase 3 — Complete:** regional Chinese title policy, fallback, provenance, live audit and protected manual override.
+- **Phase 4 — Next:** official renewal / cancellation / production lifecycle engine.
 - **Phase 5:** personal tracking and optional notifications.
 - **Phase 6:** expansion beyond US series.
 
-## Phase 3 handoff
+## Phase 4 handoff
 
-Phase 3 should build on the existing `title_aliases` model rather than replacing it. The intended work is:
-
-- audit actual `zh-HK`, `zh-TW`, `zh-CN` coverage and quality;
-- define preferred-title selection rules by region;
-- preserve multiple aliases rather than collapsing them into one string;
-- add a controlled manual override layer with provenance and confidence;
-- ensure manual corrections survive future TMDB refreshes;
-- expose sensible Chinese-title fallbacks to the frontend without breaking English/original-title search.
-
-Do not broaden into Phase 4 official renewal scraping until the Phase 3 title override contract is stable.
+Phase 4 adds attributed official renewal / cancellation / production-state evidence without weakening the Phase 3 title contract. Retain source URL/date/confidence and affected season where possible; do not infer cancellation or production state merely to fill a gap. Start with a small set of high-value official sources and keep the browser-only GitHub → isolated preview → Cloudflare production workflow.

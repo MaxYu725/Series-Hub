@@ -8,7 +8,7 @@ const JSON_HEADERS = {
   "cache-control": "no-store"
 };
 
-const PHASE = "2-tvmaze-schedule";
+const PHASE = "3-regional-titles";
 const PUBLIC_STATUSES = new Set(["airing", "upcoming", "planned", "completed", "unknown"]);
 const SYNC_SOURCES = new Set(["tmdb", "tvmaze"]);
 const SYNC_KEY_CONTEXT = "series-hub:tmdb-sync:v1:";
@@ -48,7 +48,7 @@ async function health(env) {
     databaseReachable,
     tmdbConfigured: Boolean(env.TMDB_API_TOKEN),
     tvmazeEnabled: true,
-    titleAliasPolicy: "phase-3a",
+    titleAliasPolicy: "phase-3",
     timestamp: new Date().toISOString()
   });
 }
@@ -416,7 +416,7 @@ async function titleAudit(env) {
         manualOverrideShows: Number(summary?.manual_override_shows || 0),
         missing
       },
-      meta: { phase: PHASE, policy: "phase-3a", sourcePriority: ["manual-preferred", "preferred-source", "manual-alias", "other-alias"] }
+      meta: { phase: PHASE, policy: "phase-3", sourcePriority: ["manual-preferred", "preferred-source", "manual-alias", "other-alias"] }
     });
   } catch (error) {
     return json({ ok: false, error: "title_audit_failed", detail: error instanceof Error ? error.message : String(error) }, { status: 503 });
