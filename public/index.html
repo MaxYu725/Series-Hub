@@ -6,9 +6,10 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0b0d12">
   <title>Series Hub</title>
-  <meta name="description" content="集中整理美劇今日與本週播映時間、播映中、即將播映及已計劃播出的劇集。">
+  <meta name="description" content="集中整理美劇今日與本週播映時間、播映中、即將播映、已計劃播出及官方續訂與製作狀態。">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/phase3.css">
+  <link rel="stylesheet" href="/phase4.css">
 </head>
 <body>
   <header class="site-header">
@@ -19,14 +20,14 @@
         <h1>Series Hub</h1>
       </div>
     </div>
-    <div class="phase-chip">Phase 3</div>
+    <div class="phase-chip phase-4">Phase 4</div>
   </header>
 
   <main>
     <section class="hero">
-      <p class="eyebrow">TMDB CATALOG · TVMAZE SCHEDULE · REGIONAL TITLES</p>
+      <p class="eyebrow">TMDB CATALOG · TVMAZE SCHEDULE · REGIONAL TITLES · OFFICIAL LIFECYCLE</p>
       <h2>今日播甚麼，一眼睇清。</h2>
-      <p class="hero-copy">TMDB 維持劇集、Season 與 lifecycle 主資料；TVmaze 補充逐集日期與時間。中文譯名按香港、台灣或中國大陸偏好顯示，沒有該地區譯名時才按既定規則 fallback。</p>
+      <p class="hero-copy">TMDB 維持劇集、Season 與基礎 lifecycle 主資料；TVmaze 補充逐集日期與時間。中文譯名按香港、台灣或中國大陸偏好顯示；如有官方續訂、最終季或製作狀態證據，會另行標示並連回官方來源。</p>
 
       <div class="health-line" aria-live="polite">
         <span class="status-dot" id="status-dot"></span>
@@ -115,5 +116,6 @@
   </footer>
 
   <script type="module" src="/app.js"></script>
+  <script type="module" src="/phase4-ui.js"></script>
 </body>
 </html>

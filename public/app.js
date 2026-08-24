@@ -172,6 +172,7 @@ function metaParts(show) {
 function createShowCard(show) {
   const card = document.createElement("article");
   card.className = "show-card";
+  card.dataset.showId = String(show.id);
 
   const imageWrap = document.createElement("div");
   imageWrap.className = "poster-wrap";
@@ -362,7 +363,7 @@ function render() {
   viewKicker.textContent = view.kicker;
   viewContext.textContent = isSchedule
     ? `中文名優先使用${regionLabel}譯名；時間有精確 timestamp 時按 ${browserTimeZone} 顯示。`
-    : `中文名優先使用${regionLabel}譯名；缺少時才跨區 fallback。Series lifecycle 仍由 TMDB 主資料正規化。`;
+    : `中文名優先使用${regionLabel}譯名；缺少時才跨區 fallback。基礎分類由 TMDB 主資料正規化；如有官方 lifecycle evidence 會另行標示。`;
 
   showGrid.hidden = isSchedule;
   scheduleList.hidden = !isSchedule;
