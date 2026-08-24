@@ -26,18 +26,6 @@ export function normalizeTitleOverride(payload) {
   return { status: 200, value: { showId, region, action, title, confidence } };
 }
 
-function manualScope(db, preferred) {
-  return db.prepare(
-    `UPDATE title_aliases
-     SET is_preferred = ?1, updated_at = CURRENT_TIMESTAMP
-     WHERE show_id = ?2
-       AND season_id IS NULL
-       AND locale = 'zh'
-       AND region = ?3
-       AND source_key = 'manual'`
-  ).bind(preferred, preferred === 0 ? null : null, "");
-}
-
 function insertManualAlias(db, input, preferred) {
   return db.prepare(
     `INSERT INTO title_aliases (
