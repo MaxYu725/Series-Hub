@@ -84,6 +84,20 @@ jobs:
           if (!title || title.length > 160 || /[\u0000-\u001f]/.test(title)) throw new Error("title must be 1-160 printable characters");
           NODE
 
+      - name: Verify target show exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESULT="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --command "SELECT COUNT(*) AS count FROM shows WHERE id = ${SHOW_ID};" --json)"
+          RESULT="${RESULT}" node -e '
+            const payload = JSON.parse(process.env.RESULT);
+            const count = Number(payload?.[0]?.results?.[0]?.count || 0);
+            if (count !== 1) {
+              console.error(`show_id ${process.env.SHOW_ID} does not exist in production`);
+              process.exit(1);
+            }
+          '
+
       - name: Build safe D1 mutation
         shell: bash
         run: |
@@ -101,8 +115,7 @@ jobs:
           const exact = `${scope} AND title = ${quote(title)}`;
           const lines = [
             "PRAGMA foreign_keys = ON;",
-            "BEGIN TRANSACTION;",
-            `SELECT CASE WHEN EXISTS (SELECT 1 FROM shows WHERE id = ${showId}) THEN 1 ELSE RAISE(ABORT, 'show_id not found') END;`
+            "BEGIN TRANSACTION;"
           ];
 
           if (action === "set-preferred") {
