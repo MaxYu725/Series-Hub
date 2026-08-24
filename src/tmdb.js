@@ -2,7 +2,41 @@ const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 const TERMINAL_STATUSES = new Set(["Ended", "Canceled"]);
 const INCLUDED_TYPES = new Set(["Scripted", "Miniseries"]);
+const ACTIVE_CATALOG_STATUSES = new Set(["airing", "upcoming", "planned"]);
 const ANIMATION_GENRE_ID = 16;
+
+const TARGET_NETWORK_NAMES = new Set(
+  [
+    "ABC",
+    "AMC",
+    "AMC+",
+    "Amazon",
+    "Amazon Prime Video",
+    "Apple TV",
+    "Apple TV+",
+    "CBS",
+    "Disney+",
+    "FOX",
+    "FX",
+    "FXX",
+    "Freeform",
+    "HBO",
+    "HBO Max",
+    "Hulu",
+    "Max",
+    "MGM+",
+    "NBC",
+    "Netflix",
+    "Paramount+",
+    "Peacock",
+    "Prime Video",
+    "Showtime",
+    "Starz",
+    "Syfy",
+    "The CW",
+    "USA Network"
+  ].map((name) => name.toLowerCase())
+);
 
 function toDateOnly(value) {
   if (!value || typeof value !== "string") return null;
@@ -16,6 +50,12 @@ function todayUtc(now = new Date()) {
 function daysAgoDate(days, now = new Date()) {
   const copy = new Date(now.getTime());
   copy.setUTCDate(copy.getUTCDate() - days);
+  return copy.toISOString().slice(0, 10);
+}
+
+function daysAheadDate(days, now = new Date()) {
+  const copy = new Date(now.getTime());
+  copy.setUTCDate(copy.getUTCDate() + days);
   return copy.toISOString().slice(0, 10);
 }
 
@@ -58,6 +98,13 @@ export function isIncludedUsScriptedSeries(details) {
   return true;
 }
 
+export function isTargetNetworkSeries(details) {
+  if (!Array.isArray(details?.networks) || details.networks.length === 0) return false;
+  return details.networks.some((network) =>
+    TARGET_NETWORK_NAMES.has(String(network?.name || "").trim().toLowerCase())
+  );
+}
+
 function futureSeasonDate(details, today) {
   const dates = (details.seasons || [])
     .filter((season) => Number(season.season_number) > 0)
@@ -76,20 +123,25 @@ export function normalizeLifecycle(details, now = new Date()) {
   const explicitNextAirDate = toDateOnly(details.next_episode_to_air?.air_date);
   const nextSeasonDate = futureSeasonDate(details, today);
   const tmdbStatus = details.status || "Unknown";
+  const recentlyActive = Boolean(lastAirDate && lastAirDate >= recentThreshold);
 
   if (firstAirDate && firstAirDate > today) {
     return { status: "upcoming", lastAirDate, nextAirDate: firstAirDate };
   }
 
   if (explicitNextAirDate && explicitNextAirDate >= today) {
-    return { status: "airing", lastAirDate, nextAirDate: explicitNextAirDate };
+    return {
+      status: recentlyActive ? "airing" : "upcoming",
+      lastAirDate,
+      nextAirDate: explicitNextAirDate
+    };
   }
 
   if (nextSeasonDate) {
     return { status: "upcoming", lastAirDate, nextAirDate: nextSeasonDate };
   }
 
-  if (!TERMINAL_STATUSES.has(tmdbStatus) && lastAirDate && lastAirDate >= recentThreshold) {
+  if (!TERMINAL_STATUSES.has(tmdbStatus) && recentlyActive) {
     return { status: "airing", lastAirDate, nextAirDate: null };
   }
 
@@ -207,13 +259,15 @@ export function normalizeTmdbSeries(details, now = new Date()) {
   };
 }
 
-async function discoverCandidates(env, page) {
+async function discoverCandidates(env, page, extraParams = {}) {
   return tmdbRequest(env, "/discover/tv", {
     include_adult: false,
     language: "en-US",
     page,
     sort_by: "popularity.desc",
-    with_origin_country: "US"
+    with_origin_country: "US",
+    without_genres: ANIMATION_GENRE_ID,
+    ...extraParams
   });
 }
 
@@ -469,6 +523,12 @@ async function fetchDetailsInBatches(env, candidates, batchSize = 5) {
   return results;
 }
 
+function addCandidates(target, items) {
+  for (const item of items || []) {
+    if (!target.some((candidate) => candidate.id === item.id)) target.push(item);
+  }
+}
+
 export async function syncTmdbCatalog(env, options = {}) {
   if (!env.DB) throw new Error("D1 binding DB is required");
   if (!env.TMDB_API_TOKEN) {
@@ -479,8 +539,9 @@ export async function syncTmdbCatalog(env, options = {}) {
     };
   }
 
-  const pages = Math.min(Math.max(Number(options.pages) || 2, 1), 2);
-  const maxShows = Math.min(Math.max(Number(options.maxShows) || 24, 1), 30);
+  const broadPages = Math.min(Math.max(Number(options.pages) || 2, 1), 2);
+  const schedulePages = Math.min(Math.max(Number(options.schedulePages) || 1, 1), 1);
+  const maxShows = Math.min(Math.max(Number(options.maxShows) || 30, 1), 30);
   const sourceId = await getSourceId(env.DB);
   const runId = await beginSyncRun(env.DB, sourceId);
   let recordsSeen = 0;
@@ -489,11 +550,19 @@ export async function syncTmdbCatalog(env, options = {}) {
 
   try {
     const candidates = [];
-    for (let page = 1; page <= pages; page += 1) {
+
+    for (let page = 1; page <= broadPages; page += 1) {
       const discovered = await discoverCandidates(env, page);
-      for (const item of discovered.results || []) {
-        if (!candidates.some((candidate) => candidate.id === item.id)) candidates.push(item);
-      }
+      addCandidates(candidates, discovered.results);
+    }
+
+    const now = new Date();
+    for (let page = 1; page <= schedulePages; page += 1) {
+      const scheduled = await discoverCandidates(env, page, {
+        "air_date.gte": todayUtc(now),
+        "air_date.lte": daysAheadDate(90, now)
+      });
+      addCandidates(candidates, scheduled.results);
     }
 
     recordsSeen = candidates.length;
@@ -509,8 +578,11 @@ export async function syncTmdbCatalog(env, options = {}) {
 
       const details = entry.result.value;
       if (!isIncludedUsScriptedSeries(details)) continue;
+      if (!isTargetNetworkSeries(details)) continue;
 
       const normalized = normalizeTmdbSeries(details);
+      if (!ACTIVE_CATALOG_STATUSES.has(normalized.status)) continue;
+
       await persistSeries(env.DB, normalized);
       recordsChanged += 1;
     }
