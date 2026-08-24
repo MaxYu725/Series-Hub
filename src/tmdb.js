@@ -10,7 +10,7 @@ export const CORE_NETWORK_SEEDS = Object.freeze([
   { name: "Apple TV", tmdbNetworkId: 2552 },
   { name: "HBO", tmdbNetworkId: 49 },
   { name: "Prime Video", tmdbNetworkId: 1024 },
-  { name: "FOX", tmdbNetworkId: 19 },
+  { name: "FOX", tmdbNetworkId: 19, recentFirstAirYears: 3 },
   { name: "FX", tmdbNetworkId: 88 },
   { name: "Netflix", tmdbNetworkId: 213 }
 ]);
@@ -75,6 +75,17 @@ function daysAheadDate(days, now = new Date()) {
   const copy = new Date(now.getTime());
   copy.setUTCDate(copy.getUTCDate() + days);
   return copy.toISOString().slice(0, 10);
+}
+
+export function networkDiscoveryParams(seed, now = new Date()) {
+  const params = { with_networks: seed.tmdbNetworkId };
+  const recentFirstAirYears = Number(seed.recentFirstAirYears);
+
+  if (Number.isInteger(recentFirstAirYears) && recentFirstAirYears > 0) {
+    params["first_air_date.gte"] = `${now.getUTCFullYear() - recentFirstAirYears}-01-01`;
+  }
+
+  return params;
 }
 
 export function tmdbImageUrl(path, size = "w500") {
@@ -484,7 +495,7 @@ async function replaceGenres(db, showId, genres) {
       .first();
 
     await db
-      .prepare("INSERT OR REPLACE INTO show_genres (show_id, genre_id) VALUES (?1, ?2)")
+      .prepare("INSERT OR REPLACE INTO show_genres (show_id, network_id) VALUES (?1, ?2)")
       .bind(showId, row.id)
       .run();
   }
@@ -614,16 +625,14 @@ export async function syncTmdbCatalog(env, options = {}) {
   const warnings = [];
 
   try {
+    const now = new Date();
     const networkFeeds = [];
     for (const seed of CORE_NETWORK_SEEDS) {
-      const networkResult = await discoverCandidates(env, 1, {
-        with_networks: seed.tmdbNetworkId
-      });
+      const networkResult = await discoverCandidates(env, 1, networkDiscoveryParams(seed, now));
       networkFeeds.push(networkResult.results || []);
     }
 
     const scheduleFeeds = [];
-    const now = new Date();
     for (let page = 1; page <= schedulePages; page += 1) {
       const scheduled = await discoverCandidates(env, page, {
         "air_date.gte": todayUtc(now),
