@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 const PRODUCTION_URL = "https://series-hub.max-yu-jp.workers.dev";
 const targets = ["The Last of Us", "ONE PIECE", "Murder in a Small Town"];
+const sourceNetworkPatterns = [/HBO/i, /Max/i, /Netflix/i, /FOX/i];
 
 async function json(path) {
   const response = await fetch(`${PRODUCTION_URL}${path}`, {
@@ -11,7 +12,7 @@ async function json(path) {
   return response.json();
 }
 
-const results = [];
+const directResults = [];
 
 for (const title of targets) {
   const catalog = await json(`/api/shows?q=${encodeURIComponent(title)}&limit=20&region=HK`);
@@ -22,27 +23,36 @@ for (const title of targets) {
   ) || null;
 
   if (!show) {
-    results.push({ title, found: false });
+    directResults.push({ title, found: false });
     continue;
   }
 
-  assert.ok(Number.isSafeInteger(Number(show.id)) && Number(show.id) > 0, `${title}: invalid Series Hub ID`);
-  assert.ok(Number.isSafeInteger(Number(show.tmdb_id)) && Number(show.tmdb_id) > 0, `${title}: missing TMDB ID`);
-
-  const lifecycle = await json(`/api/shows/${show.id}/lifecycle`);
-  assert.equal(lifecycle.meta?.authoritativeFactsOnly, true, `${title}: lifecycle projection must be authoritative-only`);
-
-  results.push({
+  directResults.push({
     title,
     found: true,
     id: show.id,
     tmdb_id: show.tmdb_id,
     status: show.status,
     latest_season_number: show.latest_season_number,
-    lifecycle_events: Array.isArray(lifecycle.data)
-      ? lifecycle.data.map((event) => [event.id, event.season_number, event.event_type, event.source_key])
-      : []
+    networks: show.networks
   });
 }
 
-console.log(JSON.stringify(results, null, 2));
+const fullCatalog = await json("/api/shows?limit=100&region=HK");
+const rows = Array.isArray(fullCatalog.data) ? fullCatalog.data : [];
+const sourceCandidates = rows
+  .filter((show) => sourceNetworkPatterns.some((pattern) => pattern.test(String(show.networks || ""))))
+  .map((show) => ({
+    id: show.id,
+    tmdb_id: show.tmdb_id,
+    title: show.english_title || show.original_title,
+    status: show.status,
+    latest_season_number: show.latest_season_number,
+    networks: show.networks
+  }));
+
+console.log(JSON.stringify({
+  directResults,
+  catalogCount: rows.length,
+  sourceCandidates
+}, null, 2));
