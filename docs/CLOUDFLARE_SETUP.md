@@ -49,6 +49,8 @@ It performs these operations:
 7. runs `wrangler deploy --dry-run`;
 8. uploads a non-production Worker version for validation.
 
+The bootstrap is intentionally idempotent: re-running it must reuse the named D1 database and only apply migrations that have not already been recorded.
+
 The D1 UUID is an infrastructure identifier, not a secret. Once resolved and validated, it is committed to `wrangler.jsonc` so source control remains the authoritative Worker configuration.
 
 ## 5. D1 binding
