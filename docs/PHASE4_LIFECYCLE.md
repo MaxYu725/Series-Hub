@@ -8,7 +8,8 @@ Phase 4 adds official renewal, cancellation and production-state evidence withou
 - **4B — visible official projection:** bulk lifecycle API plus season-specific official badges/source links in the catalog UI. Existing `airing` / `upcoming` / `planned` classification remains untouched.
 - **4C — verified official source registry:** expand the browser-operated editorial whitelist to additional official publishers only after their canonical domains and URL structure are verified.
 - **4D — second-source production acceptance:** prove the same evidence contract against Amazon Entertainment with Reacher season 5.
-- **4E — multi-source acceptance:** validate WBD/HBO and Netflix official news against existing production catalog identities. FOX remains gated until a current FOX scripted title is naturally present in the catalog.
+- **4E — multi-source acceptance:** validate WBD/HBO and Netflix official news against existing production catalog identities.
+- **4F — FOX acceptance and catalog coverage repair:** repair FOX discovery/persistence blind spots, naturally ingest a current FOX scripted title, then attach identity-guarded FOXFLASH lifecycle evidence.
 - **Later collector phase:** automate only source formats that prove stable enough to parse without weakening provenance, source URL validation or show/season identity rules.
 
 ## Evidence model
@@ -58,7 +59,7 @@ Each event retains:
 
 `official` confidence is accepted only from a source registered with `trust_level=official`. The submitted URL must match that source's registered HTTPS host and path prefix.
 
-Verified source registry through Phase 4E:
+Verified source registry through Phase 4F:
 
 | Source key | Display name | Allowed base |
 | --- | --- | --- |
@@ -120,18 +121,25 @@ The evidence key is deterministic from show, season, event type, source and publ
 
 ## Production acceptance
 
-Completed acceptance before Phase 4E:
+Completed acceptance through Phase 4F:
 
 1. `Silo` — season 3 renewed; season 4 renewed and identified as final via Apple TV Press.
 2. `For All Mankind` — season 6 renewed as final and conservatively normalized as `pre_production` from Apple TV Press wording.
 3. `Reacher` — season 5 renewed via Amazon Entertainment while the series remained catalog `airing` with season 4 as the latest catalog season.
+4. `House of the Dragon` — season 4 renewal via WBD/HBO Pressroom while catalog lifecycle remains independent.
+5. `Wednesday` — season 3 renewal plus independent `filming` evidence via Netflix Tudum.
+6. `Murder in a Small Town` — naturally ingested as Series Hub ID 431 / TMDB 241549 after Phase 4F catalog repairs; season 3 renewal is anchored to the May 7, 2026 FOXFLASH announcement.
 
-Phase 4E acceptance targets are deliberately limited to titles already present in production:
+### Phase 4F catalog findings
 
-- `House of the Dragon` — season 4 renewal via WBD/HBO Pressroom.
-- `Wednesday` — season 3 renewal plus independent `filming` evidence via Netflix Tudum.
+FOX evidence was deliberately blocked until a current FOX scripted title existed naturally in the production catalog. Two independent catalog limitations were found and repaired rather than bypassed with an orphan evidence row:
 
-FOX evidence is not seeded merely to satisfy source-count goals. The researched FOX renewal target is not currently present in the production catalog, and `9-1-1` is now an ABC series despite retaining historical FOX network metadata. FOX therefore remains a catalog-coverage follow-up rather than an orphan evidence insertion.
+1. The FOX `popularity.desc` discovery page was dominated by historical hits. The FOX-only feed now uses a rolling three-calendar-year `first_air_date.gte` lower bound while every other core-network request remains unchanged.
+2. TMDB sync selected and fetched up to 40 detail candidates but previously stopped after 30 successful writes. The default persistence cap now follows the already-selected `detailLimit`, while explicit lower overrides remain bounded by that limit. This adds no external request and avoids discarding already-fetched candidates.
+
+The same investigation also corrected `show_genres(show_id, genre_id)` persistence to match the Phase 1 schema.
+
+Production acceptance after these repairs resolved `Murder in a Small Town` as catalog `planned`, latest catalog season 2, networks `FOX · Global TV`, with no lifecycle events before the FOX seed.
 
 ## Audit policy
 
