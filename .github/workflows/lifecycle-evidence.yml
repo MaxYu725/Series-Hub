@@ -47,6 +47,7 @@ on:
           - wbd_pressroom
           - amazon_entertainment
           - netflix_media_center
+          - netflix_tudum
           - fox_flash
       source_url:
         description: "Exact official evidence URL"
