@@ -1,0 +1,25 @@
+name: Phase 4F FOX evidence production acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.event.pull_request.head.ref == 'phase-4f-fox-evidence-production-audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: phase-4f-fox-evidence-production-audit
+
+      - name: Verify FOX official evidence in production
+        run: node scripts/audit-phase4f-fox-evidence-production.mjs
