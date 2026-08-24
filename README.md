@@ -1,12 +1,12 @@
 # Series Hub
 
-Series Hub is a browser-first US TV series aggregation project deployed through GitHub Actions to Cloudflare Workers + D1. The product is an information and tracking hub, not a streaming playback service.
+Series Hub is a browser-first US TV series aggregation project deployed through GitHub Actions to Cloudflare Workers + D1. It is an information and tracking hub, not a streaming playback service.
 
 The core model is **series → seasons → episodes**. Season is first-class because premiere dates, release cadence, episode counts and lifecycle state belong to a specific season rather than only to the parent show.
 
 ## Current status
 
-**Phase 2 — TVmaze schedule integration**
+**Phase 2 — TVmaze schedule integration: COMPLETE**
 
 Completed:
 
@@ -14,9 +14,9 @@ Completed:
 - Phase 1A — TMDB catalog core;
 - Phase 1B — US scripted catalog quality, lifecycle and network balancing;
 - Phase 2A — exact TVmaze mapping + normalized episode/schedule API;
-- Phase 2B — Today / This Week schedule UI with browser-local timezone handling.
+- Phase 2B — Today / This Week schedule UI with browser-local timezone handling and production live acceptance.
 
-Next planned phase after Phase 2 acceptance is **Phase 3 — Chinese title and regional alias refinement/manual override layer**.
+**Next planned phase: Phase 3 — Chinese title and regional alias refinement/manual override layer.**
 
 ## Product views
 
@@ -31,7 +31,7 @@ Schedule views:
 - **今日 / Today** — episodes that fall on the browser's local calendar day when a TVmaze airstamp is available;
 - **本週 / This Week** — seven local calendar days starting today.
 
-When TVmaze provides an `air_timestamp`, Series Hub converts it to the browser's local timezone. If only a source `air_date` / `air_time` exists, the UI explicitly labels it as TVmaze source timing instead of inventing a local time.
+When TVmaze provides an `air_timestamp`, Series Hub converts it to the browser's local timezone for date grouping and time display. If only a source `air_date` / `air_time` exists, the UI explicitly labels it as TVmaze source timing instead of inventing a local time.
 
 ## Data-source responsibilities
 
@@ -65,19 +65,40 @@ TVmaze supplements:
 
 Official network/streamer announcements are reserved for Phase 4 renewal / production / cancellation verification.
 
-## Phase 2A live acceptance — 2026-08-24
+## Phase 2 live acceptance — 2026-08-24
+
+### Phase 2A mapping acceptance
 
 Production audit after the first TVmaze bootstrap:
 
-- active catalog: 28 series;
+- active catalog: **28 series**;
 - exact TVmaze mappings: **28/28 (100%)**;
 - shows with a retained latest TVmaze episode: **28/28**;
 - shows with a future TVmaze episode: **17**;
 - upcoming 14-day schedule at audit time: **15 episodes**;
-- latest TVmaze sync status: `success`;
+- TVmaze sync status: `success`;
 - representative exact mappings verified for Reacher, Lioness, Silo, Ted Lasso, Grey's Anatomy, The Rookie and Fargo.
 
-The counts above are an acceptance snapshot, not a permanent catalog target.
+### Phase 2B production UI acceptance
+
+Final production live audit after merging the Today / This Week interface:
+
+- production Phase 2B assets detected successfully;
+- active catalog remained **28 series**;
+- 14-day schedule: **15 episodes**;
+- Chinese-title coverage in the 14-day schedule: **15/15**;
+- schedule rows with usable TVmaze airstamps in this snapshot: **15/15**;
+- source-date-only rows in this snapshot: **0**; fallback behavior remains covered by unit tests;
+- latest TVmaze sync status: `success`;
+- latest audited TVmaze run: **10 shows seen / 46 episode rows changed**;
+- all **28 tests passed** including timezone/day-boundary behavior;
+- fresh isolated D1 rebuild `0001 → 0005` passed;
+- isolated preview Worker runtime passed;
+- production regression passed.
+
+The first Phase 2B audit sampled the sync endpoint while the post-deploy TVmaze bootstrap was still `running`. The audit was corrected to wait for a terminal sync state while still accepting only `success` / `success_with_warnings`; the repeated audit passed. No production product defect was involved.
+
+Acceptance counts are snapshots, not permanent catalog targets.
 
 ## Architecture
 
@@ -94,6 +115,18 @@ GitHub main ── Actions ──► Cloudflare Worker ◄──── TVmaze
                            │       └── Cron / sync
                            ▼
                     D1: series-hub-db
+```
+
+Production Worker:
+
+```text
+https://series-hub.max-yu-jp.workers.dev
+```
+
+Production D1:
+
+```text
+series-hub-db
 ```
 
 Production sync cadence:
@@ -123,7 +156,7 @@ main
 Production migration → deployment → live validation
 ```
 
-Every PR created from this repository receives:
+Every repository PR receives:
 
 - Worker: `series-hub-pr-N`;
 - D1: `series-hub-pr-N`;
@@ -131,9 +164,9 @@ Every PR created from this repository receives:
 - no cron triggers;
 - automatic Worker/D1 deletion when the PR closes.
 
-Unmerged code therefore cannot read/write production D1 or inherit the production TMDB credential.
+Unmerged code therefore cannot read/write production D1 or inherit the production application secret.
 
-## Current repository layout
+## Repository layout
 
 ```text
 Series-Hub/
@@ -162,11 +195,19 @@ Series-Hub/
     └── schedule-ui.test.js
 ```
 
+Temporary production-audit test files are intentionally kept only on audit branches and are closed without merge.
+
 ## Public API
 
 ### `GET /health`
 
 Reports current service phase, D1 reachability, TMDB configuration and whether TVmaze scheduling is enabled.
+
+Current production phase identifier:
+
+```text
+2-tvmaze-schedule
+```
 
 ### `GET /api/shows`
 
@@ -206,7 +247,16 @@ Both are protected by a one-way key derived from the production TMDB token. Prev
 
 The initial catalog remains US scripted/miniseries, live-action focused. Broad discovery excludes non-target genres such as Animation, Documentary, Kids, News, Reality and Talk, and detail-level filtering repeats the protection before persistence.
 
-Target networks/services include the major US broadcast, cable and streaming sources already represented in Phase 1B, including Apple TV, HBO, Prime Video, Netflix, FX/FXX, FOX, ABC, NBC, CBS, Paramount+, Hulu, Peacock and other selected scripted outlets.
+Target networks/services include major US broadcast, cable and streaming sources represented in Phase 1B, including Apple TV, HBO, Prime Video, Netflix, FX/FXX, FOX, ABC, NBC, CBS, Paramount+, Hulu, Peacock and other selected scripted outlets.
+
+## Timezone rules
+
+Phase 2B deliberately distinguishes two cases:
+
+1. **TVmaze has `air_timestamp`:** convert the timestamp into the browser's local timezone and group the episode under that local calendar date.
+2. **TVmaze has only source date/time:** preserve `air_date` / `air_time` and label it as source timing; do not fabricate a local time.
+
+The frontend requests a one-day buffer around the local schedule window so a US evening broadcast that becomes the following date in an UTC+ timezone is not dropped from Today / This Week.
 
 ## Core data principles
 
@@ -222,6 +272,7 @@ Target networks/services include the major US broadcast, cable and streaming sou
 10. R2 is not introduced until image storage has a demonstrated need.
 11. No production TVmaze title fuzzy matching.
 12. Local-time UI conversion is performed only when an actual timestamp exists.
+13. A successful deployment is not sufficient acceptance by itself; production API/UI contracts are live-audited at phase boundaries.
 
 ## Roadmap
 
@@ -229,20 +280,21 @@ Target networks/services include the major US broadcast, cable and streaming sou
 - **Phase 1A — Complete:** TMDB US scripted catalog core.
 - **Phase 1B — Complete:** catalog scope, quality, lifecycle and network balancing.
 - **Phase 2A — Complete:** exact TVmaze mapping and episode/schedule normalization.
-- **Phase 2B — In validation:** Today / This Week schedule UI and timezone-safe display.
-- **Phase 3:** Chinese title refinement and manual override layer.
+- **Phase 2B — Complete:** Today / This Week schedule UI and timezone-safe display.
+- **Phase 3 — Next:** Chinese title refinement and manual override layer.
 - **Phase 4:** official renewal / cancellation / production lifecycle engine.
 - **Phase 5:** personal tracking and optional notifications.
 - **Phase 6:** expansion beyond US series.
 
-## Phase 2B acceptance requirements
+## Phase 3 handoff
 
-Phase 2B is complete only when:
+Phase 3 should build on the existing `title_aliases` model rather than replacing it. The intended work is:
 
-- all unit tests pass, including timezone/day-boundary cases;
-- isolated PR Worker + D1 validation passes;
-- Today and This Week render from `/api/schedule` without changing the lifecycle catalog contract;
-- source timing without a timestamp is visibly distinguished from converted local time;
-- TMDB and TVmaze attribution are present;
-- production deployment retains healthy catalog and schedule APIs;
-- final production UI/API contract audit passes.
+- audit actual `zh-HK`, `zh-TW`, `zh-CN` coverage and quality;
+- define preferred-title selection rules by region;
+- preserve multiple aliases rather than collapsing them into one string;
+- add a controlled manual override layer with provenance and confidence;
+- ensure manual corrections survive future TMDB refreshes;
+- expose sensible Chinese-title fallbacks to the frontend without breaking English/original-title search.
+
+Do not broaden into Phase 4 official renewal scraping until the Phase 3 title override contract is stable.
