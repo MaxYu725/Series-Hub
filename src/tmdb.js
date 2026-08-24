@@ -75,18 +75,18 @@ export function normalizeLifecycle(details, now = new Date()) {
   const lastAirDate = toDateOnly(details.last_episode_to_air?.air_date || details.last_air_date);
   const explicitNextAirDate = toDateOnly(details.next_episode_to_air?.air_date);
   const nextSeasonDate = futureSeasonDate(details, today);
-  const nextAirDate = explicitNextAirDate || nextSeasonDate;
   const tmdbStatus = details.status || "Unknown";
 
   if (firstAirDate && firstAirDate > today) {
     return { status: "upcoming", lastAirDate, nextAirDate: firstAirDate };
   }
 
-  if (nextAirDate && nextAirDate >= today) {
-    if (firstAirDate && firstAirDate <= today) {
-      return { status: "airing", lastAirDate, nextAirDate };
-    }
-    return { status: "upcoming", lastAirDate, nextAirDate };
+  if (explicitNextAirDate && explicitNextAirDate >= today) {
+    return { status: "airing", lastAirDate, nextAirDate: explicitNextAirDate };
+  }
+
+  if (nextSeasonDate) {
+    return { status: "upcoming", lastAirDate, nextAirDate: nextSeasonDate };
   }
 
   if (!TERMINAL_STATUSES.has(tmdbStatus) && lastAirDate && lastAirDate >= recentThreshold) {
@@ -118,7 +118,6 @@ function normalizeSeasonLifecycle(season, showLifecycle, latestSeasonNumber, tod
 function preferredTranslationName(translation) {
   const dataName = translation?.data?.name;
   if (typeof dataName === "string" && dataName.trim()) return dataName.trim();
-  if (typeof translation?.name === "string" && translation.name.trim()) return translation.name.trim();
   return null;
 }
 
@@ -504,7 +503,7 @@ export async function syncTmdbCatalog(env, options = {}) {
       if (recordsChanged >= maxShows) break;
 
       if (entry.result.status === "rejected") {
-        warnings.push(`TMDB ${entry.candidate.id}: ${entry.result.reason}`);
+        warnings.push(`TMDB ${entry.candidate.id}: ${String(entry.result.reason)}`);
         continue;
       }
 
