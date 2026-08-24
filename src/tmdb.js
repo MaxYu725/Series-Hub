@@ -495,7 +495,7 @@ async function replaceGenres(db, showId, genres) {
       .first();
 
     await db
-      .prepare("INSERT OR REPLACE INTO show_genres (show_id, network_id) VALUES (?1, ?2)")
+      .prepare("INSERT OR REPLACE INTO show_genres (show_id, genre_id) VALUES (?1, ?2)")
       .bind(showId, row.id)
       .run();
   }
@@ -617,7 +617,10 @@ export async function syncTmdbCatalog(env, options = {}) {
     Math.max(Number(options.detailLimit) || TMDB_SYNC_BUDGET.detailRequests, 1),
     TMDB_SYNC_BUDGET.detailRequests
   );
-  const maxShows = Math.min(Math.max(Number(options.maxShows) || 30, 1), 30);
+  const requestedMaxShows = Number(options.maxShows);
+  const maxShows = Number.isFinite(requestedMaxShows) && requestedMaxShows > 0
+    ? Math.min(Math.max(Math.trunc(requestedMaxShows), 1), detailLimit)
+    : detailLimit;
   const sourceId = await getSourceId(env.DB);
   const runId = await beginSyncRun(env.DB, sourceId);
   let recordsSeen = 0;
