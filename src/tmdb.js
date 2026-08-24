@@ -3,7 +3,25 @@ const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 const TERMINAL_STATUSES = new Set(["Ended", "Canceled"]);
 const INCLUDED_TYPES = new Set(["Scripted", "Miniseries"]);
 const ACTIVE_CATALOG_STATUSES = new Set(["airing", "upcoming", "planned"]);
-const ANIMATION_GENRE_ID = 16;
+const EXCLUDED_GENRE_IDS = new Set([16, 99, 10762, 10763, 10764, 10767]);
+const EXCLUDED_DISCOVER_GENRES = [...EXCLUDED_GENRE_IDS].join("|");
+
+export const CORE_NETWORK_SEEDS = Object.freeze([
+  { name: "Apple TV", tmdbNetworkId: 2552 },
+  { name: "HBO", tmdbNetworkId: 49 },
+  { name: "Prime Video", tmdbNetworkId: 1024 },
+  { name: "FOX", tmdbNetworkId: 19 },
+  { name: "FX", tmdbNetworkId: 88 },
+  { name: "Netflix", tmdbNetworkId: 213 }
+]);
+
+export const TMDB_SYNC_BUDGET = Object.freeze({
+  broadDiscoveryRequests: 1,
+  scheduleDiscoveryRequests: 1,
+  networkDiscoveryRequests: CORE_NETWORK_SEEDS.length,
+  detailRequests: 40,
+  totalExternalRequests: 2 + CORE_NETWORK_SEEDS.length + 40
+});
 
 const TARGET_NETWORK_NAMES = new Set(
   [
@@ -91,10 +109,15 @@ async function tmdbRequest(env, pathname, params = {}) {
   return response.json();
 }
 
+export function hasExcludedGenre(details) {
+  if (!Array.isArray(details?.genres)) return false;
+  return details.genres.some((genre) => EXCLUDED_GENRE_IDS.has(Number(genre?.id)));
+}
+
 export function isIncludedUsScriptedSeries(details) {
   if (!details || !INCLUDED_TYPES.has(details.type)) return false;
   if (!Array.isArray(details.origin_country) || !details.origin_country.includes("US")) return false;
-  if (Array.isArray(details.genres) && details.genres.some((genre) => genre.id === ANIMATION_GENRE_ID)) return false;
+  if (hasExcludedGenre(details)) return false;
   return true;
 }
 
@@ -266,7 +289,8 @@ async function discoverCandidates(env, page, extraParams = {}) {
     page,
     sort_by: "popularity.desc",
     with_origin_country: "US",
-    without_genres: ANIMATION_GENRE_ID,
+    with_type: "2|4",
+    without_genres: EXCLUDED_DISCOVER_GENRES,
     ...extraParams
   });
 }
@@ -523,10 +547,47 @@ async function fetchDetailsInBatches(env, candidates, batchSize = 5) {
   return results;
 }
 
-function addCandidates(target, items) {
-  for (const item of items || []) {
-    if (!target.some((candidate) => candidate.id === item.id)) target.push(item);
+function uniqueCandidateCount(feeds) {
+  const ids = new Set();
+  for (const feed of feeds || []) {
+    for (const item of feed || []) {
+      if (item?.id !== null && item?.id !== undefined) ids.add(item.id);
+    }
   }
+  return ids.size;
+}
+
+export function selectRoundRobinCandidates(feeds, limit = TMDB_SYNC_BUDGET.detailRequests) {
+  const sourceLists = (feeds || []).map((feed) => (Array.isArray(feed) ? feed : []));
+  const cursors = sourceLists.map(() => 0);
+  const seen = new Set();
+  const selected = [];
+  const safeLimit = Math.max(0, Number(limit) || 0);
+
+  while (selected.length < safeLimit) {
+    let progressed = false;
+
+    for (let sourceIndex = 0; sourceIndex < sourceLists.length; sourceIndex += 1) {
+      const source = sourceLists[sourceIndex];
+
+      while (cursors[sourceIndex] < source.length) {
+        const item = source[cursors[sourceIndex]];
+        cursors[sourceIndex] += 1;
+        if (!item || item.id === null || item.id === undefined || seen.has(item.id)) continue;
+
+        seen.add(item.id);
+        selected.push(item);
+        progressed = true;
+        break;
+      }
+
+      if (selected.length >= safeLimit) break;
+    }
+
+    if (!progressed) break;
+  }
+
+  return selected;
 }
 
 export async function syncTmdbCatalog(env, options = {}) {
@@ -539,8 +600,12 @@ export async function syncTmdbCatalog(env, options = {}) {
     };
   }
 
-  const broadPages = Math.min(Math.max(Number(options.pages) || 2, 1), 2);
+  const broadPages = Math.min(Math.max(Number(options.pages) || 1, 1), 1);
   const schedulePages = Math.min(Math.max(Number(options.schedulePages) || 1, 1), 1);
+  const detailLimit = Math.min(
+    Math.max(Number(options.detailLimit) || TMDB_SYNC_BUDGET.detailRequests, 1),
+    TMDB_SYNC_BUDGET.detailRequests
+  );
   const maxShows = Math.min(Math.max(Number(options.maxShows) || 30, 1), 30);
   const sourceId = await getSourceId(env.DB);
   const runId = await beginSyncRun(env.DB, sourceId);
@@ -549,24 +614,34 @@ export async function syncTmdbCatalog(env, options = {}) {
   const warnings = [];
 
   try {
-    const candidates = [];
-
-    for (let page = 1; page <= broadPages; page += 1) {
-      const discovered = await discoverCandidates(env, page);
-      addCandidates(candidates, discovered.results);
+    const networkFeeds = [];
+    for (const seed of CORE_NETWORK_SEEDS) {
+      const networkResult = await discoverCandidates(env, 1, {
+        with_networks: seed.tmdbNetworkId
+      });
+      networkFeeds.push(networkResult.results || []);
     }
 
+    const scheduleFeeds = [];
     const now = new Date();
     for (let page = 1; page <= schedulePages; page += 1) {
       const scheduled = await discoverCandidates(env, page, {
         "air_date.gte": todayUtc(now),
         "air_date.lte": daysAheadDate(90, now)
       });
-      addCandidates(candidates, scheduled.results);
+      scheduleFeeds.push(scheduled.results || []);
     }
 
-    recordsSeen = candidates.length;
-    const detailsResults = await fetchDetailsInBatches(env, candidates);
+    const broadFeeds = [];
+    for (let page = 1; page <= broadPages; page += 1) {
+      const discovered = await discoverCandidates(env, page);
+      broadFeeds.push(discovered.results || []);
+    }
+
+    const candidateFeeds = [...networkFeeds, ...scheduleFeeds, ...broadFeeds];
+    recordsSeen = uniqueCandidateCount(candidateFeeds);
+    const selectedCandidates = selectRoundRobinCandidates(candidateFeeds, detailLimit);
+    const detailsResults = await fetchDetailsInBatches(env, selectedCandidates);
 
     for (const entry of detailsResults) {
       if (recordsChanged >= maxShows) break;
@@ -601,7 +676,10 @@ export async function syncTmdbCatalog(env, options = {}) {
       ok: true,
       source: "tmdb",
       recordsSeen,
+      recordsSelected: selectedCandidates.length,
       recordsChanged,
+      discoveryRequests: candidateFeeds.length,
+      externalRequestBudget: candidateFeeds.length + selectedCandidates.length,
       warnings: warnings.length
     };
   } catch (error) {
