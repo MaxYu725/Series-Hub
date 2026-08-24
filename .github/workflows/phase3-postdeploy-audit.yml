@@ -1,0 +1,135 @@
+name: Phase 3 post-deploy audit
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.event.pull_request.head.ref == 'phase-3-postdeploy-check'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PRODUCTION_URL: https://series-hub.max-yu-jp.workers.dev
+      MERGED_AT: 2026-08-24T12:09:23Z
+
+    steps:
+      - name: Audit production Phase 3
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          fetch_json() {
+            curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "$1"
+          }
+
+          HEALTH_JSON="$(fetch_json "${PRODUCTION_URL}/health")"
+          AUDIT_JSON="$(fetch_json "${PRODUCTION_URL}/api/title-audit")"
+          TMDB_JSON="$(fetch_json "${PRODUCTION_URL}/api/sync-status?source=tmdb")"
+          TVMAZE_JSON="$(fetch_json "${PRODUCTION_URL}/api/sync-status?source=tvmaze")"
+          SHARDS_JSON="$(fetch_json "${PRODUCTION_URL}/api/shows?q=The%20Shards&region=HK&limit=10")"
+
+          SHOW_ID="$(SHARDS_JSON="${SHARDS_JSON}" node -e '
+            const body = JSON.parse(process.env.SHARDS_JSON);
+            const show = body.data?.find((item) => item.english_title === "The Shards");
+            if (!show?.id) process.exit(1);
+            process.stdout.write(String(show.id));
+          ')"
+          ALIASES_JSON="$(fetch_json "${PRODUCTION_URL}/api/shows/${SHOW_ID}/aliases?region=HK")"
+
+          HEALTH_JSON="${HEALTH_JSON}" \
+          AUDIT_JSON="${AUDIT_JSON}" \
+          TMDB_JSON="${TMDB_JSON}" \
+          TVMAZE_JSON="${TVMAZE_JSON}" \
+          SHARDS_JSON="${SHARDS_JSON}" \
+          ALIASES_JSON="${ALIASES_JSON}" \
+          MERGED_AT="${MERGED_AT}" \
+          node <<'NODE'
+          const health = JSON.parse(process.env.HEALTH_JSON);
+          const audit = JSON.parse(process.env.AUDIT_JSON);
+          const tmdb = JSON.parse(process.env.TMDB_JSON);
+          const tvmaze = JSON.parse(process.env.TVMAZE_JSON);
+          const shards = JSON.parse(process.env.SHARDS_JSON);
+          const aliases = JSON.parse(process.env.ALIASES_JSON);
+          const mergedAt = Date.parse(process.env.MERGED_AT);
+
+          function fail(label, value) {
+            console.error(`FAIL: ${label}`);
+            if (value !== undefined) console.error(JSON.stringify(value, null, 2));
+            process.exit(1);
+          }
+
+          if (health.ok !== true || health.service !== "series-hub") fail("health", health);
+          if (health.phase !== "3-regional-titles") fail("production phase", health);
+          if (health.titleAliasPolicy !== "phase-3") fail("title alias policy", health);
+          if (health.databaseConfigured !== true || health.databaseReachable !== true) fail("production D1", health);
+          if (health.tmdbConfigured !== true || health.tvmazeEnabled !== true) fail("source configuration", health);
+
+          if (audit.meta?.phase !== "3-regional-titles" || audit.meta?.policy !== "phase-3") fail("title audit metadata", audit);
+          const total = Number(audit.data?.totalActive || 0);
+          if (total < 1) fail("active catalog count", audit);
+          if (Number(audit.data?.anyChinese?.count || 0) !== total) fail("Chinese-title coverage", audit);
+          if (Number(audit.data?.coverage?.HK?.count || 0) !== total) fail("HK coverage", audit);
+          if (Number(audit.data?.coverage?.TW?.count || 0) !== total) fail("TW coverage", audit);
+          if (Number(audit.data?.coverage?.CN?.count || 0) < 24) fail("CN coverage regression", audit);
+          if (Number(audit.data?.manualOverrideShows || 0) < 1) fail("manual override count", audit);
+
+          function assertPostMergeSync(label, body) {
+            const row = body.data;
+            if (!row || !["success", "success_with_warnings"].includes(row.status)) fail(`${label} sync status`, body);
+            const finishedAt = Date.parse(row.finished_at || "");
+            if (!Number.isFinite(finishedAt) || finishedAt <= mergedAt) fail(`${label} sync did not finish after merge`, body);
+          }
+          assertPostMergeSync("TMDB", tmdb);
+          assertPostMergeSync("TVmaze", tvmaze);
+
+          const show = shards.data?.find((item) => item.english_title === "The Shards");
+          if (!show) fail("The Shards catalog row", shards);
+          if (show.display_title_zh !== "青春碎片") fail("The Shards resolved HK title", show);
+          if (show.display_title_zh_region !== "HK" || show.display_title_zh_source !== "manual" || show.display_title_zh_confidence !== "official" || show.display_title_zh_fallback !== false) {
+            fail("The Shards resolved title provenance", show);
+          }
+
+          if (aliases.preferred?.title !== "青春碎片" || aliases.preferred?.region !== "HK" || aliases.preferred?.source !== "manual" || aliases.preferred?.confidence !== "official" || aliases.preferred?.fallback !== false) {
+            fail("The Shards preferred alias", aliases);
+          }
+          const manual = aliases.data?.find((item) => item.region === "HK" && item.title === "青春碎片" && item.source_key === "manual" && Number(item.is_preferred) === 1 && item.confidence === "official");
+          if (!manual) fail("The Shards manual alias record", aliases);
+
+          console.log(JSON.stringify({
+            ok: true,
+            phase: health.phase,
+            policy: health.titleAliasPolicy,
+            activeCatalog: total,
+            coverage: audit.data.coverage,
+            tmdbFinishedAt: tmdb.data.finished_at,
+            tvmazeFinishedAt: tvmaze.data.finished_at,
+            editorialOverride: {
+              englishTitle: show.english_title,
+              title: show.display_title_zh,
+              region: show.display_title_zh_region,
+              source: show.display_title_zh_source,
+              confidence: show.display_title_zh_confidence
+            }
+          }, null, 2));
+          NODE
+
+      - name: Publish audit summary
+        shell: bash
+        run: |
+          {
+            echo "## Phase 3 post-deploy audit"
+            echo ""
+            echo "- Production phase: 3-regional-titles"
+            echo "- Title policy: phase-3"
+            echo "- Production D1: reachable"
+            echo "- TMDB sync: completed after Phase 3 merge"
+            echo "- TVmaze sync: completed after Phase 3 merge"
+            echo "- The Shards → 青春碎片 (HK): manual / official"
+            echo "- Audit-only workflow: do not merge"
+          } >> "${GITHUB_STEP_SUMMARY}"
