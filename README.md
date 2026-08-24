@@ -2,59 +2,69 @@
 
 Series Hub is a browser-first TV series aggregation project. The initial product scope is US scripted television and streaming series, organized around **series → seasons → episodes** rather than around streaming playback.
 
-The product will surface three primary lifecycle views:
+The product surfaces three primary lifecycle views:
 
-- **播映中 / Airing** — seasons currently releasing episodes.
-- **即將播映 / Upcoming** — announced seasons with a confirmed premiere date.
-- **計劃播出 / Planned** — renewed, ordered or in production seasons without a confirmed premiere date.
+- **播映中 / Airing** — a current season is actively releasing episodes.
+- **即將播映 / Upcoming** — a series or new season has a confirmed future date.
+- **計劃播出 / Planned** — returning / in-production series with no confirmed future date yet.
 
-Chinese naming is a first-class data layer. A show may have different preferred titles and aliases for Hong Kong, Taiwan and Mainland China; these are stored separately instead of collapsing them into one `chinese_title` field.
+Chinese naming is a first-class data layer. A show may have separate preferred titles and aliases for Hong Kong, Taiwan and Mainland China; these are stored separately rather than collapsed into one `chinese_title` field.
 
 ## Current phase
 
-**Phase 0 — Complete**
+**Phase 1 — TMDB US scripted-series MVP**
 
-Phase 0 contains no TMDB, TVmaze or official-network ingestion. It establishes the deployable and database-backed baseline before external series data is introduced.
+### Phase 1A — TMDB catalog core
 
-**Next: Phase 1 — TMDB US scripted-series MVP.**
+Current implementation includes:
 
-### Phase 0 deliverables
+- TMDB server-side client using a Worker secret;
+- US scripted/miniseries filtering;
+- live-action focus (animation excluded from the initial catalog);
+- Series Hub lifecycle normalization independent from raw TMDB status;
+- show, season, network and genre normalization into D1;
+- separate `zh-HK`, `zh-TW` and `zh-CN` aliases where TMDB provides them;
+- poster/backdrop URLs through TMDB image infrastructure;
+- `/api/shows` filtering/search API;
+- `/api/sync-status` operational endpoint;
+- scheduled catalog refresh every six hours;
+- protected on-demand sync for deployment bootstrap;
+- TMDB attribution/credits in the frontend;
+- unit tests for filtering, lifecycle and title normalization.
 
-- Cloudflare Worker with Static Assets
-- `/health` API endpoint
-- `/api/shows` baseline endpoint
-- Vanilla HTML/CSS/JavaScript frontend
-- Cloudflare D1 database bound as `DB`
-- Initial D1 schema and migration
-- Architecture and data-model documentation
-- Browser-only GitHub Actions → Cloudflare deployment workflow
-- Per-PR isolated D1 + Worker preview validation
-- `main` production deploy plus live post-deploy validation
+Live ingestion remains inactive until the repository secret `TMDB_API` is configured. The secret value is never stored in source control or exposed to PR preview Workers.
 
 ## Architecture
 
 ```text
-GitHub branch / PR
-  │
-  ▼
-GitHub Actions
-  ├── PR
-  │    ├── PR-specific D1
-  │    ├── migrations
-  │    └── Cloudflare preview + smoke tests
-  │
-  └── main
-       └── wrangler deploy + production smoke test
-                         │
-                         ▼
-                 Cloudflare Worker
-                 ├── Static Assets (public/)
-                 └── /api/*
-                       │
-                       └── D1 binding: DB → series-hub-db
+                         ┌──────────────┐
+                         │     TMDB     │
+                         └──────┬───────┘
+                                │ Bearer token
+                                ▼
+GitHub main ── Actions ──► series-hub Worker
+                                │
+                    ┌───────────┼────────────┐
+                    ▼           ▼            ▼
+               Static Assets   API      Cron / sync
+                                │            │
+                                └──────┬─────┘
+                                       ▼
+                                  D1: series-hub-db
 ```
 
-Static files and API routes are intentionally deployed as one Cloudflare Worker. This reduces moving parts while keeping the frontend and backend logically separated.
+PR validation is fully isolated:
+
+```text
+PR #N
+  │
+  ├── Worker: series-hub-pr-N
+  ├── D1:     series-hub-pr-N
+  ├── no production TMDB secret
+  └── deleted automatically when PR closes
+```
+
+This prevents unmerged code from accessing production D1 data or production application secrets.
 
 ## Browser-only development rule
 
@@ -65,18 +75,16 @@ GitHub branch
    ↓
 Pull request
    ↓
-Isolated preview D1 + Cloudflare preview
+Isolated Worker + isolated D1
    ↓
-Runtime validation
+Migrations + tests + runtime smoke tests
    ↓
 Review / merge
    ↓
 main
    ↓
-GitHub Actions production deployment
+Production migration → deployment → live validation
 ```
-
-`package.json` pins Wrangler for CI/Cloudflare operations; it is not a requirement for local development.
 
 ## Repository layout
 
@@ -88,57 +96,76 @@ Series-Hub/
 ├── .github/
 │   └── workflows/
 ├── src/
-│   └── index.js
+│   ├── index.js
+│   └── tmdb.js
+├── test/
+│   └── tmdb.test.js
 ├── public/
 │   ├── index.html
 │   ├── styles.css
 │   └── app.js
 ├── migrations/
-│   └── 0001_initial.sql
+│   ├── 0001_initial.sql
+│   └── 0002_phase1_tmdb.sql
 └── docs/
     ├── ARCHITECTURE.md
     ├── CLOUDFLARE_SETUP.md
-    └── DATA_MODEL.md
+    ├── DATA_MODEL.md
+    └── PHASE1_TMDB.md
 ```
 
-## API baseline
+## API
 
 ### `GET /health`
 
-Returns service health plus D1 binding/reachability state. A healthy Phase 0 deployment reports the database as configured and reachable.
+Reports service phase, D1 status and whether the production TMDB secret is configured.
 
 ### `GET /api/shows`
 
-Reads the `shows` table and returns a JSON `data` array. It remains empty until Phase 1 begins ingesting series metadata.
+Supported query parameters:
 
-## Planned data sources
+- `status=airing|upcoming|planned|completed|unknown`
+- `q=<English or Chinese title>`
+- `limit=1..100`
 
-These are deliberately deferred beyond Phase 0:
+The public response is built from Series Hub's normalized D1 schema; raw TMDB payloads are never forwarded to the frontend.
 
-1. **TMDB** — canonical show/season metadata, artwork, translations and provider metadata.
-2. **TVmaze** — episode-level air schedules and web-channel schedules.
-3. **Official network/streamer sources** — renewal, production and announcement verification.
+### `GET /api/sync-status`
 
-External APIs must be normalized into Series Hub's own schema. Source-specific payload shapes must not leak into the frontend contract.
+Returns the latest TMDB catalog-sync run from `sync_runs`.
+
+### `POST /api/internal/tmdb-sync`
+
+Internal deployment/bootstrap endpoint protected by a one-way key derived from the production TMDB token. It is not a public administration API and preview Workers do not receive the TMDB secret required to authorize it.
+
+## Data sources
+
+1. **TMDB — Phase 1:** series/season metadata, artwork, translations, networks and genres.
+2. **TVmaze — Phase 2:** episode-level dates/times and streaming/broadcast schedules.
+3. **Official network/streamer sources — Phase 4:** renewal, production and announcement verification.
+
+Source payloads are normalized before storage/use. A source-specific status or field must not become the application's canonical contract merely because one provider exposes it.
 
 ## Core data principles
 
 1. **Season is a first-class entity.** Renewal and release state belong primarily to a season, not only to a series.
 2. **Original network/service and regional availability are separate concepts.**
 3. **Chinese titles are aliases with locale/region/source metadata.**
-4. **Every externally derived fact should remain attributable to a source.**
-5. **No secrets in source control or frontend assets.** Runtime/API credentials remain secret-bound.
-6. **No R2 in the initial architecture.** Image URLs can be referenced from upstream metadata until image storage has a demonstrated need.
-7. **Applied migrations are immutable.** Future schema changes use new numbered migration files.
-8. **Unmerged code never runs against production D1 in automated preview tests.** Each PR uses its own temporary D1 database.
-9. **Production schema mutation is separately controlled.** Ordinary PR validation and application deployment do not silently migrate production.
+4. **Externally derived facts remain attributable to a source.**
+5. **No secrets in source control or frontend assets.**
+6. **No R2 until image storage has a demonstrated need.**
+7. **Applied migrations are immutable.** Schema changes use new numbered migration files.
+8. **Unmerged code never uses production D1 or production TMDB credentials.**
+9. **Production migrations run before the Worker version that requires them is deployed.**
+10. **TMDB raw status is retained separately from Series Hub lifecycle classification.**
 
 ## Roadmap
 
-- **Phase 0 — Complete:** deployable foundation, D1 model, empty API, browser-only CI/deployment path.
-- **Phase 1 — Next:** TMDB US scripted-series MVP.
+- **Phase 0 — Complete:** deployable Worker/D1 foundation and browser-only CI/deployment.
+- **Phase 1A — In progress:** TMDB catalog core and first live US scripted catalog.
+- **Phase 1B:** catalog coverage/quality review, network/platform targeting and lifecycle corrections from live data.
 - **Phase 2:** TVmaze episode/schedule normalization.
-- **Phase 3:** Chinese title and regional alias refinement.
+- **Phase 3:** Chinese title and regional alias refinement/manual override layer.
 - **Phase 4:** renewal / production / official-announcement lifecycle engine.
 - **Phase 5:** personal tracking and optional notifications.
 - **Phase 6:** expansion beyond US series.
@@ -147,21 +174,15 @@ External APIs must be normalized into Series Hub's own schema. Source-specific p
 
 Completed and validated:
 
-- static Worker assets and API routing;
-- `/health` HTTP runtime endpoint;
-- `/api/shows` JSON runtime endpoint;
-- production D1 database `series-hub-db` bound as `DB`;
-- `0001_initial.sql` applied;
-- eight core production schema tables remotely verified;
-- Worker dry-run with D1 and Static Assets bindings;
-- PR-specific D1 provisioning and migration validation;
-- isolated Cloudflare Worker preview deployment;
-- preview `/health` and `/api/shows` runtime validation;
-- production `/health` and `/api/shows` runtime validation;
-- automatic preview-D1 cleanup when a PR closes;
-- browser-only GitHub Actions credential path using repository secrets;
-- merges to `main` have an explicit GitHub Actions → Wrangler production deployment path.
+- Cloudflare Worker Static Assets + API routing;
+- production D1 `series-hub-db` bound as `DB`;
+- initial eight-table schema;
+- PR-specific D1 provisioning/migration validation;
+- isolated Worker preview runtime validation;
+- production runtime validation;
+- automatic preview resource cleanup;
+- explicit GitHub Actions → Wrangler production deployment path.
 
 ## Project status
 
-Phase 0 foundation is complete. External series data ingestion has not started. Phase 1 will introduce TMDB behind the existing normalization and API boundary.
+Phase 0 is complete. Phase 1A code is being validated before production migration/deployment and live TMDB ingestion.
