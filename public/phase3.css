@@ -1,0 +1,82 @@
+button,
+input,
+select {
+  font: inherit;
+}
+
+.catalog-inputs {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  min-width: min(540px, 100%);
+}
+
+.catalog-inputs .search-box {
+  flex: 1 1 340px;
+}
+
+.region-box {
+  flex: 0 0 150px;
+  display: grid;
+  gap: 7px;
+}
+
+.region-box select {
+  width: 100%;
+  height: 44px;
+  padding: 0 34px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  outline: none;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.region-box select:focus {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.title-source-note {
+  display: inline-block;
+  margin-left: 7px;
+  color: #71798b;
+  font-size: 0.68rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.schedule-english .title-source-note {
+  margin-left: 8px;
+  font-size: 0.64rem;
+}
+
+@media (max-width: 760px) {
+  .catalog-inputs {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .catalog-inputs {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .catalog-inputs .search-box,
+  .region-box {
+    flex: none;
+    width: 100%;
+  }
+
+  .title-source-note {
+    display: block;
+    margin: 2px 0 0;
+  }
+
+  .schedule-english .title-source-note {
+    display: inline-block;
+    margin: 0 0 0 6px;
+  }
+}

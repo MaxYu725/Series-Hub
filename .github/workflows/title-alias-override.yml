@@ -1,0 +1,157 @@
+name: Title alias override
+
+on:
+  workflow_dispatch:
+    inputs:
+      show_id:
+        description: "Series Hub show ID"
+        required: true
+        type: string
+      region:
+        description: "Chinese title region"
+        required: true
+        default: HK
+        type: choice
+        options:
+          - HK
+          - TW
+          - CN
+      action:
+        description: "Override action"
+        required: true
+        default: set-preferred
+        type: choice
+        options:
+          - set-preferred
+          - add-alias
+          - remove-alias
+      title:
+        description: "Exact Chinese title"
+        required: true
+        type: string
+      confidence:
+        description: "Editorial confidence"
+        required: true
+        default: high
+        type: choice
+        options:
+          - official
+          - high
+          - normal
+
+permissions:
+  contents: read
+
+concurrency:
+  group: title-alias-override
+  cancel-in-progress: false
+
+env:
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
+      SHOW_ID: ${{ inputs.show_id }}
+      TITLE_REGION: ${{ inputs.region }}
+      TITLE_ACTION: ${{ inputs.action }}
+      TITLE_VALUE: ${{ inputs.title }}
+      TITLE_CONFIDENCE: ${{ inputs.confidence }}
+
+    steps:
+      - name: Validate secret and inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API secret is missing"; exit 1; }
+          node <<'NODE'
+          const showId = Number(process.env.SHOW_ID);
+          const region = process.env.TITLE_REGION;
+          const action = process.env.TITLE_ACTION;
+          const title = String(process.env.TITLE_VALUE || "").trim();
+          const confidence = process.env.TITLE_CONFIDENCE;
+
+          if (!Number.isSafeInteger(showId) || showId <= 0) throw new Error("show_id must be a positive integer");
+          if (!["HK", "TW", "CN"].includes(region)) throw new Error("invalid title region");
+          if (!["set-preferred", "add-alias", "remove-alias"].includes(action)) throw new Error("invalid action");
+          if (!["official", "high", "normal"].includes(confidence)) throw new Error("invalid confidence");
+          if (!title || title.length > 160 || /[\u0000-\u001f]/.test(title)) throw new Error("title must be 1-160 printable characters");
+          NODE
+
+      - name: Derive internal authorization key
+        id: auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY="$(node -e '
+            const crypto = require("crypto");
+            process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v1:" + process.env.TMDB_API_TOKEN).digest("hex"));
+          ')"
+          echo "key=${KEY}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build request body
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("fs");
+          fs.writeFileSync(".title-alias-request.json", JSON.stringify({
+            showId: Number(process.env.SHOW_ID),
+            region: process.env.TITLE_REGION,
+            action: process.env.TITLE_ACTION,
+            title: String(process.env.TITLE_VALUE || "").trim(),
+            confidence: process.env.TITLE_CONFIDENCE
+          }));
+          NODE
+
+      - name: Apply atomic production title override
+        env:
+          INTERNAL_KEY: ${{ steps.auth.outputs.key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f .title-alias-request.json' EXIT
+          RESPONSE="$(curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "content-type: application/json" \
+            -H "x-series-hub-sync-key: ${INTERNAL_KEY}" \
+            --data-binary @.title-alias-request.json \
+            "${PRODUCTION_URL}/api/internal/title-override")"
+          printf '%s\n' "${RESPONSE}"
+          RESPONSE="${RESPONSE}" node -e '
+            const payload = JSON.parse(process.env.RESPONSE);
+            if (payload.ok !== true || !payload.preferred) {
+              console.error("Title override failed:", payload);
+              process.exit(1);
+            }
+          '
+
+      - name: Verify public resolved title
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail --silent --show-error "${PRODUCTION_URL}/api/shows/${SHOW_ID}/aliases?region=${TITLE_REGION}")"
+          printf '%s\n' "${RESPONSE}"
+          RESPONSE="${RESPONSE}" node -e '
+            const payload = JSON.parse(process.env.RESPONSE);
+            if (!payload.preferred || payload.meta?.titleRegion !== process.env.TITLE_REGION) process.exit(1);
+          '
+
+      - name: Publish summary
+        shell: bash
+        run: |
+          {
+            echo "## Title alias override"
+            echo
+            echo "- Show ID: ${SHOW_ID}"
+            echo "- Region: ${TITLE_REGION}"
+            echo "- Action: ${TITLE_ACTION}"
+            echo "- Title: ${TITLE_VALUE}"
+            echo "- Confidence: ${TITLE_CONFIDENCE}"
+            echo "- Source: manual"
+            echo "- Mutation: protected Worker endpoint using D1 batch transaction"
+            echo "- Future TMDB refreshes replace only TMDB-source aliases; manual records are preserved."
+          } >> "${GITHUB_STEP_SUMMARY}"
