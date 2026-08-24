@@ -1,0 +1,113 @@
+name: Phase 3 finalization fix
+
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.head_ref == 'phase-3-finalize' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase-3-finalize
+
+      - name: Apply permanent Phase 3 finalization
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def require_replace(text, old, new, label, all_matches=False):
+              n = text.count(old)
+              if n == 0:
+                  raise RuntimeError(f"{label}: missing {old!r}")
+              return text.replace(old, new) if all_matches else text.replace(old, new, 1)
+
+          # Worker and UI identifiers.
+          p = Path('src/index.js')
+          s = p.read_text()
+          s = require_replace(s, 'const PHASE = "2-tvmaze-schedule";', 'const PHASE = "3-regional-titles";', 'worker phase')
+          if s.count('"phase-3a"') != 2:
+              raise RuntimeError(f"worker policy markers: {s.count(chr(34) + 'phase-3a' + chr(34))}")
+          p.write_text(s.replace('"phase-3a"', '"phase-3"'))
+
+          p = Path('public/index.html')
+          s = p.read_text()
+          p.write_text(require_replace(s, '<div class="phase-chip">Phase 3A</div>', '<div class="phase-chip">Phase 3</div>', 'frontend phase'))
+
+          # Existing CI topology is preserved; only phase expectations/messages change.
+          p = Path('.github/workflows/phase0-cloudflare-bootstrap.yml')
+          s = p.read_text()
+          s = require_replace(s,
+              'if (data.phase !== "2-tvmaze-schedule" || data.tmdbConfigured !== false || data.tvmazeEnabled !== true)',
+              'if (data.phase !== "3-regional-titles" || data.tmdbConfigured !== false || data.tvmazeEnabled !== true)',
+              'preview health')
+          s = require_replace(s, 'Preview must be Phase 2 with no production TMDB secret:', 'Preview must be Phase 3 with no production TMDB secret:', 'preview message')
+          s = require_replace(s, 'shows.meta?.phase !== "2-tvmaze-schedule"', 'shows.meta?.phase !== "3-regional-titles"', 'show API phase', all_matches=True)
+          s = require_replace(s, 'schedule.meta?.phase !== "2-tvmaze-schedule"', 'schedule.meta?.phase !== "3-regional-titles"', 'schedule API phase', all_matches=True)
+          s = require_replace(s,
+              'if (!["1-tmdb-core", "2-tvmaze-schedule"].includes(health.phase)) process.exit(1);',
+              'if (!["2-tvmaze-schedule", "3-regional-titles"].includes(health.phase)) process.exit(1);',
+              'transition production regression')
+          s = s.replace('Phase 2 schedule API: passed', 'Phase 3 regional-title API: passed')
+          s = s.replace('Verify Phase 2 runtime before sync', 'Verify Phase 3 runtime before sync')
+          s = require_replace(s,
+              'data.phase === "2-tvmaze-schedule" && data.tmdbConfigured === true',
+              'data.phase === "3-regional-titles" && data.tmdbConfigured === true',
+              'post-deploy phase')
+          s = s.replace('Production Phase 2 runtime not ready yet', 'Production Phase 3 runtime not ready yet')
+          s = s.replace('Production Worker did not become Phase 2 ready', 'Production Worker did not become Phase 3 ready')
+          p.write_text(s)
+
+          # README promotion and acceptance snapshot.
+          p = Path('README.md')
+          s = p.read_text()
+          s = s.replace('**Phase 2 — TVmaze schedule integration: COMPLETE**', '**Phase 3 — Chinese regional titles and manual override: COMPLETE**', 1)
+          s = s.replace(
+              '- Phase 2B — Today / This Week schedule UI with browser-local timezone handling and production live acceptance.\n\n**Next planned phase: Phase 3 — Chinese title and regional alias refinement/manual override layer.**',
+              '- Phase 2B — Today / This Week schedule UI with browser-local timezone handling and production live acceptance;\n- Phase 3A — HK/TW/CN preferred-title resolution, provenance, fallback and controlled manual override;\n- Phase 3B — production title-quality audit and proof that editorial overrides survive a real TMDB refresh.\n\n**Next planned phase: Phase 4 — official renewal / cancellation / production lifecycle engine.**',
+              1)
+          acceptance = '''\n## Phase 3 live acceptance — 2026-08-24\n\n- active catalog: **28 series**;\n- any Chinese title: **28/28 (100%)**;\n- HK-specific titles: **28/28 (100%)**;\n- TW-specific titles: **28/28 (100%)**;\n- CN-specific titles: **24/28 (85.7%)**;\n- manual preferred-title shows: **1**;\n- verified editorial case: **The Shards → 青春碎片 (HK)**, `manual / official`;\n- real post-override TMDB refresh: `success`, **137 candidates seen / 23 shows changed**;\n- the manual HK preferred alias survived that refresh;\n- Chinese alias search, fallback metadata and unauthenticated-write rejection were live-verified;\n- **36/36 tests**, isolated D1/Worker preview and production regression passed.\n\nThe four CN-specific gaps (`Ted Lasso`, `Wednesday`, `For All Mankind`, `Severance`) intentionally use fallback until reliable mainland-China-specific evidence exists. Coverage is not a reason to invent a regional title.\n\n'''
+          if '## Phase 3 live acceptance — 2026-08-24' not in s:
+              s = require_replace(s, '\n## Architecture\n', acceptance + '## Architecture\n', 'README architecture')
+          s = s.replace('2-tvmaze-schedule', '3-regional-titles', 1)
+          s = s.replace('- **Phase 3 — Next:** Chinese title refinement and manual override layer.', '- **Phase 3 — Complete:** regional Chinese title policy, fallback, provenance, live audit and protected manual override.', 1)
+          s = s.replace('- **Phase 4:** official renewal / cancellation / production lifecycle engine.', '- **Phase 4 — Next:** official renewal / cancellation / production lifecycle engine.', 1)
+          s = s.replace('- `limit=1..100`\n', '- `limit=1..100`\n- `region=HK|TW|CN` (default `HK`)\n', 1)
+          s = s.replace('- `days=1..14`\n', '- `days=1..14`\n- `region=HK|TW|CN` (default `HK`)\n', 1)
+          if '### `GET /api/title-audit`' not in s:
+              s = require_replace(s, '### `GET /api/shows/:id/episodes`\n', '### `GET /api/title-audit`\n\nReports HK/TW/CN coverage, missing regional titles and manual preferred-title usage.\n\n### `GET /api/shows/:id/aliases`\n\nReturns all attributed aliases plus the resolved regional preferred title.\n\n### `GET /api/shows/:id/episodes`\n', 'README APIs')
+          s = s.replace('- `POST /api/internal/tvmaze-sync`\n', '- `POST /api/internal/tvmaze-sync`\n- `POST /api/internal/title-override`\n', 1)
+          s = s.replace('│   └── 0005_phase2_tvmaze.sql', '│   ├── 0005_phase2_tvmaze.sql\n│   └── 0006_phase3_title_aliases.sql', 1)
+          s = s.replace('│   ├── tmdb.js\n│   └── tvmaze.js', '│   ├── tmdb.js\n│   ├── tvmaze.js\n│   ├── title-aliases.js\n│   └── title-admin.js', 1)
+          s = s.replace('│   ├── styles.css\n│   ├── app.js', '│   ├── styles.css\n│   ├── phase3.css\n│   ├── app.js', 1)
+          if '## Phase 3 handoff\n' in s:
+              s = s.split('## Phase 3 handoff\n', 1)[0] + '''## Phase 4 handoff\n\nPhase 4 adds attributed official renewal / cancellation / production-state evidence without weakening the Phase 3 title contract. Retain source URL/date/confidence and affected season where possible; do not infer cancellation or production state merely to fill a gap. Start with a small set of high-value official sources and keep the browser-only GitHub → isolated preview → Cloudflare production workflow.\n'''
+          p.write_text(s)
+
+          p = Path('docs/PHASE3_TITLES.md')
+          s = p.read_text().replace('## Phase 3B handoff', '## Phase 3B acceptance', 1)
+          if '### Accepted production snapshot — 2026-08-24' not in s:
+              s += '''\n\n### Accepted production snapshot — 2026-08-24\n\n- active series 28; HK 28/28; TW 28/28; CN 24/28;\n- `The Shards` → `青春碎片` (HK), `manual / official`;\n- post-override TMDB refresh `success`, 137 seen / 23 changed;\n- manual preferred title survived the refresh;\n- 36/36 tests plus isolated preview and production regression passed.\n\nPhase 3 is complete; this regional-title policy remains authoritative during Phase 4.\n'''
+          p.write_text(s)
+
+      - name: Remove temporary finalizers
+        shell: bash
+        run: |
+          git rm -f .github/workflows/phase3-finalize-once.yml .github/workflows/phase3-finalize-pr.yml .github/workflows/phase3-finalize-fix.yml
+
+      - name: Commit permanent changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/index.js public/index.html .github/workflows/phase0-cloudflare-bootstrap.yml README.md docs/PHASE3_TITLES.md
+          git diff --cached --check
+          git commit -m "docs: finalize Phase 3 regional title acceptance"
+          git push origin HEAD:phase-3-finalize
