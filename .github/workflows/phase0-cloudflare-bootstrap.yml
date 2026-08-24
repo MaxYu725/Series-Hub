@@ -335,7 +335,7 @@ jobs:
             const schedule = JSON.parse(process.env.SCHEDULE_JSON);
             const tmdb = JSON.parse(process.env.TMDB_SYNC_JSON);
             const tvmaze = JSON.parse(process.env.TVMAZE_SYNC_JSON);
-            if (health.ok !== true || health.phase !== "2-tvmaze-schedule" || health.tmdbConfigured !== true || health.tvmazeEnabled !== true) process.exit(1);
+            if (health.ok !== true || health.phase !== "3-regional-titles" || health.tmdbConfigured !== true || health.tvmazeEnabled !== true) process.exit(1);
             if (!Array.isArray(shows.data) || shows.meta?.phase !== "3-regional-titles" || shows.data.length < 1) process.exit(1);
             if (!Array.isArray(schedule.data) || schedule.meta?.source !== "TVmaze") process.exit(1);
             if (!tmdb.data || !["success", "success_with_warnings"].includes(tmdb.data.status)) process.exit(1);
