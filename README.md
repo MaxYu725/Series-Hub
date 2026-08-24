@@ -27,24 +27,26 @@ Phase 0 contains no TMDB, TVmaze or official-network ingestion. It establishes t
 - Cloudflare D1 database bound as `DB`
 - Initial D1 schema and migration
 - Architecture and data-model documentation
-- GitHub → Cloudflare browser-only deployment workflow
+- Browser-only GitHub Actions → Cloudflare deployment workflow
 - Pull-request dry-run, isolated preview, and runtime smoke validation
+- `main` production deploy plus live post-deploy validation
 
 ## Architecture
 
 ```text
-GitHub
-  │
-  │ branch / PR / main
-  ▼
-Cloudflare Workers Builds + GitHub Actions validation
+GitHub branch / PR
   │
   ▼
-series-hub Worker
-  ├── Static Assets (public/)
-  └── /api/*
-        │
-        └── D1 binding: DB → series-hub-db
+GitHub Actions
+  ├── PR: dry-run + Cloudflare preview + smoke tests
+  └── main: wrangler deploy + production smoke test
+                         │
+                         ▼
+                 Cloudflare Worker
+                 ├── Static Assets (public/)
+                 └── /api/*
+                       │
+                       └── D1 binding: DB → series-hub-db
 ```
 
 Static files and API routes are intentionally deployed as one Cloudflare Worker. This reduces moving parts while keeping the frontend and backend logically separated.
@@ -64,7 +66,7 @@ Review / merge
    ↓
 main
    ↓
-Production deployment
+GitHub Actions production deployment
 ```
 
 `package.json` pins Wrangler for CI/Cloudflare operations; it is not a requirement for local development.
@@ -121,6 +123,7 @@ External APIs must be normalized into Series Hub's own schema. Source-specific p
 5. **No secrets in source control or frontend assets.** Runtime/API credentials remain secret-bound.
 6. **No R2 in the initial architecture.** Image URLs can be referenced from upstream metadata until image storage has a demonstrated need.
 7. **Applied migrations are immutable.** Future schema changes use new numbered migration files.
+8. **PR validation never silently mutates production schema.** Schema migration is a separately controlled operation.
 
 ## Roadmap
 
@@ -136,7 +139,6 @@ External APIs must be normalized into Series Hub's own schema. Source-specific p
 
 Completed and validated:
 
-- Worker deployment from GitHub through Cloudflare Workers Builds;
 - static Worker assets and API routing;
 - `/health` HTTP runtime endpoint;
 - `/api/shows` JSON runtime endpoint;
@@ -144,9 +146,12 @@ Completed and validated:
 - `0001_initial.sql` applied;
 - eight core schema tables remotely verified;
 - Worker dry-run with `env.DB` and `env.ASSETS` bindings;
-- isolated Cloudflare Worker version/preview deployment;
+- isolated Cloudflare Worker preview deployment;
+- preview `/health` and `/api/shows` runtime validation;
+- production `/health` and `/api/shows` runtime validation;
 - browser-only GitHub Actions credential path using repository secrets;
-- normal PR workflow no longer provisions databases or mutates production schema.
+- PR validation no longer provisions databases or mutates production schema;
+- merges to `main` have an explicit GitHub Actions → Wrangler production deployment path.
 
 ## Project status
 
