@@ -47,16 +47,14 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  WRANGLER_VERSION: "4.125.0"
-  PRODUCTION_DB_NAME: "series-hub-db"
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
 
 jobs:
   apply:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
       SHOW_ID: ${{ inputs.show_id }}
       TITLE_REGION: ${{ inputs.region }}
       TITLE_ACTION: ${{ inputs.action }}
@@ -64,12 +62,11 @@ jobs:
       TITLE_CONFIDENCE: ${{ inputs.confidence }}
 
     steps:
-      - name: Validate credentials and inputs
+      - name: Validate secret and inputs
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
-          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API secret is missing"; exit 1; }
           node <<'NODE'
           const showId = Number(process.env.SHOW_ID);
           const region = process.env.TITLE_REGION;
@@ -84,74 +81,64 @@ jobs:
           if (!title || title.length > 160 || /[\u0000-\u001f]/.test(title)) throw new Error("title must be 1-160 printable characters");
           NODE
 
-      - name: Verify target show exists
+      - name: Derive internal authorization key
+        id: auth
         shell: bash
         run: |
           set -euo pipefail
-          RESULT="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --command "SELECT COUNT(*) AS count FROM shows WHERE id = ${SHOW_ID};" --json)"
-          RESULT="${RESULT}" node -e '
-            const payload = JSON.parse(process.env.RESULT);
-            const count = Number(payload?.[0]?.results?.[0]?.count || 0);
-            if (count !== 1) {
-              console.error(`show_id ${process.env.SHOW_ID} does not exist in production`);
-              process.exit(1);
-            }
-          '
+          KEY="$(node -e '
+            const crypto = require("crypto");
+            process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v1:" + process.env.TMDB_API_TOKEN).digest("hex"));
+          ')"
+          echo "key=${KEY}" >> "${GITHUB_OUTPUT}"
 
-      - name: Build safe D1 mutation
+      - name: Build request body
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const fs = require("fs");
-          const showId = Number(process.env.SHOW_ID);
-          const region = process.env.TITLE_REGION;
-          const action = process.env.TITLE_ACTION;
-          const title = String(process.env.TITLE_VALUE || "").trim();
-          const confidence = process.env.TITLE_CONFIDENCE;
-          const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;
-
-          const scope = `show_id = ${showId} AND season_id IS NULL AND locale = 'zh' AND region = ${quote(region)} AND source_key = 'manual'`;
-          const exact = `${scope} AND title = ${quote(title)}`;
-          const lines = [
-            "PRAGMA foreign_keys = ON;",
-            "BEGIN TRANSACTION;"
-          ];
-
-          if (action === "set-preferred") {
-            lines.push(`UPDATE title_aliases SET is_preferred = 0, updated_at = CURRENT_TIMESTAMP WHERE ${scope};`);
-            lines.push(`DELETE FROM title_aliases WHERE ${exact};`);
-            lines.push(
-              `INSERT INTO title_aliases (show_id, season_id, locale, region, title, source_key, is_preferred, confidence, created_at, updated_at) ` +
-              `VALUES (${showId}, NULL, 'zh', ${quote(region)}, ${quote(title)}, 'manual', 1, ${quote(confidence)}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`
-            );
-          } else if (action === "add-alias") {
-            lines.push(`DELETE FROM title_aliases WHERE ${exact};`);
-            lines.push(
-              `INSERT INTO title_aliases (show_id, season_id, locale, region, title, source_key, is_preferred, confidence, created_at, updated_at) ` +
-              `VALUES (${showId}, NULL, 'zh', ${quote(region)}, ${quote(title)}, 'manual', 0, ${quote(confidence)}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`
-            );
-          } else {
-            lines.push(`DELETE FROM title_aliases WHERE ${exact};`);
-          }
-
-          lines.push("COMMIT;");
-          fs.writeFileSync(".title-alias-override.sql", `${lines.join("\n")}\n`);
+          fs.writeFileSync(".title-alias-request.json", JSON.stringify({
+            showId: Number(process.env.SHOW_ID),
+            region: process.env.TITLE_REGION,
+            action: process.env.TITLE_ACTION,
+            title: String(process.env.TITLE_VALUE || "").trim(),
+            confidence: process.env.TITLE_CONFIDENCE
+          }));
           NODE
 
-      - name: Apply production title override
+      - name: Apply atomic production title override
+        env:
+          INTERNAL_KEY: ${{ steps.auth.outputs.key }}
         shell: bash
         run: |
           set -euo pipefail
-          trap 'rm -f .title-alias-override.sql' EXIT
-          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --file .title-alias-override.sql
+          trap 'rm -f .title-alias-request.json' EXIT
+          RESPONSE="$(curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "content-type: application/json" \
+            -H "x-series-hub-sync-key: ${INTERNAL_KEY}" \
+            --data-binary @.title-alias-request.json \
+            "${PRODUCTION_URL}/api/internal/title-override")"
+          printf '%s\n' "${RESPONSE}"
+          RESPONSE="${RESPONSE}" node -e '
+            const payload = JSON.parse(process.env.RESPONSE);
+            if (payload.ok !== true || !payload.preferred) {
+              console.error("Title override failed:", payload);
+              process.exit(1);
+            }
+          '
 
-      - name: Verify resolved regional title
+      - name: Verify public resolved title
         shell: bash
         run: |
           set -euo pipefail
-          QUERY="SELECT s.id, s.english_title, p.title_zh_hk, p.title_zh_hk_source, p.title_zh_tw, p.title_zh_tw_source, p.title_zh_cn, p.title_zh_cn_source FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id = s.id WHERE s.id = ${SHOW_ID};"
-          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --command "${QUERY}"
+          RESPONSE="$(curl --fail --silent --show-error "${PRODUCTION_URL}/api/shows/${SHOW_ID}/aliases?region=${TITLE_REGION}")"
+          printf '%s\n' "${RESPONSE}"
+          RESPONSE="${RESPONSE}" node -e '
+            const payload = JSON.parse(process.env.RESPONSE);
+            if (!payload.preferred || payload.meta?.titleRegion !== process.env.TITLE_REGION) process.exit(1);
+          '
 
       - name: Publish summary
         shell: bash
@@ -165,5 +152,6 @@ jobs:
             echo "- Title: ${TITLE_VALUE}"
             echo "- Confidence: ${TITLE_CONFIDENCE}"
             echo "- Source: manual"
-            echo "- Future TMDB refreshes delete only TMDB-source aliases, so this manual record is preserved."
+            echo "- Mutation: protected Worker endpoint using D1 batch transaction"
+            echo "- Future TMDB refreshes replace only TMDB-source aliases; manual records are preserved."
           } >> "${GITHUB_STEP_SUMMARY}"
