@@ -19,6 +19,21 @@ const DECISION_EVENTS = new Set(["renewed", "ordered", "cancelled", "final_seaso
 const PRODUCTION_EVENTS = new Set(["pre_production", "filming", "wrapped", "post_production", "production_paused"]);
 const SCHEDULE_EVENTS = new Set(["premiere_dated", "delayed"]);
 
+const EVENT_PRIORITY = Object.freeze({
+  ended: 50,
+  cancelled: 45,
+  final_season: 40,
+  renewed: 30,
+  ordered: 20,
+  production_paused: 50,
+  post_production: 40,
+  wrapped: 35,
+  filming: 30,
+  pre_production: 20,
+  delayed: 40,
+  premiere_dated: 30
+});
+
 export function lifecycleDimension(eventType) {
   if (DECISION_EVENTS.has(eventType)) return "decision";
   if (PRODUCTION_EVENTS.has(eventType)) return "production";
@@ -32,9 +47,15 @@ function eventTime(event) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function eventPriority(event) {
+  return EVENT_PRIORITY[event?.event_type] || 0;
+}
+
 function newestFirst(left, right) {
   const delta = eventTime(right) - eventTime(left);
   if (delta !== 0) return delta;
+  const priorityDelta = eventPriority(right) - eventPriority(left);
+  if (priorityDelta !== 0) return priorityDelta;
   return Number(right?.id || 0) - Number(left?.id || 0);
 }
 
