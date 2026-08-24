@@ -39,9 +39,7 @@ The workflow maps them at runtime to Wrangler's expected environment variables:
 
 Neither credential is committed to the repository, Worker source, frontend assets, or `wrangler.jsonc`.
 
-## 4. Phase 0 D1 bootstrap — completed
-
-The one-time Phase 0 bootstrap has been completed.
+## 4. Phase 0 production D1 — completed
 
 Production D1:
 
@@ -62,20 +60,30 @@ The initial migration in `migrations/0001_initial.sql` has been applied and the 
 - `sources`
 - `sync_runs`
 
-The real D1 UUID is stored in `wrangler.jsonc` as infrastructure configuration. It is an identifier, not an API credential.
+The real production D1 UUID is stored in `wrangler.jsonc` as infrastructure configuration. It is an identifier, not an API credential.
 
-## 5. Normal PR validation
+## 5. Isolated PR validation
 
-For each same-repository pull request the workflow:
+Every same-repository pull request receives its own D1 database:
 
-1. validates that the GitHub Actions Cloudflare credentials are present;
-2. runs a Wrangler production-equivalent dry-run;
-3. uploads an isolated non-production Worker version with a PR preview alias;
-4. requests the preview `/health` and `/api/shows` endpoints;
-5. requires the preview D1 binding to be configured and reachable;
-6. requests production `/health` and `/api/shows` as a regression smoke test.
+```text
+series-hub-pr-<PR number>
+```
 
-PR validation does not create D1 databases or apply production migrations.
+The PR workflow:
+
+1. validates the GitHub Actions Cloudflare credentials;
+2. resolves or creates the PR-specific D1 in APAC;
+3. rewrites only the ephemeral CI copy of `wrangler.jsonc` so `DB` points at that PR database;
+4. applies the PR's migrations to the isolated database;
+5. runs a Wrangler dry-run;
+6. uploads an isolated Worker preview alias;
+7. requests preview `/health` and `/api/shows`;
+8. requests production `/health` and `/api/shows` as a read-only regression check.
+
+Unmerged Worker code therefore never executes against the production D1 during automated preview testing.
+
+When a PR is closed or merged, the workflow deletes its `series-hub-pr-<PR number>` D1 database. This keeps preview data isolated without accumulating abandoned databases.
 
 ## 6. Production deployment
 
@@ -96,7 +104,7 @@ https://series-hub.max-yu-jp.workers.dev
 
 New schema changes must be added as new numbered files under `migrations/`. Existing applied migrations must not be edited retroactively.
 
-A future schema-change workflow may apply migrations as a separately controlled deployment step. Ordinary feature PR validation and ordinary application deployment must not silently mutate the production schema.
+PR migrations are exercised against the isolated PR D1. Applying migrations to production remains a separately controlled deployment operation; ordinary application deployment must not silently mutate the production schema.
 
 ## 8. Runtime acceptance
 
@@ -108,7 +116,7 @@ A healthy deployment must satisfy:
 - `databaseReachable` is `true`;
 - `/api/shows` returns HTTP 200 with a JSON `data` array.
 
-Until Phase 1 inserts series records, the `data` array is expected to be empty.
+Until Phase 1 inserts series records, the production `data` array is expected to be empty.
 
 ## Development path
 
@@ -117,11 +125,13 @@ GitHub branch
    ↓
 Pull request
    ↓
-Wrangler dry-run + isolated Cloudflare preview
+PR-specific D1 + migrations
+   ↓
+Wrangler dry-run + isolated Worker preview
    ↓
 Preview runtime smoke test
    ↓
-Production regression smoke test
+Production read-only regression smoke test
    ↓
 Review / merge
    ↓
@@ -130,6 +140,8 @@ push main
 GitHub Actions → wrangler deploy
    ↓
 Production runtime verification
+   ↓
+PR closes → preview D1 cleanup
 ```
 
 ## Dashboard fallback
