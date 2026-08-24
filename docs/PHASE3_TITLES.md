@@ -45,7 +45,9 @@ Returns every show-level alias with provenance and the resolved preferred title 
 
 ## Manual override workflow
 
-GitHub Actions → **Title alias override** is the controlled browser-only editor. It writes directly to production D1 using repository Cloudflare secrets; there is no public mutation endpoint.
+GitHub Actions → **Title alias override** is the controlled browser-only editor. It derives the same protected internal key already used by catalog sync and calls `POST /api/internal/title-override`; no admin credential or write control is exposed to the frontend.
+
+The Worker validates the request, uses bound D1 prepared statements, and submits related mutations through one `DB.batch()` transaction. Cloudflare D1 rolls back the batch if a statement fails.
 
 Supported actions:
 
@@ -53,7 +55,7 @@ Supported actions:
 - `add-alias`: add a searchable alternate manual title without replacing the preferred title;
 - `remove-alias`: remove the exact manual alias and allow normal preference/fallback rules to take over.
 
-Inputs are validated and SQL string values are escaped before execution. The target show must already exist in production.
+The target show must already exist in production. Preview Workers do not receive the TMDB secret and therefore cannot authorize the mutation endpoint.
 
 ## Frontend
 
