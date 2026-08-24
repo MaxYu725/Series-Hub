@@ -1,0 +1,39 @@
+name: Phase 4F apply sync patch
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'phase-4f-process-all-selected-details'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@v4
+        with:
+          ref: phase-4f-process-all-selected-details
+
+      - name: Apply exact Phase 4F sync repair
+        run: node scripts/phase4f-patch-sync.mjs
+
+      - name: Commit patch if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/tmdb.js; then
+            echo "Patch already applied"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/tmdb.js
+          git commit -m "Phase 4F: process all selected TMDB details"
+          git push origin HEAD:phase-4f-process-all-selected-details
