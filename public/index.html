@@ -18,26 +18,34 @@
         <h1>Series Hub</h1>
       </div>
     </div>
-    <div class="phase-chip">Phase 0</div>
+    <div class="phase-chip">Phase 1</div>
   </header>
 
   <main>
     <section class="hero">
-      <p class="eyebrow">FOUNDATION PREVIEW</p>
-      <h2>美劇播映資訊，集中整理。</h2>
-      <p class="hero-copy">第一階段先建立穩定資料架構。TMDB、TVmaze 及官方消息來源會在後續 Phase 接入。</p>
+      <p class="eyebrow">TMDB CATALOG CORE</p>
+      <h2>追蹤正在播、即將播與下一季。</h2>
+      <p class="hero-copy">第一階段接入美國 scripted series 主資料，統一 Season 狀態、英文名稱與香港／台灣／中國大陸中文譯名。逐集播映時間會留到 TVmaze 階段補強。</p>
 
       <div class="health-line" aria-live="polite">
         <span class="status-dot" id="status-dot"></span>
         <span id="health-text">正在檢查 API…</span>
       </div>
+      <p class="sync-text" id="sync-text">尚未有 TMDB 同步紀錄</p>
     </section>
 
-    <nav class="filters" aria-label="劇集狀態">
-      <button type="button" class="filter active" data-view="airing">播映中</button>
-      <button type="button" class="filter" data-view="upcoming">即將播映</button>
-      <button type="button" class="filter" data-view="planned">計劃播出</button>
-    </nav>
+    <section class="catalog-tools" aria-label="劇集搜尋與狀態篩選">
+      <label class="search-box">
+        <span class="search-label">搜尋</span>
+        <input id="search-input" type="search" autocomplete="off" placeholder="英文或中文劇名">
+      </label>
+
+      <nav class="filters" aria-label="劇集狀態">
+        <button type="button" class="filter active" data-view="airing">播映中</button>
+        <button type="button" class="filter" data-view="upcoming">即將播映</button>
+        <button type="button" class="filter" data-view="planned">計劃播出</button>
+      </nav>
+    </section>
 
     <section class="content-panel">
       <div class="panel-heading">
@@ -53,16 +61,34 @@
       <div id="empty-state" class="empty-state">
         <div class="empty-poster" aria-hidden="true"></div>
         <div>
-          <h4>Phase 0 暫未匯入劇集</h4>
-          <p>這是預期狀態。資料來源會由 Phase 1 開始接入，現在先驗證部署、API 與 D1 基線。</p>
+          <h4 id="empty-title">暫未有劇集資料</h4>
+          <p id="empty-copy">Phase 1 catalog 已準備好，完成 TMDB token 設定及首次同步後便會顯示劇集。</p>
         </div>
+      </div>
+    </section>
+
+    <section class="credits" aria-labelledby="credits-title">
+      <div>
+        <p class="eyebrow">DATA CREDITS</p>
+        <h3 id="credits-title">資料來源</h3>
+      </div>
+      <div class="tmdb-credit">
+        <a href="https://www.themoviedb.org" target="_blank" rel="noreferrer" aria-label="The Movie Database">
+          <img
+            class="tmdb-logo"
+            src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aaebeb75dc7ae79426ddd9be3b2be1e342510f8202baf6bffa71d7f5c4.svg"
+            alt="TMDB"
+            loading="lazy"
+          >
+        </a>
+        <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
       </div>
     </section>
   </main>
 
   <footer>
     <span>Series Hub</span>
-    <span>GitHub → Cloudflare Workers</span>
+    <span>GitHub Actions → Cloudflare Workers + D1</span>
   </footer>
 
   <script type="module" src="/app.js"></script>
