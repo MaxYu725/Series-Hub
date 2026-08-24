@@ -120,7 +120,8 @@ jobs:
           test -n "${HEALTH_JSON}" || { echo "Preview /health did not become ready"; exit 1; }
 
           SHOWS_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PREVIEW_URL}/api/shows?status=airing")"
-          SYNC_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PREVIEW_URL}/api/sync-status")"
+          SCHEDULE_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PREVIEW_URL}/api/schedule?days=7")"
+          SYNC_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PREVIEW_URL}/api/sync-status?source=tvmaze")"
 
           HEALTH_JSON="${HEALTH_JSON}" node -e '
             const data = JSON.parse(process.env.HEALTH_JSON);
@@ -128,26 +129,19 @@ jobs:
               console.error("Preview health failed:", data);
               process.exit(1);
             }
-            if (data.phase !== "1-tmdb-core" || data.tmdbConfigured !== false) {
-              console.error("Preview must be Phase 1 with no production TMDB secret:", data);
+            if (data.phase !== "2-tvmaze-schedule" || data.tmdbConfigured !== false || data.tvmazeEnabled !== true) {
+              console.error("Preview must be Phase 2 with no production TMDB secret:", data);
               process.exit(1);
             }
           '
 
-          SHOWS_JSON="${SHOWS_JSON}" node -e '
-            const data = JSON.parse(process.env.SHOWS_JSON);
-            if (!Array.isArray(data.data) || data.meta?.phase !== "1-tmdb-core") {
-              console.error("Preview shows API failed:", data);
-              process.exit(1);
-            }
-          '
-
-          SYNC_JSON="${SYNC_JSON}" node -e '
-            const data = JSON.parse(process.env.SYNC_JSON);
-            if (!("data" in data)) {
-              console.error("Preview sync status API failed:", data);
-              process.exit(1);
-            }
+          SHOWS_JSON="${SHOWS_JSON}" SCHEDULE_JSON="${SCHEDULE_JSON}" SYNC_JSON="${SYNC_JSON}" node -e '
+            const shows = JSON.parse(process.env.SHOWS_JSON);
+            const schedule = JSON.parse(process.env.SCHEDULE_JSON);
+            const sync = JSON.parse(process.env.SYNC_JSON);
+            if (!Array.isArray(shows.data) || shows.meta?.phase !== "2-tvmaze-schedule") process.exit(1);
+            if (!Array.isArray(schedule.data) || schedule.meta?.phase !== "2-tvmaze-schedule") process.exit(1);
+            if (!("data" in sync) || sync.meta?.source !== "tvmaze") process.exit(1);
           '
 
       - name: Smoke-test production runtime
@@ -157,20 +151,12 @@ jobs:
           HEALTH_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/health")"
           SHOWS_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/shows")"
 
-          HEALTH_JSON="${HEALTH_JSON}" node -e '
-            const data = JSON.parse(process.env.HEALTH_JSON);
-            if (data.ok !== true || data.databaseConfigured !== true || data.databaseReachable !== true) {
-              console.error("Production health failed:", data);
-              process.exit(1);
-            }
-          '
-
-          SHOWS_JSON="${SHOWS_JSON}" node -e '
-            const data = JSON.parse(process.env.SHOWS_JSON);
-            if (!Array.isArray(data.data)) {
-              console.error("Production shows API failed:", data);
-              process.exit(1);
-            }
+          HEALTH_JSON="${HEALTH_JSON}" SHOWS_JSON="${SHOWS_JSON}" node -e '
+            const health = JSON.parse(process.env.HEALTH_JSON);
+            const shows = JSON.parse(process.env.SHOWS_JSON);
+            if (health.ok !== true || health.databaseConfigured !== true || health.databaseReachable !== true) process.exit(1);
+            if (!["1-tmdb-core", "2-tvmaze-schedule"].includes(health.phase)) process.exit(1);
+            if (!Array.isArray(shows.data)) process.exit(1);
           '
 
       - name: Publish validation summary
@@ -185,7 +171,7 @@ jobs:
             echo "- Preview Worker: ${PREVIEW_WORKER_NAME} (isolated)"
             echo "- Preview D1: ${PREVIEW_DB_NAME} (isolated)"
             echo "- Production secrets inherited by preview: no"
-            echo "- Preview runtime: passed"
+            echo "- Phase 2 schedule API: passed"
             echo "- Preview URL: ${PREVIEW_URL}"
             echo "- Production regression check: passed"
           } >> "${GITHUB_STEP_SUMMARY}"
@@ -223,7 +209,7 @@ jobs:
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
@@ -253,9 +239,7 @@ jobs:
           set -euo pipefail
           node <<'NODE'
           const fs = require('fs');
-          fs.writeFileSync('.tmdb-secrets.json', JSON.stringify({
-            TMDB_API_TOKEN: process.env.TMDB_API_TOKEN
-          }));
+          fs.writeFileSync('.tmdb-secrets.json', JSON.stringify({ TMDB_API_TOKEN: process.env.TMDB_API_TOKEN }));
           NODE
           trap 'rm -f .tmdb-secrets.json' EXIT
           npx --yes wrangler@"${WRANGLER_VERSION}" secret bulk .tmdb-secrets.json --name series-hub
@@ -265,7 +249,7 @@ jobs:
       - name: Deploy main to production
         run: npx --yes wrangler@"${WRANGLER_VERSION}" deploy
 
-      - name: Verify TMDB binding before sync
+      - name: Verify Phase 2 runtime before sync
         shell: bash
         run: |
           set -euo pipefail
@@ -274,33 +258,35 @@ jobs:
             if HEALTH_JSON="$(curl --fail --silent --show-error "${PRODUCTION_URL}/health" 2>/dev/null)"; then
               if HEALTH_JSON="${HEALTH_JSON}" node -e '
                 const data = JSON.parse(process.env.HEALTH_JSON);
-                process.exit(data.ok === true && data.phase === "1-tmdb-core" && data.tmdbConfigured === true ? 0 : 1);
+                process.exit(data.ok === true && data.phase === "2-tvmaze-schedule" && data.tmdbConfigured === true && data.tvmazeEnabled === true ? 0 : 1);
               '; then
                 READY=1
                 break
               fi
             fi
-            echo "Production TMDB binding not ready yet (${attempt}/20)"
+            echo "Production Phase 2 runtime not ready yet (${attempt}/20)"
             sleep 3
           done
-          test "${READY}" -eq 1 || { echo "Production Worker does not expose TMDB_API_TOKEN"; exit 1; }
+          test "${READY}" -eq 1 || { echo "Production Worker did not become Phase 2 ready"; exit 1; }
 
-      - name: Run immediate TMDB catalog sync
+      - name: Derive internal sync key
+        id: sync_key
         shell: bash
         run: |
           set -euo pipefail
           SYNC_KEY="$(node -e '
             const crypto = require("crypto");
-            process.stdout.write(
-              crypto.createHash("sha256")
-                .update("series-hub:tmdb-sync:v1:" + process.env.TMDB_API_TOKEN)
-                .digest("hex")
-            );
+            process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v1:" + process.env.TMDB_API_TOKEN).digest("hex"));
           ')"
-          SYNC_JSON="$(curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 \
-            -X POST \
-            -H "x-series-hub-sync-key: ${SYNC_KEY}" \
-            "${PRODUCTION_URL}/api/internal/tmdb-sync")"
+          echo "key=${SYNC_KEY}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run immediate TMDB catalog sync
+        env:
+          SYNC_KEY: ${{ steps.sync_key.outputs.key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SYNC_JSON="$(curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 -X POST -H "x-series-hub-sync-key: ${SYNC_KEY}" "${PRODUCTION_URL}/api/internal/tmdb-sync")"
           SYNC_JSON="${SYNC_JSON}" node -e '
             const data = JSON.parse(process.env.SYNC_JSON);
             if (data.ok !== true || Number(data.recordsChanged || 0) < 1) {
@@ -310,34 +296,48 @@ jobs:
             console.log(`TMDB sync accepted ${data.recordsChanged} shows from ${data.recordsSeen} candidates`);
           '
 
+      - name: Bootstrap TVmaze mappings and episodes
+        env:
+          SYNC_KEY: ${{ steps.sync_key.outputs.key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOTAL_PROCESSED=0
+          TOTAL_EPISODES=0
+          for pass in 1 2 3; do
+            SYNC_JSON="$(curl --fail --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 -X POST -H "x-series-hub-sync-key: ${SYNC_KEY}" "${PRODUCTION_URL}/api/internal/tvmaze-sync")"
+            printf '%s\n' "TVmaze pass ${pass}: ${SYNC_JSON}"
+            RESULT="$(SYNC_JSON="${SYNC_JSON}" node -e '
+              const data = JSON.parse(process.env.SYNC_JSON);
+              if (data.ok !== true) process.exit(1);
+              process.stdout.write(`${Number(data.showsProcessed || 0)} ${Number(data.recordsChanged || 0)}`);
+            ')"
+            TOTAL_PROCESSED=$((TOTAL_PROCESSED + ${RESULT%% *}))
+            TOTAL_EPISODES=$((TOTAL_EPISODES + ${RESULT##* }))
+          done
+          test "${TOTAL_PROCESSED}" -gt 0 || { echo "TVmaze did not process any mapped shows"; exit 1; }
+          test "${TOTAL_EPISODES}" -gt 0 || { echo "TVmaze did not normalize any episodes"; exit 1; }
+          echo "TVmaze bootstrap processed ${TOTAL_PROCESSED} show passes and normalized ${TOTAL_EPISODES} episode rows"
+
       - name: Verify production runtime
         shell: bash
         run: |
           set -euo pipefail
           HEALTH_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/health")"
           SHOWS_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/shows?limit=60")"
-          SYNC_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/sync-status")"
+          SCHEDULE_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/schedule?days=14")"
+          TMDB_SYNC_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/sync-status?source=tmdb")"
+          TVMAZE_SYNC_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/sync-status?source=tvmaze")"
 
-          HEALTH_JSON="${HEALTH_JSON}" node -e '
-            const data = JSON.parse(process.env.HEALTH_JSON);
-            if (data.ok !== true || data.databaseConfigured !== true || data.databaseReachable !== true || data.phase !== "1-tmdb-core" || data.tmdbConfigured !== true) {
-              console.error("Production health failed:", data);
-              process.exit(1);
-            }
-          '
-
-          SHOWS_JSON="${SHOWS_JSON}" node -e '
-            const data = JSON.parse(process.env.SHOWS_JSON);
-            if (!Array.isArray(data.data) || data.meta?.phase !== "1-tmdb-core" || data.data.length < 1) {
-              console.error("Production shows API failed:", data);
-              process.exit(1);
-            }
-          '
-
-          SYNC_JSON="${SYNC_JSON}" node -e '
-            const data = JSON.parse(process.env.SYNC_JSON);
-            if (!data.data || !["success", "success_with_warnings"].includes(data.data.status)) {
-              console.error("Production sync status failed:", data);
-              process.exit(1);
-            }
+          HEALTH_JSON="${HEALTH_JSON}" SHOWS_JSON="${SHOWS_JSON}" SCHEDULE_JSON="${SCHEDULE_JSON}" TMDB_SYNC_JSON="${TMDB_SYNC_JSON}" TVMAZE_SYNC_JSON="${TVMAZE_SYNC_JSON}" node -e '
+            const health = JSON.parse(process.env.HEALTH_JSON);
+            const shows = JSON.parse(process.env.SHOWS_JSON);
+            const schedule = JSON.parse(process.env.SCHEDULE_JSON);
+            const tmdb = JSON.parse(process.env.TMDB_SYNC_JSON);
+            const tvmaze = JSON.parse(process.env.TVMAZE_SYNC_JSON);
+            if (health.ok !== true || health.phase !== "2-tvmaze-schedule" || health.tmdbConfigured !== true || health.tvmazeEnabled !== true) process.exit(1);
+            if (!Array.isArray(shows.data) || shows.meta?.phase !== "2-tvmaze-schedule" || shows.data.length < 1) process.exit(1);
+            if (!Array.isArray(schedule.data) || schedule.meta?.source !== "TVmaze") process.exit(1);
+            if (!tmdb.data || !["success", "success_with_warnings"].includes(tmdb.data.status)) process.exit(1);
+            if (!tvmaze.data || !["success", "success_with_warnings"].includes(tvmaze.data.status) || Number(tvmaze.data.records_changed || 0) < 1) process.exit(1);
           '
