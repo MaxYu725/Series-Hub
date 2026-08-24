@@ -6,22 +6,20 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/health"]
+    "run_worker_first": [
+      "/api/*",
+      "/health"
+    ]
   },
   "observability": {
     "enabled": true
-  }
-
-  // Phase 0 bootstrap note:
-  // Add the real D1 binding only after the database has been created in the
-  // Cloudflare dashboard. Never commit a made-up database UUID.
-  //
-  // "d1_databases": [
-  //   {
-  //     "binding": "DB",
-  //     "database_name": "series-hub-db",
-  //     "database_id": "<REAL_DATABASE_UUID>",
-  //     "migrations_dir": "migrations"
-  //   }
-  // ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "series-hub-db",
+      "database_id": "531edf79-942a-4ff8-9dcb-eaea861a1a69",
+      "migrations_dir": "migrations"
+    }
+  ]
 }
