@@ -6,6 +6,7 @@ import {
   TMDB_SYNC_BUDGET,
   isIncludedUsScriptedSeries,
   isTargetNetworkSeries,
+  networkDiscoveryParams,
   normalizeLifecycle,
   selectRoundRobinCandidates
 } from "../src/tmdb.js";
@@ -93,6 +94,29 @@ test("core network seeds include FX and remain within the Worker subrequest budg
   assert.equal(TMDB_SYNC_BUDGET.detailRequests, 40);
   assert.equal(TMDB_SYNC_BUDGET.totalExternalRequests, 48);
   assert.ok(TMDB_SYNC_BUDGET.totalExternalRequests <= 50);
+});
+
+test("FOX discovery uses a rolling three-year first-air window without changing request count", () => {
+  const fox = CORE_NETWORK_SEEDS.find((seed) => seed.name === "FOX");
+  assert.ok(fox);
+  assert.equal(fox.recentFirstAirYears, 3);
+  assert.deepEqual(networkDiscoveryParams(fox, NOW), {
+    with_networks: 19,
+    "first_air_date.gte": "2023-01-01"
+  });
+  assert.equal(TMDB_SYNC_BUDGET.networkDiscoveryRequests, CORE_NETWORK_SEEDS.length);
+  assert.equal(TMDB_SYNC_BUDGET.totalExternalRequests, 48);
+});
+
+test("non-FOX network discovery remains unchanged and unbounded by first-air date", () => {
+  for (const seed of CORE_NETWORK_SEEDS.filter((item) => item.name !== "FOX")) {
+    assert.deepEqual(networkDiscoveryParams(seed, NOW), { with_networks: seed.tmdbNetworkId }, seed.name);
+  }
+});
+
+test("FOX rolling window advances with the calendar year", () => {
+  const fox = CORE_NETWORK_SEEDS.find((seed) => seed.name === "FOX");
+  assert.equal(networkDiscoveryParams(fox, new Date("2027-01-01T00:00:00Z"))["first_air_date.gte"], "2024-01-01");
 });
 
 test("round-robin candidate selection gives every discovery feed early representation", () => {
