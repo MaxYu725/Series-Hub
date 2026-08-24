@@ -1,0 +1,13 @@
+{
+  "name": "series-hub",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "preview": "wrangler versions upload"
+  },
+  "devDependencies": {
+    "wrangler": "4.125.0"
+  }
+}
