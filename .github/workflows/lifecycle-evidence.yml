@@ -1,0 +1,219 @@
+name: Lifecycle evidence editorial
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Evidence action"
+        required: true
+        default: upsert
+        type: choice
+        options:
+          - upsert
+          - retract
+      show_id:
+        description: "Series Hub show ID (required for upsert)"
+        required: false
+        type: string
+      season_number:
+        description: "Affected season number; blank for series-level evidence"
+        required: false
+        type: string
+      event_type:
+        description: "Normalized lifecycle event (required for upsert)"
+        required: false
+        default: renewed
+        type: choice
+        options:
+          - renewed
+          - ordered
+          - cancelled
+          - final_season
+          - ended
+          - pre_production
+          - filming
+          - wrapped
+          - post_production
+          - production_paused
+          - premiere_dated
+          - delayed
+      source_key:
+        description: "Registered official source"
+        required: false
+        default: apple_tv_press
+        type: choice
+        options:
+          - apple_tv_press
+      source_url:
+        description: "Exact official evidence URL"
+        required: false
+        type: string
+      source_title:
+        description: "Official page/article title"
+        required: false
+        type: string
+      source_published_at:
+        description: "Official publication date (YYYY-MM-DD)"
+        required: false
+        type: string
+      confidence:
+        description: "Evidence confidence"
+        required: false
+        default: official
+        type: choice
+        options:
+          - official
+          - high
+          - normal
+          - unverified
+      evidence_note:
+        description: "Short editorial note; do not paste article text"
+        required: false
+        type: string
+      event_id:
+        description: "Lifecycle event ID (required for retract)"
+        required: false
+        type: string
+      retraction_note:
+        description: "Reason for retracting evidence"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifecycle-evidence-editorial
+  cancel-in-progress: false
+
+env:
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
+      INPUT_ACTION: ${{ inputs.action }}
+      INPUT_SHOW_ID: ${{ inputs.show_id }}
+      INPUT_SEASON_NUMBER: ${{ inputs.season_number }}
+      INPUT_EVENT_TYPE: ${{ inputs.event_type }}
+      INPUT_SOURCE_KEY: ${{ inputs.source_key }}
+      INPUT_SOURCE_URL: ${{ inputs.source_url }}
+      INPUT_SOURCE_TITLE: ${{ inputs.source_title }}
+      INPUT_SOURCE_PUBLISHED_AT: ${{ inputs.source_published_at }}
+      INPUT_CONFIDENCE: ${{ inputs.confidence }}
+      INPUT_EVIDENCE_NOTE: ${{ inputs.evidence_note }}
+      INPUT_EVENT_ID: ${{ inputs.event_id }}
+      INPUT_RETRACTION_NOTE: ${{ inputs.retraction_note }}
+
+    steps:
+      - name: Validate secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API secret is missing"; exit 1; }
+
+      - name: Derive internal authorization key
+        id: auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY="$(node -e '
+            const crypto = require("crypto");
+            process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v1:" + process.env.TMDB_API_TOKEN).digest("hex"));
+          ')"
+          echo "key=${KEY}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build validated request body
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("fs");
+          const action = process.env.INPUT_ACTION;
+          let payload;
+
+          if (action === "retract") {
+            const eventId = Number(process.env.INPUT_EVENT_ID);
+            const retractionNote = String(process.env.INPUT_RETRACTION_NOTE || "").trim();
+            if (!Number.isSafeInteger(eventId) || eventId <= 0) throw new Error("event_id must be a positive integer for retract");
+            if (!retractionNote || retractionNote.length > 300) throw new Error("retraction_note is required and must be <= 300 chars");
+            payload = { action, eventId, retractionNote };
+          } else {
+            const showId = Number(process.env.INPUT_SHOW_ID);
+            const seasonText = String(process.env.INPUT_SEASON_NUMBER || "").trim();
+            const seasonNumber = seasonText ? Number(seasonText) : null;
+            const sourceUrl = String(process.env.INPUT_SOURCE_URL || "").trim();
+            const sourceTitle = String(process.env.INPUT_SOURCE_TITLE || "").trim();
+            const publishedAt = String(process.env.INPUT_SOURCE_PUBLISHED_AT || "").trim();
+            const evidenceNote = String(process.env.INPUT_EVIDENCE_NOTE || "").trim();
+
+            if (!Number.isSafeInteger(showId) || showId <= 0) throw new Error("show_id must be a positive integer for upsert");
+            if (seasonNumber !== null && (!Number.isSafeInteger(seasonNumber) || seasonNumber < 0)) throw new Error("season_number must be blank or non-negative integer");
+            if (!sourceUrl || !sourceTitle || !publishedAt) throw new Error("source_url, source_title and source_published_at are required for upsert");
+
+            payload = {
+              action,
+              showId,
+              seasonNumber,
+              eventType: process.env.INPUT_EVENT_TYPE,
+              sourceKey: process.env.INPUT_SOURCE_KEY,
+              sourceUrl,
+              sourceTitle,
+              sourcePublishedAt: publishedAt,
+              confidence: process.env.INPUT_CONFIDENCE,
+              evidenceNote: evidenceNote || null
+            };
+          }
+
+          fs.writeFileSync(".lifecycle-request.json", JSON.stringify(payload));
+          NODE
+
+      - name: Apply protected production evidence mutation
+        id: apply
+        env:
+          INTERNAL_KEY: ${{ steps.auth.outputs.key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f .lifecycle-request.json' EXIT
+          RESPONSE="$(curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "content-type: application/json" \
+            -H "x-series-hub-sync-key: ${INTERNAL_KEY}" \
+            --data-binary @.lifecycle-request.json \
+            "${PRODUCTION_URL}/api/internal/lifecycle-evidence")"
+          printf '%s\n' "${RESPONSE}"
+          RESPONSE="${RESPONSE}" node -e '
+            const payload = JSON.parse(process.env.RESPONSE);
+            if (payload.ok !== true) process.exit(1);
+          '
+
+      - name: Verify public lifecycle projection
+        if: ${{ inputs.action == 'upsert' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail --silent --show-error "${PRODUCTION_URL}/api/shows/${INPUT_SHOW_ID}/lifecycle")"
+          printf '%s\n' "${RESPONSE}"
+          RESPONSE="${RESPONSE}" node -e '
+            const payload = JSON.parse(process.env.RESPONSE);
+            if (!Array.isArray(payload.data) || !payload.summary || payload.meta?.authoritativeFactsOnly !== true) process.exit(1);
+          '
+
+      - name: Publish summary
+        shell: bash
+        run: |
+          {
+            echo "## Lifecycle evidence editorial"
+            echo
+            echo "- Action: ${INPUT_ACTION}"
+            echo "- Show ID: ${INPUT_SHOW_ID:-n/a}"
+            echo "- Season: ${INPUT_SEASON_NUMBER:-series-level}"
+            echo "- Event: ${INPUT_EVENT_TYPE:-n/a}"
+            echo "- Source: ${INPUT_SOURCE_KEY:-n/a}"
+            echo "- Confidence: ${INPUT_CONFIDENCE:-n/a}"
+            echo "- Policy: evidence is stored separately; this workflow never directly overwrites TMDB lifecycle fields."
+          } >> "${GITHUB_STEP_SUMMARY}"

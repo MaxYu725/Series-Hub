@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "series-hub",
-  "main": "./src/index.js",
+  "main": "./src/phase4-worker.js",
   "compatibility_date": "2026-08-23",
   "assets": {
     "directory": "./public",
