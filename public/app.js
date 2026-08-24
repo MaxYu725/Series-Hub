@@ -1,12 +1,25 @@
+import {
+  addDateKeyDays,
+  episodeCode,
+  episodeLocalDateKey,
+  localDateKey,
+  scheduleWindow
+} from "./schedule-utils.js";
+
 const views = {
-  airing: { title: "播映中", kicker: "AIRING" },
-  upcoming: { title: "即將播映", kicker: "UPCOMING" },
-  planned: { title: "計劃播出", kicker: "PLANNED" }
+  today: { title: "今日播映", kicker: "TODAY", type: "schedule", days: 1 },
+  week: { title: "本週播映", kicker: "THIS WEEK", type: "schedule", days: 7 },
+  airing: { title: "播映中", kicker: "AIRING", type: "catalog", status: "airing" },
+  upcoming: { title: "即將播映", kicker: "UPCOMING", type: "catalog", status: "upcoming" },
+  planned: { title: "計劃播出", kicker: "PLANNED", type: "catalog", status: "planned" }
 };
 
+const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Local";
+
 const state = {
-  view: "airing",
+  view: "today",
   shows: [],
+  episodes: [],
   query: "",
   loading: false,
   requestId: 0
@@ -17,8 +30,10 @@ const syncText = document.querySelector("#sync-text");
 const statusDot = document.querySelector("#status-dot");
 const viewTitle = document.querySelector("#view-title");
 const viewKicker = document.querySelector("#view-kicker");
+const viewContext = document.querySelector("#view-context");
 const showCount = document.querySelector("#show-count");
 const showGrid = document.querySelector("#show-grid");
+const scheduleList = document.querySelector("#schedule-list");
 const emptyState = document.querySelector("#empty-state");
 const emptyTitle = document.querySelector("#empty-title");
 const emptyCopy = document.querySelector("#empty-copy");
@@ -41,20 +56,65 @@ function formatDate(date) {
   }).format(parsed);
 }
 
-function chineseTitle(show) {
-  const titles = [show.title_zh_hk, show.title_zh_tw, show.title_zh_cn].filter(Boolean);
+function formatScheduleDate(dateKey) {
+  const parsed = new Date(`${dateKey}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return dateKey;
+  const formatted = new Intl.DateTimeFormat("zh-HK", {
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+    timeZone: "UTC"
+  }).format(parsed);
+  return dateKey === localDateKey() ? `今日 · ${formatted}` : formatted;
+}
+
+function formatEpisodeTime(episode) {
+  if (episode.air_timestamp) {
+    const parsed = new Date(episode.air_timestamp);
+    if (!Number.isNaN(parsed.getTime())) {
+      return {
+        text: new Intl.DateTimeFormat("zh-HK", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false
+        }).format(parsed),
+        exactLocal: true
+      };
+    }
+  }
+
+  if (episode.air_time) return { text: `原播 ${episode.air_time}`, exactLocal: false };
+  return { text: "時間未定", exactLocal: false };
+}
+
+function formatSyncStamp(value) {
+  if (!value) return null;
+  const normalized = /Z$|[+-]\d\d:\d\d$/.test(value) ? value : `${value.replace(" ", "T")}Z`;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-HK", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(parsed);
+}
+
+function chineseTitle(item) {
+  const titles = [item.title_zh_hk, item.title_zh_tw, item.title_zh_cn].filter(Boolean);
   return [...new Set(titles)].join(" / ");
 }
 
 function statusLine(show) {
+  const scheduleDate = show.tvmaze_next_episode_date || show.next_air_date;
+
   if (show.status === "airing") {
-    return show.next_air_date ? `下集 ${formatDate(show.next_air_date)}` : "播映中";
+    return scheduleDate ? `下集 ${formatDate(scheduleDate)}` : "播映中";
   }
 
   if (show.status === "upcoming") {
-    return show.next_air_date
-      ? `首播 ${formatDate(show.next_air_date)}`
-      : "已公布播映日期";
+    return scheduleDate ? `首播 ${formatDate(scheduleDate)}` : "已公布播映日期";
   }
 
   if (show.status === "planned") return "已續訂／製作中 · 日期待定";
@@ -129,48 +189,208 @@ function createShowCard(show) {
   return card;
 }
 
-function render() {
-  const view = views[state.view];
-  viewTitle.textContent = view.title;
-  viewKicker.textContent = view.kicker;
-  showCount.textContent = state.loading ? "載入中…" : `${state.shows.length} 套`;
-  showGrid.replaceChildren();
+function createScheduleRow(episode) {
+  const row = document.createElement("article");
+  row.className = "schedule-row";
 
-  for (const show of state.shows) {
-    showGrid.append(createShowCard(show));
+  const posterWrap = document.createElement("div");
+  posterWrap.className = "schedule-poster-wrap";
+
+  if (episode.poster_url) {
+    const poster = document.createElement("img");
+    poster.className = "schedule-poster";
+    poster.src = episode.poster_url;
+    poster.alt = `${episode.english_title || episode.original_title} poster`;
+    poster.loading = "lazy";
+    poster.decoding = "async";
+    posterWrap.append(poster);
+  } else {
+    const placeholder = document.createElement("div");
+    placeholder.className = "schedule-poster schedule-poster-placeholder";
+    placeholder.textContent = "SH";
+    posterWrap.append(placeholder);
   }
 
-  const isEmpty = !state.loading && state.shows.length === 0;
-  emptyState.hidden = !isEmpty;
+  const body = document.createElement("div");
+  body.className = "schedule-body";
 
-  if (state.query && isEmpty) {
-    emptyTitle.textContent = "找不到符合的劇集";
-    emptyCopy.textContent = `目前「${view.title}」沒有符合「${state.query}」的結果。`;
-  } else if (isEmpty) {
-    emptyTitle.textContent = `${view.title}暫未有劇集資料`;
-    emptyCopy.textContent = "Phase 1 catalog 已準備好，完成 TMDB token 設定及首次同步後便會顯示劇集。";
+  const zh = chineseTitle(episode);
+  const title = document.createElement("h4");
+  title.textContent = zh || episode.english_title || episode.original_title;
+
+  if (zh && episode.english_title) {
+    const english = document.createElement("p");
+    english.className = "schedule-english";
+    english.textContent = episode.english_title;
+    body.append(title, english);
+  } else {
+    body.append(title);
+  }
+
+  const episodeLine = document.createElement("p");
+  episodeLine.className = "episode-line";
+  const code = episodeCode(episode);
+  episodeLine.textContent = [code, episode.episode_name].filter(Boolean).join(" · ") || "集數資料待補";
+
+  const meta = document.createElement("div");
+  meta.className = "schedule-meta";
+  if (episode.networks) {
+    const network = document.createElement("span");
+    network.textContent = episode.networks;
+    meta.append(network);
+  }
+  if (Number(episode.runtime_minutes) > 0) {
+    const runtime = document.createElement("span");
+    runtime.textContent = `${Number(episode.runtime_minutes)} 分鐘`;
+    meta.append(runtime);
+  }
+
+  body.append(episodeLine, meta);
+
+  const side = document.createElement("div");
+  side.className = "schedule-side";
+  const time = formatEpisodeTime(episode);
+  const timeText = document.createElement("strong");
+  timeText.className = time.exactLocal ? "schedule-time exact" : "schedule-time";
+  timeText.textContent = time.text;
+  side.append(timeText);
+
+  const timeNote = document.createElement("span");
+  timeNote.className = "schedule-time-note";
+  timeNote.textContent = time.exactLocal ? "本地時間" : "TVmaze 來源日期";
+  side.append(timeNote);
+
+  if (episode.source_url) {
+    const source = document.createElement("a");
+    source.className = "schedule-source";
+    source.href = episode.source_url;
+    source.target = "_blank";
+    source.rel = "noreferrer";
+    source.textContent = "TVmaze";
+    side.append(source);
+  }
+
+  row.append(posterWrap, body, side);
+  return row;
+}
+
+function matchesScheduleQuery(episode, query) {
+  if (!query) return true;
+  const needle = query.toLocaleLowerCase();
+  return [
+    episode.english_title,
+    episode.original_title,
+    episode.title_zh_hk,
+    episode.title_zh_tw,
+    episode.title_zh_cn,
+    episode.episode_name,
+    episode.networks
+  ].filter(Boolean).some((value) => String(value).toLocaleLowerCase().includes(needle));
+}
+
+function renderSchedule() {
+  scheduleList.replaceChildren();
+  const groups = new Map();
+
+  for (const episode of state.episodes) {
+    const dateKey = episodeLocalDateKey(episode, browserTimeZone) || episode.air_date || "unknown";
+    if (!groups.has(dateKey)) groups.set(dateKey, []);
+    groups.get(dateKey).push(episode);
+  }
+
+  for (const [dateKey, episodes] of groups) {
+    const day = document.createElement("section");
+    day.className = "schedule-day";
+
+    const heading = document.createElement("div");
+    heading.className = "schedule-day-heading";
+    const title = document.createElement("h4");
+    title.textContent = dateKey === "unknown" ? "日期待確認" : formatScheduleDate(dateKey);
+    const count = document.createElement("span");
+    count.textContent = `${episodes.length} 集`;
+    heading.append(title, count);
+
+    const rows = document.createElement("div");
+    rows.className = "schedule-rows";
+    for (const episode of episodes) rows.append(createScheduleRow(episode));
+
+    day.append(heading, rows);
+    scheduleList.append(day);
   }
 }
 
-async function loadShows() {
+function render() {
+  const view = views[state.view];
+  const isSchedule = view.type === "schedule";
+  viewTitle.textContent = view.title;
+  viewKicker.textContent = view.kicker;
+  viewContext.textContent = isSchedule ? `有精確 timestamp 時按 ${browserTimeZone} 顯示；否則保留 TVmaze 來源日期。` : "Series lifecycle 由 TMDB 主資料正規化。";
+
+  showGrid.hidden = isSchedule;
+  scheduleList.hidden = !isSchedule;
+  showGrid.replaceChildren();
+  if (isSchedule) renderSchedule();
+  else for (const show of state.shows) showGrid.append(createShowCard(show));
+
+  const count = isSchedule ? state.episodes.length : state.shows.length;
+  showCount.textContent = state.loading ? "載入中…" : isSchedule ? `${count} 集` : `${count} 套`;
+
+  const isEmpty = !state.loading && count === 0;
+  emptyState.hidden = !isEmpty;
+
+  if (!isEmpty) return;
+  if (state.query) {
+    emptyTitle.textContent = "找不到符合的資料";
+    emptyCopy.textContent = `目前「${view.title}」沒有符合「${state.query}」的結果。`;
+  } else if (isSchedule) {
+    emptyTitle.textContent = `${view.title}暫未有已確認集數`;
+    emptyCopy.textContent = "TVmaze 暫未提供這個時段的逐集排程；劇集本身仍可在播映中／即將播映檢視查看。";
+  } else {
+    emptyTitle.textContent = `${view.title}暫未有劇集資料`;
+    emptyCopy.textContent = "目前 catalog 沒有符合這個 lifecycle 的劇集。";
+  }
+}
+
+async function loadCatalog(view, requestId) {
+  const params = new URLSearchParams({ status: view.status, limit: "60" });
+  if (state.query) params.set("q", state.query);
+  const response = await fetch(`/api/shows?${params}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Shows ${response.status}`);
+  const payload = await response.json();
+  if (requestId !== state.requestId) return;
+  state.shows = Array.isArray(payload.data) ? payload.data : [];
+  state.episodes = [];
+}
+
+async function loadSchedule(view, requestId) {
+  const today = localDateKey();
+  const from = addDateKeyDays(today, -1);
+  const apiDays = Math.min(view.days + 2, 14);
+  const params = new URLSearchParams({ from, days: String(apiDays) });
+  const response = await fetch(`/api/schedule?${params}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Schedule ${response.status}`);
+  const payload = await response.json();
+  if (requestId !== state.requestId) return;
+  const windowEpisodes = scheduleWindow(payload.data, today, view.days, browserTimeZone);
+  state.episodes = windowEpisodes.filter((episode) => matchesScheduleQuery(episode, state.query));
+  state.shows = [];
+}
+
+async function loadCurrentView() {
   const requestId = ++state.requestId;
+  const view = views[state.view];
   state.loading = true;
   render();
 
-  const params = new URLSearchParams({ status: state.view, limit: "60" });
-  if (state.query) params.set("q", state.query);
-
   try {
-    const response = await fetch(`/api/shows?${params}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Shows ${response.status}`);
-    const payload = await response.json();
-    if (requestId !== state.requestId) return;
-    state.shows = Array.isArray(payload.data) ? payload.data : [];
+    if (view.type === "schedule") await loadSchedule(view, requestId);
+    else await loadCatalog(view, requestId);
   } catch (error) {
     if (requestId !== state.requestId) return;
     console.error(error);
     state.shows = [];
-    setHealth("error", "劇集 API 暫時無法讀取");
+    state.episodes = [];
+    setHealth("error", view.type === "schedule" ? "排程 API 暫時無法讀取" : "劇集 API 暫時無法讀取");
   } finally {
     if (requestId === state.requestId) {
       state.loading = false;
@@ -181,31 +401,31 @@ async function loadShows() {
 
 async function loadSystemStatus() {
   try {
-    const [healthResponse, syncResponse] = await Promise.all([
+    const [healthResponse, tmdbResponse, tvmazeResponse] = await Promise.all([
       fetch("/health", { cache: "no-store" }),
-      fetch("/api/sync-status", { cache: "no-store" })
+      fetch("/api/sync-status?source=tmdb", { cache: "no-store" }),
+      fetch("/api/sync-status?source=tvmaze", { cache: "no-store" })
     ]);
 
     if (!healthResponse.ok) throw new Error(`Health ${healthResponse.status}`);
     const health = await healthResponse.json();
 
-    if (health.databaseConfigured && health.databaseReachable && health.tmdbConfigured) {
-      setHealth("ok", "API 正常 · D1 已連接 · TMDB 已設定");
-    } else if (health.databaseConfigured && health.databaseReachable) {
-      setHealth("warn", "API 正常 · D1 已連接 · TMDB token 待設定");
+    if (health.databaseConfigured && health.databaseReachable && health.tmdbConfigured && health.tvmazeEnabled) {
+      setHealth("ok", "API 正常 · D1 已連接 · TMDB + TVmaze 已啟用");
+    } else if (health.databaseConfigured && health.databaseReachable && health.tvmazeEnabled) {
+      setHealth("warn", "API 正常 · D1 已連接 · TVmaze 排程可用");
     } else if (health.databaseConfigured) {
-      setHealth("error", "API 正常 · D1 binding 存在但未能查詢");
+      setHealth("error", "API 正常 · D1 binding 存在但未能完整查詢");
     } else {
       setHealth("error", "API 正常 · D1 未設定");
     }
 
-    if (syncResponse.ok) {
-      const sync = await syncResponse.json();
-      if (sync.data?.finished_at) {
-        const changed = Number(sync.data.records_changed || 0);
-        syncText.textContent = `TMDB 最近同步：${sync.data.finished_at} · 更新 ${changed} 套`;
-      }
-    }
+    const tmdb = tmdbResponse.ok ? await tmdbResponse.json() : null;
+    const tvmaze = tvmazeResponse.ok ? await tvmazeResponse.json() : null;
+    const parts = [];
+    if (tmdb?.data?.finished_at) parts.push(`TMDB ${formatSyncStamp(tmdb.data.finished_at)}`);
+    if (tvmaze?.data?.finished_at) parts.push(`TVmaze ${formatSyncStamp(tvmaze.data.finished_at)}`);
+    syncText.textContent = parts.length ? `最近同步：${parts.join(" · ")}` : "尚未有完整同步紀錄";
   } catch (error) {
     console.error(error);
     setHealth("error", "API 暫時無法連線");
@@ -217,7 +437,7 @@ searchInput.addEventListener("input", () => {
   window.clearTimeout(searchTimer);
   searchTimer = window.setTimeout(() => {
     state.query = searchInput.value.trim();
-    loadShows();
+    loadCurrentView();
   }, 250);
 });
 
@@ -228,10 +448,11 @@ document.querySelectorAll(".filter").forEach((button) => {
     button.classList.add("active");
     state.view = button.dataset.view;
     state.shows = [];
-    loadShows();
+    state.episodes = [];
+    loadCurrentView();
   });
 });
 
 render();
 loadSystemStatus();
-loadShows();
+loadCurrentView();
