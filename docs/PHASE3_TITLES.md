@@ -66,7 +66,7 @@ The UI only adds provenance text when it matters:
 - `人工校正` when the displayed preferred title comes from the manual source;
 - a regional fallback note when the requested region has no title and another region is used.
 
-## Phase 3B handoff
+## Phase 3B acceptance
 
 After Phase 3A is deployed:
 
@@ -79,3 +79,14 @@ After Phase 3A is deployed:
 7. only then promote the service phase identifier to Phase 3 and mark Phase 3 complete.
 
 Do not start Phase 4 renewal/production scraping until these acceptance steps are complete.
+
+
+### Accepted production snapshot — 2026-08-24
+
+- active series 28; HK 28/28; TW 28/28; CN 24/28;
+- `The Shards` → `青春碎片` (HK), `manual / official`;
+- post-override TMDB refresh `success`, 137 seen / 23 changed;
+- manual preferred title survived the refresh;
+- 36/36 tests plus isolated preview and production regression passed.
+
+Phase 3 is complete; this regional-title policy remains authoritative during Phase 4.
