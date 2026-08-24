@@ -1,57 +1,59 @@
 # Cloudflare Setup — Browser-Only
 
-This document describes the Phase 0 dashboard workflow. It intentionally assumes no local CLI.
+Series Hub is operated without a local development requirement. Production deployment is connected directly from GitHub to Cloudflare Workers Builds.
 
-## 1. Import the GitHub repository
+## 1. GitHub → Cloudflare deployment
 
-In Cloudflare Dashboard:
+Cloudflare Worker/project name: `series-hub`
 
-1. Open **Workers & Pages**.
-2. Choose **Create application**.
-3. Choose the option to import a repository.
-4. Select GitHub and repository `MaxYu725/Series-Hub`.
-5. Ensure the Cloudflare Worker/project name is exactly `series-hub` so it matches `wrangler.jsonc`.
-6. Production branch: `main`.
-7. Build command: leave empty; this project has no compile step.
-8. Deploy command: use the Workers Builds default `npx wrangler deploy`.
-9. Non-production branch deploy command: use the default `npx wrangler versions upload`.
-10. Save and deploy.
+Production branch: `main`
 
-The first production deployment should succeed without D1 because the initial `wrangler.jsonc` intentionally has no D1 binding yet.
+The repository contains `wrangler.jsonc`, so deployment configuration is treated as source-controlled infrastructure. Production changes should flow through a branch and pull request before reaching `main`.
 
-## 2. Verify foundation endpoints
+## 2. Foundation endpoints
 
-Open the generated `workers.dev` hostname.
+The deployed Worker exposes:
 
-Expected:
+- `/` — Series Hub frontend shell
+- `/health` — service and D1 binding health
+- `/api/shows` — Phase 0 shows API
 
-- `/` loads the Series Hub Phase 0 shell.
-- `/health` returns `ok: true` and `databaseConfigured: false`.
-- `/api/shows` returns an empty `data` array.
+Before D1 is connected, `/health` can report `databaseConfigured: false`. After the Phase 0 bootstrap completes, it must report both `databaseConfigured: true` and `databaseReachable: true`.
 
-## 3. Create D1
+## 3. Cloudflare credentials for automation
 
-In the Cloudflare Dashboard, create a D1 database named:
+The GitHub repository contains two Actions secrets:
 
-```text
-series-hub-db
-```
+- `CF_API` — Cloudflare API token
+- `CF_ID` — Cloudflare account ID
 
-Record the real database UUID shown by Cloudflare.
+The workflow maps them at runtime to Wrangler's expected environment variables:
 
-## 4. Apply the initial migration
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
 
-Open the database SQL console in the browser and execute the contents of:
+Neither credential is written into the repository, Worker source, frontend assets, logs intentionally, or `wrangler.jsonc`.
 
-```text
-migrations/0001_initial.sql
-```
+## 4. Automated D1 bootstrap
 
-This creates the Phase 0 tables and indexes.
+`.github/workflows/phase0-cloudflare-bootstrap.yml` handles the Phase 0 D1 bootstrap from a pull request.
 
-## 5. Add the D1 binding to source control
+It performs these operations:
 
-Update `wrangler.jsonc` on a GitHub branch by replacing the commented example with:
+1. validates the GitHub Actions Cloudflare credentials;
+2. reuses an existing `series-hub-db`, or creates it with the APAC location hint;
+3. resolves the real D1 UUID;
+4. adds the `DB` binding to a validation worktree;
+5. applies the migrations in `migrations/` remotely;
+6. verifies the expected Phase 0 tables;
+7. runs `wrangler deploy --dry-run`;
+8. uploads a non-production Worker version for validation.
+
+The D1 UUID is an infrastructure identifier, not a secret. Once resolved and validated, it is committed to `wrangler.jsonc` so source control remains the authoritative Worker configuration.
+
+## 5. D1 binding
+
+The final binding has this shape:
 
 ```jsonc
 "d1_databases": [
@@ -64,22 +66,27 @@ Update `wrangler.jsonc` on a GitHub branch by replacing the commented example wi
 ]
 ```
 
-The database UUID is an identifier, not an API secret. API credentials/tokens must still never be committed.
+Application code accesses the database through `env.DB`.
 
 ## 6. Post-binding verification
 
-After Cloudflare deploys the change:
+After the binding reaches production:
 
-- `/health` should report `databaseConfigured: true`.
-- `/health` should report `databaseReachable: true`.
-- `/api/shows` should return HTTP 200 with an empty array until Phase 1 inserts data.
+- `/health` must return HTTP 200;
+- `databaseConfigured` must be `true`;
+- `databaseReachable` must be `true`;
+- `/api/shows` must return HTTP 200 and an empty data set until Phase 1 inserts series records.
 
 ## Preview workflow
 
-Cloudflare Workers Builds can create preview versions for non-production branches. Phase 0 uses the following workflow:
+Infrastructure and application changes follow:
 
 ```text
-branch → preview build → browser check → PR → main → production
+branch → PR validation/preview → review → main → production
 ```
 
-Do not bypass preview verification for schema, routing or deployment-configuration changes.
+Production traffic must not be used as the first validation target for schema, routing, or deployment-configuration changes.
+
+## Dashboard fallback
+
+Cloudflare Dashboard remains available as a recovery/fallback path, but normal Series Hub development should not require manually creating D1 resources or editing Worker bindings in the dashboard while the GitHub automation is healthy.
