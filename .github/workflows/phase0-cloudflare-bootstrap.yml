@@ -85,19 +85,6 @@ jobs:
             }
           '
 
-      # One-time transition only for PR 4: deploy the already-merged base main,
-      # never the PR branch, so production can be brought onto the validated D1
-      # binding before the final steady-state workflow is committed.
-      - name: Synchronize existing main to production for Phase 0 transition
-        if: github.event.pull_request.number == 4
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch origin main --depth=1
-          git worktree add ../production-main origin/main
-          cd ../production-main
-          npx --yes wrangler@"${WRANGLER_VERSION}" deploy
-
       - name: Smoke-test production runtime
         shell: bash
         run: |
@@ -132,7 +119,7 @@ jobs:
             echo "- Worker dry-run: passed"
             echo "- Preview runtime: passed"
             echo "- Preview URL: ${PREVIEW_URL}"
-            echo "- Production runtime: passed"
+            echo "- Production regression check: passed"
             echo "- D1 binding/reachability: passed"
           } >> "${GITHUB_STEP_SUMMARY}"
 
