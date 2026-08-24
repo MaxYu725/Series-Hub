@@ -7,6 +7,8 @@ Phase 4 adds official renewal, cancellation and production-state evidence withou
 - **4A — evidence foundation:** event-sourced lifecycle records, provenance, retraction, protected editorial ingestion and the first Apple TV Press production evidence.
 - **4B — visible official projection:** bulk lifecycle API plus season-specific official badges/source links in the catalog UI. Existing `airing` / `upcoming` / `planned` classification remains untouched.
 - **4C — verified official source registry:** expand the browser-operated editorial whitelist to additional official publishers only after their canonical domains and URL structure are verified.
+- **4D — second-source production acceptance:** prove the same evidence contract against Amazon Entertainment with Reacher season 5.
+- **4E — multi-source acceptance:** validate WBD/HBO and Netflix official news against existing production catalog identities. FOX remains gated until a current FOX scripted title is naturally present in the catalog.
 - **Later collector phase:** automate only source formats that prove stable enough to parse without weakening provenance, source URL validation or show/season identity rules.
 
 ## Evidence model
@@ -56,7 +58,7 @@ Each event retains:
 
 `official` confidence is accepted only from a source registered with `trust_level=official`. The submitted URL must match that source's registered HTTPS host and path prefix.
 
-Verified source registry after Phase 4C:
+Verified source registry through Phase 4E:
 
 | Source key | Display name | Allowed base |
 | --- | --- | --- |
@@ -64,15 +66,18 @@ Verified source registry after Phase 4C:
 | `wbd_pressroom` | Warner Bros. Discovery Pressroom | `https://press.wbd.com/` |
 | `amazon_entertainment` | Amazon Entertainment | `https://www.aboutamazon.com/news/entertainment/` |
 | `netflix_media_center` | Netflix Media Center | `https://media.netflix.com/` |
+| `netflix_tudum` | Netflix Tudum | `https://www.netflix.com/tudum/` |
 | `fox_flash` | FOXFLASH | `https://www.foxflash.com/` |
 
 The registry is a whitelist, not a scraper list. Registering a source does not authorize automatic extraction and does not make every page on that domain relevant lifecycle evidence.
 
 Do not paste long source text into D1. `evidence_note` is a short editorial summary only; the exact official URL remains the evidence anchor.
 
-### Amazon source choice
+### Source choices
 
 Phase 4C uses the public `aboutamazon.com/news/entertainment/` pages rather than an authenticated Amazon MGM Studios press/admin surface. Evidence must remain publicly inspectable from the stored URL.
+
+Netflix Media Center remains valid for official title/property material. Phase 4E registers Netflix Tudum separately because dated public lifecycle news and production updates are published there; provenance should identify the surface actually carrying the evidence instead of treating all Netflix pages as one source.
 
 ## Public projection
 
@@ -113,14 +118,24 @@ Supported actions:
 
 The evidence key is deterministic from show, season, event type, source and publication identity, so rerunning the same editorial action is safe.
 
-## Production acceptance completed
+## Production acceptance
 
-Phase 4A/4B have been production-validated with official Apple TV Press evidence:
+Completed acceptance before Phase 4E:
 
-1. `Silo` — season 3 renewed; season 4 renewed and identified as final.
-2. `For All Mankind` — season 6 renewed as final and conservatively normalized as `pre_production` from the official production wording.
+1. `Silo` — season 3 renewed; season 4 renewed and identified as final via Apple TV Press.
+2. `For All Mankind` — season 6 renewed as final and conservatively normalized as `pre_production` from Apple TV Press wording.
+3. `Reacher` — season 5 renewed via Amazon Entertainment while the series remained catalog `airing` with season 4 as the latest catalog season.
 
-Production acceptance confirmed that official evidence and catalog lifecycle remain separate: `Silo` remained catalog `airing`, while `For All Mankind` remained catalog `planned`.
+Phase 4E acceptance targets are deliberately limited to titles already present in production:
+
+- `House of the Dragon` — season 4 renewal via WBD/HBO Pressroom.
+- `Wednesday` — season 3 renewal plus independent `filming` evidence via Netflix Tudum.
+
+FOX evidence is not seeded merely to satisfy source-count goals. The researched FOX renewal target is not currently present in the production catalog, and `9-1-1` is now an ABC series despite retaining historical FOX network metadata. FOX therefore remains a catalog-coverage follow-up rather than an orphan evidence insertion.
+
+## Audit policy
+
+Production-network probes are integration/audit checks, not unit tests. They must run through an explicit audit workflow or dedicated integration command and must not be discovered by the default `npm test` suite. This keeps normal validation reproducible when production or DNS is unavailable.
 
 ## Collector gate
 
