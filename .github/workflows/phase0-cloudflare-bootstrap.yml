@@ -1,4 +1,4 @@
-name: Phase 0 Cloudflare bootstrap
+name: Cloudflare PR validation
 
 on:
   pull_request:
@@ -10,11 +10,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: phase0-cloudflare-${{ github.event.pull_request.number }}
+  group: cloudflare-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  bootstrap:
+  preview:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -23,7 +23,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
       WRANGLER_VERSION: "4.125.0"
-      D1_NAME: "series-hub-db"
+      PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
 
     steps:
       - name: Checkout PR branch
@@ -31,69 +31,89 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
 
-      - name: Validate Cloudflare credentials are present
+      - name: Validate Cloudflare credentials
         shell: bash
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
 
-      - name: Resolve or create D1 database
-        id: d1
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          list_databases() {
-            npx --yes wrangler@"${WRANGLER_VERSION}" d1 list --json
-          }
-
-          DATABASES="$(list_databases)"
-          DB_ID="$(printf '%s' "${DATABASES}" | jq -r --arg name "${D1_NAME}" '.[] | select(.name == $name) | .uuid' | head -n 1)"
-
-          if [ -z "${DB_ID}" ] || [ "${DB_ID}" = "null" ]; then
-            echo "Creating ${D1_NAME} in APAC"
-            npx --yes wrangler@"${WRANGLER_VERSION}" d1 create "${D1_NAME}" --location apac
-            DATABASES="$(list_databases)"
-            DB_ID="$(printf '%s' "${DATABASES}" | jq -r --arg name "${D1_NAME}" '.[] | select(.name == $name) | .uuid' | head -n 1)"
-          else
-            echo "Reusing existing ${D1_NAME}"
-          fi
-
-          test -n "${DB_ID}" && test "${DB_ID}" != "null"
-          echo "database_id=${DB_ID}" >> "${GITHUB_OUTPUT}"
-          echo "D1 database id: ${DB_ID}"
-
-      - name: Configure D1 binding in validation worktree
-        run: node scripts/configure-d1.mjs "${{ steps.d1.outputs.database_id }}"
-
-      - name: Apply D1 migrations
-        run: npx --yes wrangler@"${WRANGLER_VERSION}" d1 migrations apply "${D1_NAME}" --remote
-
-      - name: Verify migrated schema
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${D1_NAME}" --remote --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('shows','seasons','episodes','title_aliases','providers','availability','sources','sync_runs') ORDER BY name;"
-
-      - name: Validate Worker build without production deployment
+      - name: Validate Worker build
         run: npx --yes wrangler@"${WRANGLER_VERSION}" deploy --dry-run --outdir .wrangler-dry-run
 
-      - name: Upload non-production Worker version
+      - name: Upload isolated preview version
+        id: preview
         shell: bash
         run: |
-          npx --yes wrangler@"${WRANGLER_VERSION}" versions upload \
-            --message "Phase 0 D1 validation for PR ${{ github.event.pull_request.number }}"
+          set -euo pipefail
+          ALIAS="pr-${{ github.event.pull_request.number }}"
+          OUTPUT="$(npx --yes wrangler@"${WRANGLER_VERSION}" versions upload \
+            --preview-alias "${ALIAS}" \
+            --message "PR ${{ github.event.pull_request.number }} validation" 2>&1)"
+          printf '%s\n' "${OUTPUT}"
+          PREVIEW_URL="$(printf '%s\n' "${OUTPUT}" | grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' | tail -n 1)"
+          test -n "${PREVIEW_URL}" || { echo "Preview URL was not returned by Wrangler"; exit 1; }
+          echo "url=${PREVIEW_URL}" >> "${GITHUB_OUTPUT}"
 
-      - name: Publish bootstrap result
+      - name: Smoke-test preview runtime
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEALTH_JSON="$(curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 "${PREVIEW_URL}/health")"
+          SHOWS_JSON="$(curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 "${PREVIEW_URL}/api/shows")"
+
+          HEALTH_JSON="${HEALTH_JSON}" node -e '
+            const data = JSON.parse(process.env.HEALTH_JSON);
+            if (data.ok !== true || data.databaseConfigured !== true || data.databaseReachable !== true) {
+              console.error("Preview health failed:", data);
+              process.exit(1);
+            }
+          '
+
+          SHOWS_JSON="${SHOWS_JSON}" node -e '
+            const data = JSON.parse(process.env.SHOWS_JSON);
+            if (!Array.isArray(data.data)) {
+              console.error("Preview shows API failed:", data);
+              process.exit(1);
+            }
+          '
+
+      - name: Smoke-test production runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEALTH_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/health")"
+          SHOWS_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/shows")"
+
+          HEALTH_JSON="${HEALTH_JSON}" node -e '
+            const data = JSON.parse(process.env.HEALTH_JSON);
+            if (data.ok !== true || data.databaseConfigured !== true || data.databaseReachable !== true) {
+              console.error("Production health failed:", data);
+              process.exit(1);
+            }
+          '
+
+          SHOWS_JSON="${SHOWS_JSON}" node -e '
+            const data = JSON.parse(process.env.SHOWS_JSON);
+            if (!Array.isArray(data.data)) {
+              console.error("Production shows API failed:", data);
+              process.exit(1);
+            }
+          '
+
+      - name: Publish validation summary
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
         shell: bash
         run: |
           {
-            echo "## Phase 0 Cloudflare bootstrap"
+            echo "## Cloudflare PR validation"
             echo
-            echo "- D1 database: \`${D1_NAME}\`"
-            echo "- Database ID: \`${{ steps.d1.outputs.database_id }}\`"
-            echo "- Migration: applied/verified"
-            echo "- Worker: dry-run validated"
-            echo "- Preview version: uploaded without production traffic"
+            echo "- Worker dry-run: passed"
+            echo "- Preview runtime: passed"
+            echo "- Preview URL: ${PREVIEW_URL}"
+            echo "- Production runtime: passed"
+            echo "- D1 binding/reachability: passed"
           } >> "${GITHUB_STEP_SUMMARY}"
