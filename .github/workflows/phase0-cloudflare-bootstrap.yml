@@ -4,7 +4,7 @@ on:
   pull_request:
     branches:
       - main
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, closed]
   push:
     branches:
       - main
@@ -23,12 +23,13 @@ env:
 
 jobs:
   preview:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      PREVIEW_DB_NAME: series-hub-pr-${{ github.event.pull_request.number }}
 
     steps:
       - name: Checkout PR branch
@@ -42,6 +43,43 @@ jobs:
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+
+      - name: Resolve isolated preview D1
+        id: preview_db
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATABASES="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 list --json)"
+          DB_ID="$(printf '%s' "${DATABASES}" | jq -r --arg name "${PREVIEW_DB_NAME}" '.[] | select(.name == $name) | .uuid' | head -n 1)"
+
+          if [ -z "${DB_ID}" ] || [ "${DB_ID}" = "null" ]; then
+            npx --yes wrangler@"${WRANGLER_VERSION}" d1 create "${PREVIEW_DB_NAME}" --location apac
+            DATABASES="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 list --json)"
+            DB_ID="$(printf '%s' "${DATABASES}" | jq -r --arg name "${PREVIEW_DB_NAME}" '.[] | select(.name == $name) | .uuid' | head -n 1)"
+          fi
+
+          test -n "${DB_ID}" && test "${DB_ID}" != "null"
+          echo "database_id=${DB_ID}" >> "${GITHUB_OUTPUT}"
+
+      - name: Point preview Worker at isolated D1
+        env:
+          PREVIEW_DB_ID: ${{ steps.preview_db.outputs.database_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'wrangler.jsonc';
+          const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const binding = config.d1_databases?.find((item) => item.binding === 'DB');
+          if (!binding) throw new Error('DB binding is missing from wrangler.jsonc');
+          binding.database_name = process.env.PREVIEW_DB_NAME;
+          binding.database_id = process.env.PREVIEW_DB_ID;
+          fs.writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+          NODE
+
+      - name: Apply migrations to isolated preview D1
+        run: npx --yes wrangler@"${WRANGLER_VERSION}" d1 migrations apply "${PREVIEW_DB_NAME}" --remote
 
       - name: Validate Worker build
         run: npx --yes wrangler@"${WRANGLER_VERSION}" deploy --dry-run --outdir .wrangler-dry-run
@@ -119,9 +157,31 @@ jobs:
             echo "- Worker dry-run: passed"
             echo "- Preview runtime: passed"
             echo "- Preview URL: ${PREVIEW_URL}"
+            echo "- Preview D1: ${PREVIEW_DB_NAME} (isolated)"
             echo "- Production regression check: passed"
-            echo "- D1 binding/reachability: passed"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+  cleanup-preview-db:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      PREVIEW_DB_NAME: series-hub-pr-${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Delete isolated preview D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATABASES="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 list --json)"
+          DB_ID="$(printf '%s' "${DATABASES}" | jq -r --arg name "${PREVIEW_DB_NAME}" '.[] | select(.name == $name) | .uuid' | head -n 1)"
+          if [ -n "${DB_ID}" ] && [ "${DB_ID}" != "null" ]; then
+            npx --yes wrangler@"${WRANGLER_VERSION}" d1 delete "${PREVIEW_DB_NAME}" --skip-confirmation
+          else
+            echo "Preview D1 ${PREVIEW_DB_NAME} is already absent"
+          fi
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
