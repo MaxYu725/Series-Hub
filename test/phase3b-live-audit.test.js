@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 const PRODUCTION_URL = "https://series-hub.max-yu-jp.workers.dev";
 const REGIONS = ["HK", "TW", "CN"];
+const LIVE_OVERRIDE_COMMIT_AT = Date.parse("2026-08-24T11:46:53Z");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -72,9 +73,10 @@ test("Phase 3A production regional-title contract and live catalog audit", { tim
   if (!process.env.CI) return;
 
   const ready = await waitForPhase3a();
-  const [styles, app, ...regionalCatalogResults] = await Promise.all([
+  const [styles, app, tmdbSync, ...regionalCatalogResults] = await Promise.all([
     fetchText("/phase3.css"),
     fetchText("/app.js"),
+    fetchJson("/api/sync-status?source=tmdb"),
     ...REGIONS.map((region) => fetchJson(`/api/shows?limit=100&region=${region}`))
   ]);
 
@@ -139,12 +141,44 @@ test("Phase 3A production regional-title contract and live catalog audit", { tim
     };
   }));
 
+  const shards = catalog.find((show) => show.english_title === "The Shards");
+  assert.ok(shards, "The Shards is missing from the active production catalog");
+  assert.equal(shards.title_zh_hk, "青春碎片", "The Shards HK title must use the verified Disney+ Hong Kong title");
+  assert.equal(shards.title_zh_hk_source, "manual", "The Shards HK title must remain an editorial override");
+  assert.equal(shards.title_zh_hk_confidence, "official");
+  assert.equal(shards.display_title_zh, "青春碎片");
+  assert.equal(shards.display_title_zh_region, "HK");
+  assert.equal(shards.display_title_zh_source, "manual");
+  assert.equal(shards.display_title_zh_confidence, "official");
+  assert.equal(Boolean(shards.display_title_zh_fallback), false);
+
+  const shardsAliases = aliases.find((show) => Number(show.id) === Number(shards.id));
+  assert.ok(shardsAliases, "The Shards alias audit row is missing");
+  assert.ok(
+    shardsAliases.aliases.some((alias) => alias.region === "HK" && alias.title === "青春碎片" && alias.source === "manual" && Number(alias.preferred) === 1 && alias.confidence === "official"),
+    "The Shards manual HK preferred alias did not survive the TMDB refresh"
+  );
+
+  assert.equal(Number(audit.data?.coverage?.HK?.count), Number(audit.data?.totalActive), "HK title coverage should be complete after The Shards correction");
+  assert.equal(Number(audit.data?.coverage?.HK?.percent), 100);
+  assert.ok(Number(audit.data?.manualOverrideShows || 0) >= 1, "title audit must count the live manual override");
+
+  assert.equal(tmdbSync.response.ok, true);
+  assert.equal(tmdbSync.body?.data?.status, "success", `latest TMDB sync is not successful: ${JSON.stringify(tmdbSync.body?.data)}`);
+  const refreshFinishedAt = Date.parse(`${String(tmdbSync.body?.data?.finished_at || "").replace(" ", "T")}Z`);
+  assert.ok(Number.isFinite(refreshFinishedAt), `invalid TMDB sync finished_at: ${tmdbSync.body?.data?.finished_at}`);
+  assert.ok(refreshFinishedAt > LIVE_OVERRIDE_COMMIT_AT, `TMDB refresh did not run after the live override commit: ${tmdbSync.body?.data?.finished_at}`);
+
   const searchable = catalog.find((show) => show.title_zh_hk || show.title_zh_tw || show.title_zh_cn);
   assert.ok(searchable, "no Chinese title available for search validation");
   const searchTitle = searchable.title_zh_hk || searchable.title_zh_tw || searchable.title_zh_cn;
   const search = await fetchJson(`/api/shows?q=${encodeURIComponent(searchTitle)}&limit=20&region=HK`);
   assert.equal(search.response.ok, true);
   assert.ok(search.body.data.some((show) => Number(show.id) === Number(searchable.id)), `Chinese alias search did not return ${searchable.english_title}`);
+
+  const shardsSearch = await fetchJson(`/api/shows?q=${encodeURIComponent("青春碎片")}&limit=20&region=HK`);
+  assert.equal(shardsSearch.response.ok, true);
+  assert.ok(shardsSearch.body.data.some((show) => Number(show.id) === Number(shards.id)), "manual HK title is not searchable after refresh");
 
   const unauthorized = await fetchJson("/api/internal/title-override", {
     method: "POST",
@@ -158,7 +192,15 @@ test("Phase 3A production regional-title contract and live catalog audit", { tim
     assets_ready_attempt: ready.attempt,
     health: ready.health.body,
     title_audit: audit,
+    tmdb_sync: tmdbSync.body?.data,
     catalog_count: catalog.length,
+    live_override: {
+      id: shards.id,
+      english: shards.english_title,
+      HK: shards.title_zh_hk,
+      source: shards.title_zh_hk_source,
+      confidence: shards.title_zh_hk_confidence
+    },
     searchable_example: { id: searchable.id, english: searchable.english_title, query: searchTitle },
     titles: aliases
   }, null, 2));
