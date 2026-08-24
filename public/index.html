@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0b0d12">
   <title>Series Hub</title>
-  <meta name="description" content="集中整理播映中、即將播映及已計劃播出的美劇。">
+  <meta name="description" content="集中整理美劇今日與本週播映時間、播映中、即將播映及已計劃播出的劇集。">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -18,30 +18,33 @@
         <h1>Series Hub</h1>
       </div>
     </div>
-    <div class="phase-chip">Phase 1</div>
+    <div class="phase-chip">Phase 2</div>
   </header>
 
   <main>
     <section class="hero">
-      <p class="eyebrow">TMDB CATALOG CORE</p>
-      <h2>追蹤正在播、即將播與下一季。</h2>
-      <p class="hero-copy">第一階段接入美國 scripted series 主資料，統一 Season 狀態、英文名稱與香港／台灣／中國大陸中文譯名。逐集播映時間會留到 TVmaze 階段補強。</p>
+      <p class="eyebrow">TMDB CATALOG · TVMAZE SCHEDULE</p>
+      <h2>今日播甚麼，一眼睇清。</h2>
+      <p class="hero-copy">TMDB 維持劇集、Season、中文譯名與 lifecycle 主資料；TVmaze 補充逐集日期與時間。可先看今日／本週排程，再切換播映中、即將播映與計劃播出。</p>
 
       <div class="health-line" aria-live="polite">
         <span class="status-dot" id="status-dot"></span>
         <span id="health-text">正在檢查 API…</span>
       </div>
-      <p class="sync-text" id="sync-text">尚未有 TMDB 同步紀錄</p>
+      <p class="sync-text" id="sync-text">正在讀取同步狀態…</p>
     </section>
 
-    <section class="catalog-tools" aria-label="劇集搜尋與狀態篩選">
+    <section class="catalog-tools" aria-label="排程、劇集搜尋與狀態篩選">
       <label class="search-box">
         <span class="search-label">搜尋</span>
-        <input id="search-input" type="search" autocomplete="off" placeholder="英文或中文劇名">
+        <input id="search-input" type="search" autocomplete="off" placeholder="劇名、中文譯名或集名">
       </label>
 
-      <nav class="filters" aria-label="劇集狀態">
-        <button type="button" class="filter active" data-view="airing">播映中</button>
+      <nav class="filters" aria-label="Series Hub 檢視">
+        <button type="button" class="filter active" data-view="today">今日</button>
+        <button type="button" class="filter" data-view="week">本週</button>
+        <span class="filter-divider" aria-hidden="true"></span>
+        <button type="button" class="filter" data-view="airing">播映中</button>
         <button type="button" class="filter" data-view="upcoming">即將播映</button>
         <button type="button" class="filter" data-view="planned">計劃播出</button>
       </nav>
@@ -50,19 +53,21 @@
     <section class="content-panel">
       <div class="panel-heading">
         <div>
-          <p class="eyebrow" id="view-kicker">AIRING</p>
-          <h3 id="view-title">播映中</h3>
+          <p class="eyebrow" id="view-kicker">TODAY</p>
+          <h3 id="view-title">今日播映</h3>
+          <p class="view-context" id="view-context"></p>
         </div>
-        <span id="show-count">0 套</span>
+        <span id="show-count">載入中…</span>
       </div>
 
-      <div id="show-grid" class="show-grid" aria-live="polite"></div>
+      <div id="schedule-list" class="schedule-list" aria-live="polite"></div>
+      <div id="show-grid" class="show-grid" aria-live="polite" hidden></div>
 
-      <div id="empty-state" class="empty-state">
+      <div id="empty-state" class="empty-state" hidden>
         <div class="empty-poster" aria-hidden="true"></div>
         <div>
-          <h4 id="empty-title">暫未有劇集資料</h4>
-          <p id="empty-copy">Phase 1 catalog 已準備好，完成 TMDB token 設定及首次同步後便會顯示劇集。</p>
+          <h4 id="empty-title">暫未有資料</h4>
+          <p id="empty-copy">稍後再檢查排程。</p>
         </div>
       </div>
     </section>
@@ -72,16 +77,22 @@
         <p class="eyebrow">DATA CREDITS</p>
         <h3 id="credits-title">資料來源</h3>
       </div>
-      <div class="tmdb-credit">
-        <a href="https://www.themoviedb.org" target="_blank" rel="noreferrer" aria-label="The Movie Database">
-          <img
-            class="tmdb-logo"
-            src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aaebeb75dc7ae79426ddd9be3b2be1e342510f8202baf6bffa71d7f5c4.svg"
-            alt="TMDB"
-            loading="lazy"
-          >
-        </a>
-        <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+      <div class="credit-stack">
+        <div class="tmdb-credit">
+          <a href="https://www.themoviedb.org" target="_blank" rel="noreferrer" aria-label="The Movie Database">
+            <img
+              class="tmdb-logo"
+              src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aaebeb75dc7ae79426ddd9be3b2be1e342510f8202baf6bffa71d7f5c4.svg"
+              alt="TMDB"
+              loading="lazy"
+            >
+          </a>
+          <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+        </div>
+        <div class="tvmaze-credit">
+          <a href="https://www.tvmaze.com" target="_blank" rel="noreferrer">TVmaze</a>
+          <p>逐集日期、時間及 episode schedule 由 TVmaze 補充；顯示時間會在可用時轉換為瀏覽器本地時區。</p>
+        </div>
       </div>
     </section>
   </main>
