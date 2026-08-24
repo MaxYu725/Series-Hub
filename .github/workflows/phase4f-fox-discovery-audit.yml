@@ -1,0 +1,29 @@
+name: Phase 4F FOX discovery audit
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.event.pull_request.head.ref == 'phase-4f-fox-discovery-audit' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Validate TMDB secret
+        run: test -n "${TMDB_API_TOKEN:-}"
+
+      - name: Inspect FOX discovery coverage
+        run: node scripts/audit-phase4f-fox-discovery.mjs
