@@ -15,27 +15,27 @@ test("lifecycle dimensions keep decision, production and schedule facts independ
   assert.equal(lifecycleDimension("premiere_dated"), "schedule");
 });
 
-test("summary keeps a final-season decision and filming state at the same time", () => {
+test("summary keeps a final-season decision and production state at the same time", () => {
   const summary = summarizeLifecycleEvents([
     {
-      id: 1,
+      id: 20,
       event_type: "renewed",
       season_number: 6,
       source_published_at: "2026-03-24",
       is_retracted: 0
     },
     {
-      id: 2,
+      id: 10,
       event_type: "final_season",
       season_number: 6,
-      source_published_at: "2026-03-24T12:00:00Z",
+      source_published_at: "2026-03-24",
       is_retracted: 0
     },
     {
-      id: 3,
+      id: 30,
       event_type: "pre_production",
       season_number: 6,
-      source_published_at: "2026-03-24T12:01:00Z",
+      source_published_at: "2026-03-24",
       is_retracted: 0
     }
   ]);
@@ -44,6 +44,14 @@ test("summary keeps a final-season decision and filming state at the same time",
   assert.equal(summary.production.event_type, "pre_production");
   assert.equal(summary.bySeason["6"].decision.event_type, "final_season");
   assert.equal(summary.bySeason["6"].production.event_type, "pre_production");
+});
+
+test("same-time production evidence uses semantic precedence rather than insert order", () => {
+  const summary = summarizeLifecycleEvents([
+    { id: 50, event_type: "filming", season_number: 2, source_published_at: "2026-06-01", is_retracted: 0 },
+    { id: 40, event_type: "production_paused", season_number: 2, source_published_at: "2026-06-01", is_retracted: 0 }
+  ]);
+  assert.equal(summary.production.event_type, "production_paused");
 });
 
 test("retracted evidence is excluded from the current summary but can remain in storage", () => {
