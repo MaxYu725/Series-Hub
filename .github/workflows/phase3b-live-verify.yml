@@ -1,0 +1,155 @@
+name: Phase 3B live title verification
+
+on:
+  push:
+    branches:
+      - phase-3b-title-audit
+    paths:
+      - .github/workflows/phase3b-live-verify.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-3b-live-title-verification
+  cancel-in-progress: false
+
+env:
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API_TOKEN }}
+
+    steps:
+      - name: Validate production secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API_TOKEN secret is missing"; exit 1; }
+
+      - name: Resolve internal sync key
+        id: auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          SYNC_KEY="$(node - <<'NODE'
+          const { createHash } = require('crypto');
+          const token = process.env.TMDB_API_TOKEN;
+          process.stdout.write(createHash('sha256').update(`series-hub:tmdb-sync:v1:${token}`).digest('hex'));
+          NODE
+          )"
+          echo "sync_key=${SYNC_KEY}" >> "${GITHUB_OUTPUT}"
+          echo "::add-mask::${SYNC_KEY}"
+
+      - name: Resolve The Shards production show ID
+        id: show
+        shell: bash
+        run: |
+          set -euo pipefail
+          CATALOG="$(curl --fail --silent --show-error "${PRODUCTION_URL}/api/shows?q=The%20Shards&limit=10&region=HK")"
+          SHOW_ID="$(CATALOG="${CATALOG}" node - <<'NODE'
+          const payload = JSON.parse(process.env.CATALOG);
+          const matches = (payload.data || []).filter((item) => item.english_title === 'The Shards');
+          if (matches.length !== 1) throw new Error(`Expected exactly one The Shards row; got ${matches.length}`);
+          process.stdout.write(String(matches[0].id));
+          NODE
+          )"
+          echo "show_id=${SHOW_ID}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved The Shards as show ${SHOW_ID}"
+
+      - name: Apply official Hong Kong preferred title
+        shell: bash
+        env:
+          SYNC_KEY: ${{ steps.auth.outputs.sync_key }}
+          SHOW_ID: ${{ steps.show.outputs.show_id }}
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail-with-body --silent --show-error \
+            -X POST "${PRODUCTION_URL}/api/internal/title-override" \
+            -H "content-type: application/json" \
+            -H "x-series-hub-sync-key: ${SYNC_KEY}" \
+            --data "{\"showId\":${SHOW_ID},\"region\":\"HK\",\"action\":\"set-preferred\",\"title\":\"青春碎片\",\"confidence\":\"official\"}")"
+          RESPONSE="${RESPONSE}" node - <<'NODE'
+          const payload = JSON.parse(process.env.RESPONSE);
+          if (payload.ok !== true) throw new Error(`Override failed: ${JSON.stringify(payload)}`);
+          if (payload.preferred?.title !== '青春碎片') throw new Error(`Unexpected preferred title: ${payload.preferred?.title}`);
+          if (payload.preferred?.source !== 'manual') throw new Error(`Expected manual source: ${payload.preferred?.source}`);
+          if (payload.preferred?.confidence !== 'official') throw new Error(`Expected official confidence: ${payload.preferred?.confidence}`);
+          NODE
+
+      - name: Run one production TMDB refresh
+        shell: bash
+        env:
+          SYNC_KEY: ${{ steps.auth.outputs.sync_key }}
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail-with-body --silent --show-error --max-time 300 \
+            -X POST "${PRODUCTION_URL}/api/internal/tmdb-sync" \
+            -H "x-series-hub-sync-key: ${SYNC_KEY}")"
+          RESPONSE="${RESPONSE}" node - <<'NODE'
+          const payload = JSON.parse(process.env.RESPONSE);
+          if (payload.ok !== true) throw new Error(`TMDB refresh failed: ${JSON.stringify(payload)}`);
+          console.log(`TMDB refresh completed; changed=${payload.changed ?? payload.recordsChanged ?? 'n/a'}`);
+          NODE
+
+      - name: Prove manual title survived refresh
+        shell: bash
+        env:
+          SHOW_ID: ${{ steps.show.outputs.show_id }}
+        run: |
+          set -euo pipefail
+          ALIASES="$(curl --fail --silent --show-error "${PRODUCTION_URL}/api/shows/${SHOW_ID}/aliases?region=HK")"
+          AUDIT="$(curl --fail --silent --show-error "${PRODUCTION_URL}/api/title-audit")"
+          CATALOG="$(curl --fail --silent --show-error "${PRODUCTION_URL}/api/shows?q=The%20Shards&limit=10&region=HK")"
+
+          ALIASES="${ALIASES}" AUDIT="${AUDIT}" CATALOG="${CATALOG}" node - <<'NODE'
+          const aliases = JSON.parse(process.env.ALIASES);
+          const audit = JSON.parse(process.env.AUDIT);
+          const catalog = JSON.parse(process.env.CATALOG);
+
+          if (aliases.preferred?.title !== '青春碎片') throw new Error('Preferred HK title did not survive refresh');
+          if (aliases.preferred?.source !== 'manual') throw new Error('Preferred source is no longer manual');
+          if (aliases.preferred?.confidence !== 'official') throw new Error('Preferred confidence is no longer official');
+
+          const manual = (aliases.data || []).find((item) => item.region === 'HK' && item.title === '青春碎片' && item.source_key === 'manual' && Number(item.is_preferred) === 1);
+          if (!manual) throw new Error('Manual preferred alias row is missing after refresh');
+
+          const row = (catalog.data || []).find((item) => item.english_title === 'The Shards');
+          if (!row || row.display_title_zh !== '青春碎片' || row.display_title_zh_source !== 'manual') {
+            throw new Error(`Catalog is not resolving the manual HK title: ${JSON.stringify(row)}`);
+          }
+
+          if (audit.data?.coverage?.HK?.count !== audit.data?.totalActive) {
+            throw new Error(`HK coverage is not complete: ${JSON.stringify(audit.data?.coverage?.HK)}`);
+          }
+          if (Number(audit.data?.manualOverrideShows || 0) < 1) throw new Error('Audit did not count the manual override');
+
+          console.log(JSON.stringify({
+            showId: row.id,
+            title: row.display_title_zh,
+            source: row.display_title_zh_source,
+            confidence: row.display_title_zh_confidence,
+            hkCoverage: audit.data.coverage.HK,
+            manualOverrideShows: audit.data.manualOverrideShows
+          }, null, 2));
+          NODE
+
+      - name: Publish verification summary
+        shell: bash
+        env:
+          SHOW_ID: ${{ steps.show.outputs.show_id }}
+        run: |
+          {
+            echo "## Phase 3B live verification"
+            echo
+            echo "- The Shards show ID: ${SHOW_ID}"
+            echo "- HK preferred title: 青春碎片"
+            echo "- Provenance: manual / official"
+            echo "- TMDB refresh: completed after override"
+            echo "- Manual preferred alias survived refresh: yes"
+            echo "- HK regional-title coverage after correction: 100%"
+          } >> "${GITHUB_STEP_SUMMARY}"
