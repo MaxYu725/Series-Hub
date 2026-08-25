@@ -1,6 +1,7 @@
 import coreWorker, { deriveTmdbSyncKey } from "./index.js";
 import { applyLifecycleEvidence } from "./lifecycle-admin.js";
 import { summarizeLifecycleEvents } from "./lifecycle.js";
+import { handlePushRequest } from "./push-subscriptions.js";
 
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -155,6 +156,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    if (url.pathname.startsWith("/api/push/")) return handlePushRequest(request, env);
     if (request.method === "GET" && url.pathname === "/api/lifecycle") return lifecycleIndex(env);
 
     const lifecycleMatch = request.method === "GET" && url.pathname.match(/^\/api\/shows\/(\d+)\/lifecycle$/);
