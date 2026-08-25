@@ -141,7 +141,7 @@ function boot() {
     showCount.textContent = "載入中…";
     viewKicker.textContent = "MY SHOWS";
     viewTitle.textContent = "我的劇集";
-    viewContext.textContent = `只儲存在這個瀏覽器；中文名優先使用${TITLE_REGION_LABELS[titleRegion()]}譯名。`;
+    viewContext.textContent = `只儲存在這個瀏覽器；中文名沿用目前${TITLE_REGION_LABELS[titleRegion()]}譯名設定。`;
 
     if (trackedIds.length === 0) {
       showCount.textContent = "0 套";
@@ -197,6 +197,7 @@ function boot() {
     event?.preventDefault();
     event?.stopImmediatePropagation();
     myActive = true;
+    regionSelect.disabled = true;
     document.querySelectorAll(".filter").forEach((item) => item.classList.remove("active"));
     myButton.classList.add("active");
     loadMyShows();
@@ -207,6 +208,7 @@ function boot() {
     const regularFilter = target?.closest(".filter[data-view]");
     if (regularFilter) {
       myActive = false;
+      regionSelect.disabled = false;
       myButton.classList.remove("active");
       requestId += 1;
       return;
@@ -232,12 +234,6 @@ function boot() {
     event.stopImmediatePropagation();
     window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(loadMyShows, 250);
-  }, true);
-
-  document.addEventListener("change", (event) => {
-    if (!myActive || event.target !== regionSelect) return;
-    event.stopImmediatePropagation();
-    loadMyShows();
   }, true);
 
   const observer = new MutationObserver(() => {
