@@ -108,26 +108,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          HEALTH_JSON=""
+          READY=0
           for attempt in $(seq 1 20); do
             if HEALTH_JSON="$(curl --fail --silent --show-error "${SPIKE_URL}/health" 2>/dev/null)"; then
-              if HEALTH_JSON="${HEALTH_JSON}" node -e '
+              if HEALTH_JSON="${HEALTH_JSON}" EXPECTED_PUBLIC_KEY="${EXPECTED_PUBLIC_KEY}" node -e '
                 const health = JSON.parse(process.env.HEALTH_JSON);
-                if (health.ok !== true || health.phase !== "5d-a-web-push-spike" || health.persistentStorage !== false || health.vapidPublicConfigured !== true || health.vapidPrivateConfigured !== true) process.exit(1);
+                if (
+                  health.ok === true &&
+                  health.phase === "5d-a-web-push-spike" &&
+                  health.persistentStorage === false &&
+                  health.vapidPublicConfigured === true &&
+                  health.vapidPrivateConfigured === true &&
+                  health.vapidPublicKey === process.env.EXPECTED_PUBLIC_KEY
+                ) process.exit(0);
+                process.exit(1);
               '; then
+                READY=1
                 break
               fi
             fi
             echo "Spike not ready yet (${attempt}/20)"
             sleep 3
           done
-          test -n "${HEALTH_JSON}" || { echo "Spike /health did not become ready"; exit 1; }
-
-          KEY_JSON="$(curl --fail --silent --show-error "${SPIKE_URL}/api/vapid-public-key")"
-          KEY_JSON="${KEY_JSON}" EXPECTED_PUBLIC_KEY="${EXPECTED_PUBLIC_KEY}" node -e '
-            const data = JSON.parse(process.env.KEY_JSON);
-            if (data.ok !== true || data.publicKey !== process.env.EXPECTED_PUBLIC_KEY) process.exit(1);
-          '
+          test "${READY}" = "1" || { echo "Spike /health did not become fully ready"; exit 1; }
 
           HTML="$(curl --fail --silent --show-error "${SPIKE_URL}/")"
           printf '%s' "${HTML}" | grep -q "Phase 5D-A"
