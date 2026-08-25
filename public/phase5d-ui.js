@@ -85,7 +85,7 @@ function boot() {
     }
 
     if (!capability.enabled) {
-      status.textContent = "Phase 5D-B 已建立裝置訂閱架構，但 production 登記仍保持關閉，完成驗收後才會開放。";
+      status.textContent = "裝置通知登記目前暫停；我的劇集及追劇狀態仍只保存在瀏覽器。";
       button.textContent = "尚未開放";
       setDisabled(true);
       return;
@@ -101,7 +101,7 @@ function boot() {
     const management = loadPushManagement();
     if (management) {
       const count = loadTrackedShowIds().length;
-      status.textContent = `此裝置已開啟通知；Series Hub 伺服器只保存 Push 裝置資料及 ${count} 個已選劇集 ID，不保存追劇狀態或搜尋紀錄。`;
+      status.textContent = `此裝置已開啟通知；如追蹤劇集有可靠逐集播映時間，Series Hub 會在約 24 小時前提醒。伺服器只保存 Push 裝置資料及 ${count} 個已選劇集 ID，不保存追劇狀態或搜尋紀錄。`;
       button.textContent = "關閉通知";
       setDisabled(false);
       return;
@@ -109,7 +109,7 @@ function boot() {
 
     const count = loadTrackedShowIds().length;
     status.textContent = count > 0
-      ? `開啟後只會上傳此裝置的 Push subscription 及目前 ${count} 個追蹤劇集 ID。追劇狀態仍留在瀏覽器。`
+      ? `開啟後只會上傳此裝置的 Push subscription 及目前 ${count} 個追蹤劇集 ID；有可靠逐集播映時間時會在約 24 小時前提醒。追劇狀態仍留在瀏覽器。`
       : "先加入至少一套「我的劇集」才可開啟背景通知。";
     button.textContent = "開啟通知";
     setDisabled(count === 0);
@@ -169,7 +169,7 @@ function boot() {
         titleRegion: titleRegion(),
         showIds
       });
-      status.textContent = "通知訂閱已建立。Phase 5D-B 暫不發送節目提醒，delivery 會在下一階段另行啟用。";
+      status.textContent = "通知訂閱已建立；有可靠逐集播映時間時，Series Hub 會在約 24 小時前發送提醒。";
       await renderState();
     } catch (error) {
       const code = error?.message || String(error);
