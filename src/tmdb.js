@@ -495,7 +495,7 @@ async function replaceGenres(db, showId, genres) {
       .first();
 
     await db
-      .prepare("INSERT OR REPLACE INTO show_genres (show_id, network_id) VALUES (?1, ?2)")
+      .prepare("INSERT OR REPLACE INTO show_genres (show_id, genre_id) VALUES (?1, ?2)")
       .bind(showId, row.id)
       .run();
   }
