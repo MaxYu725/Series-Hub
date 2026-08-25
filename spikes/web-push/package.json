@@ -1,0 +1,8 @@
+{
+  "name": "series-hub-web-push-spike",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "web-push": "3.6.7"
+  }
+}
