@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test",
+    "test": "npm install --no-package-lock --no-audit --no-fund --ignore-scripts && node --test",
     "deploy": "wrangler deploy",
     "preview": "wrangler versions upload"
+  },
+  "dependencies": {
+    "web-push": "3.6.7"
   },
   "devDependencies": {
     "wrangler": "4.125.0"

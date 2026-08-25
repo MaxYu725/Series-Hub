@@ -3,6 +3,9 @@
   "name": "series-hub",
   "main": "./src/phase4-worker.js",
   "compatibility_date": "2026-08-23",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -15,7 +18,8 @@
     "enabled": true
   },
   "vars": {
-    "PUSH_SUBSCRIPTIONS_ENABLED": "true"
+    "PUSH_SUBSCRIPTIONS_ENABLED": "true",
+    "EPISODE_REMINDERS_ENABLED": "false"
   },
   "secrets": {
     "required": [
@@ -24,6 +28,7 @@
   },
   "triggers": {
     "crons": [
+      "7 * * * *",
       "17 */6 * * *",
       "47 */6 * * *"
     ]
