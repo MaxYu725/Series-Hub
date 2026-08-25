@@ -38,15 +38,23 @@ function boot() {
     return show[`title_zh_${region}`] || show.title_zh_hk || show.title_zh_tw || show.title_zh_cn || "";
   }
 
+  function syncTrackingButton(button, showId) {
+    const active = isTrackedShow(trackedIds, showId);
+    const pressed = String(active);
+    const label = active ? "取消追蹤此劇集" : "追蹤此劇集";
+    const text = active ? "✓ 已追蹤" : "+ 追蹤";
+
+    if (button.getAttribute("aria-pressed") !== pressed) button.setAttribute("aria-pressed", pressed);
+    if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
+    if (button.textContent !== text) button.textContent = text;
+  }
+
   function createTrackingButton(showId) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "tracking-toggle";
     button.dataset.trackShowId = String(showId);
-    const active = isTrackedShow(trackedIds, showId);
-    button.setAttribute("aria-pressed", String(active));
-    button.setAttribute("aria-label", active ? "取消追蹤此劇集" : "追蹤此劇集");
-    button.textContent = active ? "✓ 已追蹤" : "+ 追蹤";
+    syncTrackingButton(button, showId);
     return button;
   }
 
@@ -60,10 +68,7 @@ function boot() {
         if (imageWrap) imageWrap.append(button);
         else card.prepend(button);
       } else {
-        const active = isTrackedShow(trackedIds, showId);
-        button.setAttribute("aria-pressed", String(active));
-        button.setAttribute("aria-label", active ? "取消追蹤此劇集" : "追蹤此劇集");
-        button.textContent = active ? "✓ 已追蹤" : "+ 追蹤";
+        syncTrackingButton(button, showId);
       }
     }
   }
@@ -239,7 +244,7 @@ function boot() {
   const observer = new MutationObserver(() => {
     if (!myActive) decorateTrackingButtons();
   });
-  observer.observe(showGrid, { childList: true, subtree: true });
+  observer.observe(showGrid, { childList: true });
   decorateTrackingButtons();
 }
 
