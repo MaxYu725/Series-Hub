@@ -32,6 +32,13 @@ export function saveTrackedShowIds(ids, storage = globalThis.localStorage) {
   } catch {
     // Tracking remains usable in-memory if storage is unavailable.
   }
+  try {
+    if (typeof globalThis.dispatchEvent === "function" && typeof globalThis.CustomEvent === "function") {
+      globalThis.dispatchEvent(new CustomEvent("series-hub-tracking-changed", { detail: { showIds: normalized } }));
+    }
+  } catch {
+    // Notification syncing is optional and must never break local tracking.
+  }
   return normalized;
 }
 
