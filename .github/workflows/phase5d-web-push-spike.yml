@@ -1,0 +1,170 @@
+name: Phase 5D-A Web Push spike
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase5d-push-spike-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  WRANGLER_VERSION: "4.125.0"
+
+jobs:
+  deploy-spike:
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'phase-5d-a-web-push-spike'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      SPIKE_WORKER_NAME: series-hub-push-spike-pr-${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Checkout spike branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Validate Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+
+      - name: Install isolated spike dependency
+        working-directory: spikes/web-push
+        run: npm install --no-audit --no-fund
+
+      - name: Generate ephemeral preview VAPID keys
+        id: vapid
+        working-directory: spikes/web-push
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYS="$(node --input-type=module <<'NODE'
+          import webpush from 'web-push';
+          process.stdout.write(JSON.stringify(webpush.generateVAPIDKeys()));
+          NODE
+          )"
+          PUBLIC_KEY="$(printf '%s' "${KEYS}" | jq -r '.publicKey')"
+          PRIVATE_KEY="$(printf '%s' "${KEYS}" | jq -r '.privateKey')"
+          test -n "${PUBLIC_KEY}" && test -n "${PRIVATE_KEY}"
+          echo "::add-mask::${PRIVATE_KEY}"
+          echo "public=${PUBLIC_KEY}" >> "${GITHUB_OUTPUT}"
+          echo "private=${PRIVATE_KEY}" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure isolated spike Worker
+        env:
+          VAPID_PUBLIC_KEY: ${{ steps.vapid.outputs.public }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'spikes/web-push/wrangler.jsonc';
+          const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+          config.name = process.env.SPIKE_WORKER_NAME;
+          config.vars = {
+            ...(config.vars || {}),
+            VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY
+          };
+          fs.writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+          NODE
+
+      - name: Validate isolated Web Push Worker build
+        run: npx --yes wrangler@"${WRANGLER_VERSION}" deploy --config spikes/web-push/wrangler.jsonc --dry-run --outdir .wrangler-push-spike
+
+      - name: Deploy isolated Web Push Worker
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUTPUT="$(npx --yes wrangler@"${WRANGLER_VERSION}" deploy --config spikes/web-push/wrangler.jsonc 2>&1)"
+          printf '%s\n' "${OUTPUT}"
+          SPIKE_URL="$(printf '%s\n' "${OUTPUT}" | grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' | tail -n 1)"
+          test -n "${SPIKE_URL}" || { echo "Spike URL was not returned by Wrangler"; exit 1; }
+          echo "url=${SPIKE_URL}" >> "${GITHUB_OUTPUT}"
+
+      - name: Attach ephemeral VAPID private secret
+        env:
+          VAPID_PRIVATE_KEY: ${{ steps.vapid.outputs.private }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "${VAPID_PRIVATE_KEY}" | npx --yes wrangler@"${WRANGLER_VERSION}" secret put VAPID_PRIVATE_KEY --config spikes/web-push/wrangler.jsonc --name "${SPIKE_WORKER_NAME}"
+
+      - name: Smoke-test spike runtime
+        env:
+          SPIKE_URL: ${{ steps.deploy.outputs.url }}
+          EXPECTED_PUBLIC_KEY: ${{ steps.vapid.outputs.public }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEALTH_JSON=""
+          for attempt in $(seq 1 20); do
+            if HEALTH_JSON="$(curl --fail --silent --show-error "${SPIKE_URL}/health" 2>/dev/null)"; then
+              if HEALTH_JSON="${HEALTH_JSON}" node -e '
+                const health = JSON.parse(process.env.HEALTH_JSON);
+                if (health.ok !== true || health.phase !== "5d-a-web-push-spike" || health.persistentStorage !== false || health.vapidPublicConfigured !== true || health.vapidPrivateConfigured !== true) process.exit(1);
+              '; then
+                break
+              fi
+            fi
+            echo "Spike not ready yet (${attempt}/20)"
+            sleep 3
+          done
+          test -n "${HEALTH_JSON}" || { echo "Spike /health did not become ready"; exit 1; }
+
+          KEY_JSON="$(curl --fail --silent --show-error "${SPIKE_URL}/api/vapid-public-key")"
+          KEY_JSON="${KEY_JSON}" EXPECTED_PUBLIC_KEY="${EXPECTED_PUBLIC_KEY}" node -e '
+            const data = JSON.parse(process.env.KEY_JSON);
+            if (data.ok !== true || data.publicKey !== process.env.EXPECTED_PUBLIC_KEY) process.exit(1);
+          '
+
+          HTML="$(curl --fail --silent --show-error "${SPIKE_URL}/")"
+          printf '%s' "${HTML}" | grep -q "Phase 5D-A"
+          printf '%s' "${HTML}" | grep -q "Run Push Test"
+
+      - name: Publish manual browser-test checkpoint
+        env:
+          SPIKE_URL: ${{ steps.deploy.outputs.url }}
+        shell: bash
+        run: |
+          {
+            echo "## Phase 5D-A Web Push feasibility spike"
+            echo
+            echo "- Worker build: passed (web-push 3.6.7 + nodejs_compat)"
+            echo "- Ephemeral VAPID keypair: generated in CI"
+            echo "- VAPID private key committed to GitHub: no"
+            echo "- D1 / subscription persistence: none"
+            echo "- Automated runtime smoke: passed"
+            echo "- Manual browser delivery test: pending"
+            echo "- Spike URL: ${SPIKE_URL}"
+            echo
+            echo "Open the Spike URL, press **Run Push Test**, allow notifications, and confirm that the native Series Hub Phase 5D-A notification arrives."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  cleanup-spike:
+    if: always() && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'phase-5d-a-web-push-spike'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      SPIKE_WORKER_NAME: series-hub-push-spike-pr-${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Delete isolated Web Push spike Worker
+        shell: bash
+        run: |
+          set +e
+          npx --yes wrangler@"${WRANGLER_VERSION}" delete --name "${SPIKE_WORKER_NAME}"
+          exit 0
