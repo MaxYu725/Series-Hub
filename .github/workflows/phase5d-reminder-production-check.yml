@@ -1,0 +1,138 @@
+name: Phase 5D-C production reminder verification
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/phase5d-reminder-production-check.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase5d-reminder-production-verification
+  cancel-in-progress: false
+
+env:
+  WRANGLER_VERSION: "4.125.0"
+  PRODUCTION_DB_NAME: "series-hub-db"
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Validate production reminder gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API secret is missing"; exit 1; }
+          node - <<'NODE'
+          const fs = require('fs');
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          if (String(config.vars?.PUSH_SUBSCRIPTIONS_ENABLED) !== 'true') throw new Error('PUSH_SUBSCRIPTIONS_ENABLED is not true');
+          if (String(config.vars?.EPISODE_REMINDERS_ENABLED) !== 'true') throw new Error('EPISODE_REMINDERS_ENABLED is not true');
+          if (!Array.isArray(config.triggers?.crons) || !config.triggers.crons.includes('7 * * * *')) throw new Error('episode reminder cron is missing');
+          NODE
+
+      - name: Verify a real production browser subscription exists
+        id: subscription
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATE_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT (SELECT COUNT(*) FROM push_subscriptions WHERE disabled_at IS NULL) AS active_subscriptions, (SELECT COUNT(*) FROM push_subscription_shows pss JOIN push_subscriptions ps ON ps.id = pss.subscription_id WHERE ps.disabled_at IS NULL) AS active_show_mappings, (SELECT COUNT(*) FROM push_subscriptions WHERE disabled_at IS NULL AND julianday(last_seen_at) >= julianday('now','-30 minutes')) AS recent_subscriptions;")"
+          STATE_JSON="${STATE_JSON}" node - <<'NODE'
+          const data = JSON.parse(process.env.STATE_JSON);
+          let row = null;
+          const walk = (value) => {
+            if (Array.isArray(value)) return value.forEach(walk);
+            if (!value || typeof value !== 'object') return;
+            if ('active_subscriptions' in value) row = value;
+            Object.values(value).forEach(walk);
+          };
+          walk(data);
+          const subscriptions = Number(row?.active_subscriptions || 0);
+          const mappings = Number(row?.active_show_mappings || 0);
+          const recent = Number(row?.recent_subscriptions || 0);
+          console.log(`Active production subscriptions: ${subscriptions}`);
+          console.log(`Active tracked-show mappings: ${mappings}`);
+          console.log(`Subscriptions refreshed in last 30 minutes: ${recent}`);
+          if (subscriptions < 1) throw new Error('No active production Push subscription exists');
+          if (mappings < 1) throw new Error('No tracked show is mapped to an active subscription');
+          if (recent < 1) throw new Error('No recently refreshed production subscription found after real-device opt-in');
+          NODE
+
+      - name: Run protected production reminder dry-run
+        id: dryrun
+        shell: bash
+        run: |
+          set -euo pipefail
+          SYNC_KEY="$(node -e 'const crypto=require("crypto"); process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v1:" + process.env.TMDB_API_TOKEN).digest("hex"));')"
+          DRY_RUN="$(curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 -X POST -H "x-series-hub-sync-key: ${SYNC_KEY}" "${PRODUCTION_URL}/api/internal/episode-reminders")"
+          printf '%s\n' "${DRY_RUN}" | jq '{ok,enabled,dryRun,candidates,staleSubscriptions,purgedStale,attempted,sent,transientFailures,terminalFailures,purgedPermanent}'
+          CANDIDATES="$(printf '%s' "${DRY_RUN}" | jq -r '.candidates // 0')"
+          test "$(printf '%s' "${DRY_RUN}" | jq -r '.ok')" = "true"
+          test "$(printf '%s' "${DRY_RUN}" | jq -r '.enabled')" = "true"
+          test "$(printf '%s' "${DRY_RUN}" | jq -r '.dryRun')" = "true"
+          test "$(printf '%s' "${DRY_RUN}" | jq -r '.attempted')" = "0"
+          test "$(printf '%s' "${DRY_RUN}" | jq -r '.sent')" = "0"
+          echo "candidates=${CANDIDATES}" >> "${GITHUB_OUTPUT}"
+
+      - name: Inspect nearest future tracked episode without exposing subscription data
+        id: future
+        shell: bash
+        run: |
+          set -euo pipefail
+          FUTURE_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT COUNT(*) AS future_numbered_episodes, ROUND(MIN((julianday(e.air_timestamp) - julianday('now')) * 24), 2) AS nearest_hours FROM push_subscriptions ps JOIN push_subscription_shows pss ON pss.subscription_id = ps.id JOIN shows s ON s.id = pss.show_id JOIN seasons se ON se.show_id = s.id JOIN episodes e ON e.season_id = se.id WHERE ps.disabled_at IS NULL AND e.air_timestamp IS NOT NULL AND e.episode_number > 0 AND se.season_number > 0 AND julianday(e.air_timestamp) > julianday('now');")"
+          RESULT="$(FUTURE_JSON="${FUTURE_JSON}" node - <<'NODE'
+          const data = JSON.parse(process.env.FUTURE_JSON);
+          let row = null;
+          const walk = (value) => {
+            if (Array.isArray(value)) return value.forEach(walk);
+            if (!value || typeof value !== 'object') return;
+            if ('future_numbered_episodes' in value) row = value;
+            Object.values(value).forEach(walk);
+          };
+          walk(data);
+          process.stdout.write(`${Number(row?.future_numbered_episodes || 0)}|${row?.nearest_hours ?? ''}`);
+          NODE
+          )"
+          COUNT="${RESULT%%|*}"
+          HOURS="${RESULT#*|}"
+          echo "future_count=${COUNT}" >> "${GITHUB_OUTPUT}"
+          echo "nearest_hours=${HOURS}" >> "${GITHUB_OUTPUT}"
+          echo "Future numbered tracked episodes: ${COUNT}"
+          if [ -n "${HOURS}" ]; then echo "Nearest tracked episode is approximately ${HOURS} hours away"; fi
+
+      - name: Publish Phase 5D-C verification result
+        env:
+          CANDIDATES: ${{ steps.dryrun.outputs.candidates }}
+          FUTURE_COUNT: ${{ steps.future.outputs.future_count }}
+          NEAREST_HOURS: ${{ steps.future.outputs.nearest_hours }}
+        shell: bash
+        run: |
+          {
+            echo "## Phase 5D-C production verification"
+            echo
+            echo "- Production Push subscription: present and recently refreshed"
+            echo "- Tracked show mapping: present"
+            echo "- Episode reminder gate: enabled"
+            echo "- Hourly reminder cron: configured"
+            echo "- Protected dry-run: successful and non-sending"
+            echo "- Current 23–24h eligible candidates: ${CANDIDATES}"
+            echo "- Future numbered tracked episodes in D1: ${FUTURE_COUNT}"
+            if [ -n "${NEAREST_HOURS}" ]; then echo "- Nearest future tracked episode: approximately ${NEAREST_HOURS} hours away"; fi
+            echo "- Real-device acceptance remains pending until one actual notification is received"
+          } >> "${GITHUB_STEP_SUMMARY}"
