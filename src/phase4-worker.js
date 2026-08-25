@@ -2,6 +2,11 @@ import coreWorker, { deriveTmdbSyncKey } from "./index.js";
 import { applyLifecycleEvidence } from "./lifecycle-admin.js";
 import { summarizeLifecycleEvents } from "./lifecycle.js";
 import { handlePushRequest } from "./push-subscriptions.js";
+import {
+  EPISODE_REMINDER_CRON,
+  episodeRemindersEnabled,
+  runEpisodeReminderDelivery
+} from "./push-delivery.js";
 
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -152,6 +157,28 @@ async function lifecycleEvidenceWrite(request, env) {
   }
 }
 
+async function episodeReminderRun(request, env) {
+  if (!env.TMDB_API_TOKEN) return json({ ok: false, error: "episode_reminder_admin_not_configured" }, { status: 503 });
+  if (!(await authorizeEditorialWrite(request, env))) return json({ ok: false, error: "unauthorized" }, { status: 401 });
+
+  const url = new URL(request.url);
+  const send = url.searchParams.get("send") === "1";
+  if (send && !episodeRemindersEnabled(env)) {
+    return json({ ok: false, error: "episode_reminders_disabled" }, { status: 503 });
+  }
+
+  try {
+    const result = await runEpisodeReminderDelivery(env, { dryRun: !send });
+    return json(result, { status: result.ok ? 200 : 503 });
+  } catch (error) {
+    return json({
+      ok: false,
+      error: "episode_reminder_run_failed",
+      detail: error instanceof Error ? error.message : String(error)
+    }, { status: 502 });
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -165,11 +192,24 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/internal/lifecycle-evidence") {
       return lifecycleEvidenceWrite(request, env);
     }
+    if (request.method === "POST" && url.pathname === "/api/internal/episode-reminders") {
+      return episodeReminderRun(request, env);
+    }
 
     return coreWorker.fetch(request, env, ctx);
   },
 
   async scheduled(controller, env, ctx) {
+    if (controller.cron === EPISODE_REMINDER_CRON) {
+      if (!episodeRemindersEnabled(env)) {
+        console.info("Episode reminder cron skipped: EPISODE_REMINDERS_ENABLED is false");
+        return;
+      }
+      ctx.waitUntil(
+        runEpisodeReminderDelivery(env).catch((error) => console.error("Episode reminder scheduled run failed", error))
+      );
+      return;
+    }
     return coreWorker.scheduled(controller, env, ctx);
   }
 };
