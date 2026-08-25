@@ -15,7 +15,7 @@
     "enabled": true
   },
   "vars": {
-    "PUSH_SUBSCRIPTIONS_ENABLED": "false"
+    "PUSH_SUBSCRIPTIONS_ENABLED": "true"
   },
   "secrets": {
     "required": [
