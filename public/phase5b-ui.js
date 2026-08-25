@@ -1,6 +1,5 @@
 import {
   addDateKeyDays,
-  episodeLocalDateKey,
   localDateKey,
   scheduleWindow
 } from "./schedule-utils.js";
@@ -54,7 +53,6 @@ function boot() {
   let requestId = 0;
   let debounceTimer = null;
   let snapshot = null;
-  let applying = false;
 
   function activeView() {
     const selected = document.querySelector(".filter.active[data-view]");
@@ -127,7 +125,8 @@ function boot() {
     const rows = [...scheduleList.querySelectorAll(".schedule-row")];
     if (rows.length !== episodes.length) return false;
 
-    const tracked = new Set(loadTrackedShowIds().map(Number));
+    const trackedIds = loadTrackedShowIds();
+    const tracked = new Set(trackedIds.map(Number));
     let visibleTotal = 0;
     rows.forEach((row, index) => {
       const showId = Number(episodes[index]?.show_id);
@@ -147,8 +146,8 @@ function boot() {
     showCount.textContent = `${visibleTotal} 集`;
     emptyState.hidden = visibleTotal !== 0;
     if (visibleTotal === 0) {
-      emptyTitle.textContent = loadTrackedShowIds().length ? "這個時段沒有已追蹤劇集" : "尚未追蹤任何劇集";
-      emptyCopy.textContent = loadTrackedShowIds().length
+      emptyTitle.textContent = trackedIds.length ? "這個時段沒有已追蹤劇集" : "尚未追蹤任何劇集";
+      emptyCopy.textContent = trackedIds.length
         ? "目前追蹤清單在這個排程時段沒有已確認集數。"
         : "先在劇集卡片按「+ 追蹤」，再回來查看個人排程。";
     }
@@ -164,16 +163,13 @@ function boot() {
     try {
       const episodes = await fetchCurrentSchedule(view, request);
       if (!episodes || request !== requestId || !active) return;
-      applying = true;
       const matched = applyRows(episodes);
-      applying = false;
       if (!matched) {
         window.setTimeout(() => {
           if (active) applyTrackedFilter();
         }, 80);
       }
     } catch (error) {
-      applying = false;
       console.error(error);
       if (request !== requestId || !active) return;
       emptyState.hidden = false;
@@ -220,11 +216,11 @@ function boot() {
   });
 
   const observer = new MutationObserver(() => {
-    if (!active || applying) return;
+    if (!active) return;
     window.clearTimeout(debounceTimer);
     debounceTimer = window.setTimeout(applyTrackedFilter, 80);
   });
-  observer.observe(scheduleList, { childList: true, subtree: true });
+  observer.observe(scheduleList, { childList: true });
 
   setButtonAvailability();
 }
