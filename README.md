@@ -6,7 +6,7 @@ The core model is **series → seasons → episodes**. Season is first-class bec
 
 ## Current status
 
-**Phase 5A — browser-local My Shows tracking: COMPLETE and production-accepted.**
+**Phase 5C — browser-local viewing states: COMPLETE and production-accepted.**
 
 Completed:
 
@@ -18,11 +18,13 @@ Completed:
 - Phase 3A — HK/TW/CN preferred-title resolution, provenance, fallback and controlled manual override;
 - Phase 3B — title-quality production audit and proof that editorial overrides survive TMDB refreshes;
 - Phase 4A–4F — attributed official renewal/cancellation/production evidence, visible UI projection, verified official source registry and production acceptance across Apple, Amazon, WBD/HBO, Netflix and FOX;
-- Phase 5A — local-only show tracking and the **我的劇集 / My Shows** view without accounts or server-side user data.
+- Phase 5A — local-only show tracking and the **我的劇集 / My Shows** view without accounts or server-side user data;
+- Phase 5B — **只看追蹤 / Tracked only** filtering for Today / This Week using the existing schedule API and stable Series Hub show IDs;
+- Phase 5C — local per-show viewing states and My Shows state filtering: **追看中 / 等下一季 / 已看完 / 暫停**.
 
-**Next planned phase: Phase 5B — deepen local tracking usefulness before considering notification infrastructure or accounts.**
+**Next planned phase: Phase 5D — notification architecture design and feasibility checkpoint.**
 
-A likely 5B direction is tracked-only schedule filtering and/or local per-show states such as watching / waiting / completed. True background notifications should remain a separate phase because they require service-worker/push subscription design rather than only browser `localStorage`.
+Phase 5D should define notification triggers, permission UX, service-worker/Web Push requirements, push-subscription storage, deduplication, expiry, privacy/retention and failure behavior before any background notification implementation is accepted. It should explicitly compare a local/foreground-only option with true background Web Push. Accounts or broader server-side identity remain out of scope unless a demonstrated product need justifies them.
 
 ## Product views
 
@@ -31,29 +33,45 @@ Catalog:
 - **播映中 / Airing** — a current season is actively releasing episodes;
 - **即將播映 / Upcoming** — a show/season has a confirmed future date;
 - **計劃播出 / Planned** — returning / in-production series with no confirmed date yet;
-- **我的劇集 / My Shows** — shows selected by the user in this browser, with current catalog metadata re-fetched from the normal API.
+- **我的劇集 / My Shows** — shows selected by the user in this browser, with current catalog metadata re-fetched from the normal API. Tracked shows can also be assigned a browser-local viewing state and filtered by that state.
 
 Schedule:
 
 - **今日 / Today** — episodes that fall on the browser's local calendar day when a TVmaze airstamp is available;
-- **本週 / This Week** — seven local calendar days starting today.
+- **本週 / This Week** — seven local calendar days starting today;
+- **只看追蹤 / Tracked only** — optional browser-local filter for Today / This Week, matching schedule rows by stable `show_id` against the local tracked-show list.
 
 When TVmaze provides an `air_timestamp`, Series Hub converts it to the browser's local timezone for date grouping and time display. If only source `air_date` / `air_time` exists, the UI labels it as source timing rather than inventing a local time.
 
-## Phase 5A tracking policy
+## Phase 5 local-personalization policy
 
-Phase 5A intentionally does **not** create an account system.
+Phase 5A–5C intentionally do **not** create an account system.
+
+Tracking:
 
 - local storage key: `series-hub-tracked-shows-v1`;
 - only stable Series Hub show IDs are persisted;
-- metadata is not copied into local storage;
+- metadata is not copied into tracking storage;
 - My Shows reuses the existing `airing`, `upcoming` and `planned` catalog APIs;
-- no `/api/tracking` or `/api/favorites` endpoint exists;
-- no D1 user/profile/favorites table exists;
-- no new cron job exists;
-- no user data is sent to the backend by the tracking feature.
+- Phase 5B reuses `/api/schedule` and filters the returned schedule in the browser.
 
-This keeps personalization reversible and low-risk while the product UX is still being validated.
+Viewing states:
+
+- local storage key: `series-hub-viewing-states-v1`;
+- values are keyed by stable Series Hub show ID;
+- supported states are `watching`, `waiting`, `completed`, `paused`;
+- UI labels are **追看中**, **等下一季**, **已看完**, **暫停**;
+- states are editable and filterable inside My Shows;
+- no viewing-state data is sent to the backend.
+
+Backend boundaries through Phase 5C:
+
+- no `/api/tracking`, `/api/favorites` or `/api/viewing` endpoint exists;
+- no D1 user/profile/favorites/viewing-state table exists;
+- no new personalization cron job exists;
+- no service worker, Push API subscription or notification backend has been introduced by Phase 5A–5C.
+
+This keeps personalization reversible and low-risk while the product UX is being validated. True background notification work is deliberately separated into Phase 5D because Web Push introduces a materially different privacy and infrastructure boundary.
 
 ## Data-source responsibilities
 
@@ -115,19 +133,44 @@ Production acceptance through Phase 4F includes:
 
 The FOX work also exposed and repaired two general catalog issues instead of bypassing them with orphan evidence: current FOX discovery was hidden by historical popularity results, and selected TMDB detail records were previously capped below the already-paid detail request limit.
 
-## Phase 5A production acceptance
+## Phase 5 production acceptance
 
-Production audit after merging Phase 5A confirmed:
+### Phase 5A — My Shows
 
-- homepage serves the `Phase 5A` marker and **我的劇集** control;
-- `phase5.css`, `phase5-ui.js` and `tracking.js` are live;
-- versioned local tracking storage is present;
-- My Shows continues to use `/api/shows` rather than a new user-data endpoint;
+Production audit confirmed:
+
+- homepage served the Phase 5A assets and **我的劇集** control;
+- `phase5.css`, `phase5-ui.js` and `tracking.js` were live;
+- versioned local tracking storage was present;
+- My Shows continued to use `/api/shows` rather than a new user-data endpoint;
+- `/health` remained healthy;
+- standard isolated Cloudflare validation passed unit tests, fresh D1 migrations, Worker build, preview runtime and production regression.
+
+### Phase 5B — tracked-only schedule
+
+Production audit confirmed:
+
+- `phase5b-ui.js` and **只看追蹤** were live;
+- Today / This Week continued to use the existing `/api/schedule` endpoint;
+- sampled production schedule rows exposed stable positive Series Hub `show_id` values;
+- no tracking/favorites backend endpoint was introduced;
+- `/health` remained healthy;
+- standard isolated Cloudflare validation passed.
+
+### Phase 5C — local viewing states
+
+Production audit confirmed:
+
+- homepage serves the `Phase 5C` marker plus `phase5c.css` and `phase5c-ui.js`;
+- Phase 5B remains loaded alongside Phase 5C;
+- `viewing-state.js` is live with storage key `series-hub-viewing-states-v1`;
+- the four planned states are live: `watching`, `waiting`, `completed`, `paused`;
+- state controls remain scoped to My Shows;
+- no tracking/favorites/viewing backend endpoint or POST user-state path was introduced;
 - `/health` remains healthy;
-- the existing catalog API remains readable;
-- standard isolated Cloudflare validation also passed unit tests, fresh D1 migrations, Worker build, preview runtime and production regression.
+- dedicated read-only production acceptance and normal isolated Cloudflare validation both passed.
 
-Production-network probes remain explicit audit workflows and are never placed in the default `npm test` suite.
+Production-network probes remain explicit audit workflows and are never placed in the default `npm test` suite. Audit-only files are closed without merge.
 
 ## Architecture
 
@@ -147,8 +190,8 @@ GitHub main ── Actions ──► Cloudflare Worker ◄──── TVmaze
                     D1: series-hub-db
 
 Browser localStorage
-      │
-      └── tracked Series Hub show IDs only
+      ├── tracked Series Hub show IDs
+      └── per-show viewing states
 ```
 
 Production Worker:
@@ -232,12 +275,16 @@ Series-Hub/
 │   ├── app.js
 │   ├── phase4-ui.js
 │   ├── phase5-ui.js
+│   ├── phase5b-ui.js
+│   ├── phase5c-ui.js
 │   ├── tracking.js
+│   ├── viewing-state.js
 │   ├── schedule-utils.js
 │   ├── styles.css
 │   ├── phase3.css
 │   ├── phase4.css
-│   └── phase5.css
+│   ├── phase5.css
+│   └── phase5c.css
 └── test/
 ```
 
@@ -332,6 +379,7 @@ The frontend requests a one-day buffer around the local schedule window so a US 
 14. Deployment success alone is not acceptance; production contracts are audited at phase boundaries.
 15. Production-network probes must stay outside the default unit-test suite.
 16. Personalization should remain local-first until server-side identity provides a demonstrated product benefit.
+17. Background notification infrastructure must not be smuggled into a local-personalization phase; its privacy and persistence contracts require a separate design gate.
 
 ## Roadmap
 
@@ -343,10 +391,12 @@ The frontend requests a one-day buffer around the local schedule window so a US 
 - **Phase 3 — Complete:** regional Chinese title policy, fallback, provenance, live audit and protected manual override.
 - **Phase 4 — Complete through 4F:** official renewal/cancellation/production evidence, source registry, UI projection and Apple/Amazon/WBD/Netflix/FOX production acceptance.
 - **Phase 5A — Complete:** browser-local My Shows tracking.
-- **Phase 5B — Next:** increase local tracking utility, preferably tracked-only schedule and/or local viewing states before adding infrastructure.
-- **Later Phase 5:** evaluate opt-in notification architecture only after notification triggers and service-worker/push requirements are explicitly designed.
+- **Phase 5B — Complete:** tracked-only Today / This Week schedule filtering.
+- **Phase 5C — Complete:** browser-local per-show viewing states and My Shows state filtering.
+- **Phase 5D — Next:** notification architecture design/feasibility gate covering triggers, Service Worker/Web Push, subscription persistence, deduplication, permission UX, privacy and fallback behavior before implementation.
+- **Later Phase 5:** implement only the notification model that passes Phase 5D; evaluate account/server-side identity separately rather than assuming it is required.
 - **Phase 6:** expansion beyond US series.
 
 ## Handoff checkpoint
 
-As of the Phase 5A production acceptance, the safest continuation point is **Phase 5B**. Do not rebuild Phase 4 or reseed already accepted official evidence. Preserve the browser-only GitHub → isolated preview → Cloudflare workflow, keep production probes in dedicated audit workflows, and prefer reversible local personalization before introducing accounts or server-side user data.
+As of the Phase 5C production acceptance, the safest continuation point is **Phase 5D notification architecture design**, not immediate push implementation. Do not rebuild Phase 4, reseed accepted lifecycle evidence, or replace the existing local tracking/state storage with accounts by default. Preserve the browser-only GitHub → isolated preview → Cloudflare workflow, keep production probes in dedicated audit workflows, and require an explicit privacy/persistence contract before any service worker or push-subscription backend is introduced.
