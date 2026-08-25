@@ -88,7 +88,7 @@ export function notificationPayload(row) {
   const timing = localTime ? `${localTime} 播映` : "約 24 小時後播映";
 
   return {
-    title: `${showTitle} · 明日提醒`,
+    title: `${showTitle} · 24 小時提醒`,
     body: [detail, timing].filter(Boolean).join("\n"),
     tag: `${EPISODE_REMINDER_KIND}-${row.episode_id}`,
     data: {
@@ -108,11 +108,21 @@ async function vapidPublicKey(env) {
   return row?.config_value || null;
 }
 
+function staleCutoff(now) {
+  return new Date(now.getTime() - STALE_AFTER_DAYS * 24 * 60 * 60 * 1000).toISOString();
+}
+
+async function countStaleSubscriptions(env, now) {
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS count FROM push_subscriptions WHERE julianday(last_seen_at) < julianday(?1)"
+  ).bind(staleCutoff(now)).first();
+  return Number(row?.count || 0);
+}
+
 async function purgeStaleSubscriptions(env, now) {
-  const cutoff = new Date(now.getTime() - STALE_AFTER_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const result = await env.DB.prepare(
     "DELETE FROM push_subscriptions WHERE julianday(last_seen_at) < julianday(?1)"
-  ).bind(cutoff).run();
+  ).bind(staleCutoff(now)).run();
   return Number(result?.meta?.changes || 0);
 }
 
@@ -174,11 +184,20 @@ async function candidateRows(env, now, limit = MAX_DELIVERIES_PER_RUN) {
 
 async function claimDelivery(env, row) {
   const entityKey = episodeEntityKey(row.episode_id);
-  await env.DB.prepare(
+  const inserted = await env.DB.prepare(
     `INSERT OR IGNORE INTO notification_deliveries (
       subscription_id, kind, entity_key, scheduled_for, status, error_code, created_at, updated_at
     ) VALUES (?1, ?2, ?3, ?4, 'sending', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
   ).bind(row.subscription_id, EPISODE_REMINDER_KIND, entityKey, row.air_timestamp).run();
+
+  if (Number(inserted?.meta?.changes || 0) === 1) {
+    const created = await env.DB.prepare(
+      `SELECT id FROM notification_deliveries
+       WHERE subscription_id = ?1 AND kind = ?2 AND entity_key = ?3
+       LIMIT 1`
+    ).bind(row.subscription_id, EPISODE_REMINDER_KIND, entityKey).first();
+    return created?.id ? Number(created.id) : null;
+  }
 
   const existing = await env.DB.prepare(
     `SELECT id, status
@@ -187,10 +206,7 @@ async function claimDelivery(env, row) {
      LIMIT 1`
   ).bind(row.subscription_id, EPISODE_REMINDER_KIND, entityKey).first();
 
-  if (!existing?.id) return null;
-  if (existing.status === "sending") return Number(existing.id);
-  if (existing.status !== "failed_transient") return null;
-
+  if (!existing?.id || existing.status !== "failed_transient") return null;
   const updated = await env.DB.prepare(
     `UPDATE notification_deliveries
      SET status = 'sending', scheduled_for = ?2, error_code = NULL, updated_at = CURRENT_TIMESTAMP
@@ -238,8 +254,8 @@ export async function runEpisodeReminderDelivery(env, options = {}) {
   const enabled = forceEnabled || episodeRemindersEnabled(env);
 
   if (!env.DB) return { ok: false, error: "database_not_configured", enabled, dryRun };
-  const purgedStale = await purgeStaleSubscriptions(env, now);
   const rows = await candidateRows(env, now, options.limit);
+  const staleSubscriptions = await countStaleSubscriptions(env, now);
 
   if (dryRun || !enabled) {
     return {
@@ -247,7 +263,8 @@ export async function runEpisodeReminderDelivery(env, options = {}) {
       enabled,
       dryRun: true,
       candidates: rows.length,
-      purgedStale,
+      staleSubscriptions,
+      purgedStale: 0,
       attempted: 0,
       sent: 0,
       transientFailures: 0,
@@ -258,9 +275,10 @@ export async function runEpisodeReminderDelivery(env, options = {}) {
 
   const publicKey = await vapidPublicKey(env);
   if (!publicKey || !env.VAPID_PRIVATE_KEY) {
-    return { ok: false, error: "vapid_not_configured", enabled, dryRun: false, candidates: rows.length, purgedStale };
+    return { ok: false, error: "vapid_not_configured", enabled, dryRun: false, candidates: rows.length, staleSubscriptions };
   }
 
+  const purgedStale = await purgeStaleSubscriptions(env, now);
   webpush.setVapidDetails(
     env.VAPID_SUBJECT || "https://series-hub.max-yu-jp.workers.dev",
     publicKey,
@@ -273,6 +291,7 @@ export async function runEpisodeReminderDelivery(env, options = {}) {
     enabled: true,
     dryRun: false,
     candidates: rows.length,
+    staleSubscriptions,
     purgedStale,
     attempted: 0,
     sent: 0,
