@@ -36,7 +36,8 @@ jobs:
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
           node -e '
-            const config = require("./wrangler.jsonc");
+            const fs = require("fs");
+            const config = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
             if (String(config.vars?.PUSH_SUBSCRIPTIONS_ENABLED) !== "true") {
               console.error("Phase 5D-B production subscription gate is not enabled; VAPID bootstrap is not required.");
               process.exit(1);
@@ -60,6 +61,7 @@ jobs:
             const walk=v=>{ if(Array.isArray(v)) v.forEach(walk); else if(v&&typeof v==="object"){ if("subscription_count" in v) row=v; Object.values(v).forEach(walk); } };
             walk(data); process.stdout.write(String(Number(row?.subscription_count || 0)));
           ')"
+          echo "initial_subscription_count=${SUBSCRIPTION_COUNT}" >> "${GITHUB_OUTPUT}"
 
           SECRET_LIST="$(npx --yes wrangler@"${WRANGLER_VERSION}" secret list --name series-hub)"
           PRIVATE_PRESENT="$(printf '%s' "${SECRET_LIST}" | jq -r 'any(.[]; .name == "VAPID_PRIVATE_KEY")')"
@@ -128,15 +130,19 @@ jobs:
           done
           test "${READY}" = "1" || { echo "Production Phase 5D-B Push capability did not become ready"; exit 1; }
 
-      - name: Verify no subscription was created by bootstrap
+      - name: Verify bootstrap did not create or remove subscriptions
+        env:
+          EXPECTED_SUBSCRIPTION_COUNT: ${{ steps.vapid.outputs.initial_subscription_count }}
         shell: bash
         run: |
           set -euo pipefail
           STATE_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT COUNT(*) AS subscription_count FROM push_subscriptions;")"
-          STATE_JSON="${STATE_JSON}" node -e '
+          STATE_JSON="${STATE_JSON}" EXPECTED_SUBSCRIPTION_COUNT="${EXPECTED_SUBSCRIPTION_COUNT}" node -e '
             const data=JSON.parse(process.env.STATE_JSON); let count=null;
             const walk=v=>{ if(Array.isArray(v)) v.forEach(walk); else if(v&&typeof v==="object"){ if("subscription_count" in v) count=Number(v.subscription_count); Object.values(v).forEach(walk); } };
-            walk(data); if(count !== 0) { console.error(`Expected zero subscriptions before explicit browser opt-in, found ${count}`); process.exit(1); }
+            walk(data);
+            const expected = Number(process.env.EXPECTED_SUBSCRIPTION_COUNT);
+            if(count !== expected) { console.error(`VAPID bootstrap changed subscription count: expected ${expected}, found ${count}`); process.exit(1); }
           '
 
       - name: Publish Phase 5D-B production readiness
@@ -150,7 +156,7 @@ jobs:
             echo "- Private key committed to GitHub: no"
             echo "- Production subscription gate: enabled"
             echo "- Live public capability endpoint: ready"
-            echo "- Subscription created automatically: no"
+            echo "- Bootstrap changed subscriptions: no"
             echo "- Notification delivery runner: still absent"
             echo "- Next acceptance: one explicit production browser opt-in followed by revoke/delete"
           } >> "${GITHUB_STEP_SUMMARY}"
