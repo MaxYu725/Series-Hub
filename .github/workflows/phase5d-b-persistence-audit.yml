@@ -1,0 +1,231 @@
+name: Phase 5D-B persistence acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase5d-b-persistence-audit-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  WRANGLER_VERSION: "4.125.0"
+
+jobs:
+  audit:
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'phase-5d-b-persistence-audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      AUDIT_DB_NAME: series-hub-push-audit-pr-${{ github.event.pull_request.number }}
+      AUDIT_WORKER_NAME: series-hub-push-audit-pr-${{ github.event.pull_request.number }}
+      AUDIT_SHOW_1: "990000001"
+      AUDIT_SHOW_2: "990000002"
+
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Validate Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+
+      - name: Resolve isolated audit D1
+        id: audit_db
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATABASES="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 list --json)"
+          DB_ID="$(printf '%s' "${DATABASES}" | jq -r --arg name "${AUDIT_DB_NAME}" '.[] | select(.name == $name) | .uuid' | head -n 1)"
+          if [ -z "${DB_ID}" ] || [ "${DB_ID}" = "null" ]; then
+            npx --yes wrangler@"${WRANGLER_VERSION}" d1 create "${AUDIT_DB_NAME}" --location apac
+            DATABASES="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 list --json)"
+            DB_ID="$(printf '%s' "${DATABASES}" | jq -r --arg name "${AUDIT_DB_NAME}" '.[] | select(.name == $name) | .uuid' | head -n 1)"
+          fi
+          test -n "${DB_ID}" && test "${DB_ID}" != "null"
+          echo "database_id=${DB_ID}" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure isolated audit Worker with subscription gate enabled
+        env:
+          AUDIT_DB_ID: ${{ steps.audit_db.outputs.database_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'wrangler.jsonc';
+          const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const binding = config.d1_databases?.find((item) => item.binding === 'DB');
+          if (!binding) throw new Error('DB binding is missing from wrangler.jsonc');
+          config.name = process.env.AUDIT_WORKER_NAME;
+          binding.database_name = process.env.AUDIT_DB_NAME;
+          binding.database_id = process.env.AUDIT_DB_ID;
+          config.vars = { ...(config.vars || {}), PUSH_SUBSCRIPTIONS_ENABLED: 'true' };
+          config.triggers = { crons: [] };
+          delete config.secrets;
+          fs.writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+          NODE
+
+      - name: Apply migrations and seed audit-only configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@"${WRANGLER_VERSION}" d1 migrations apply "${AUDIT_DB_NAME}" --remote
+          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${AUDIT_DB_NAME}" --remote --command "INSERT OR REPLACE INTO push_config (config_key, config_value, updated_at) VALUES ('vapid_public_key', 'phase5d-b-audit-public-key', CURRENT_TIMESTAMP); INSERT OR REPLACE INTO shows (id, original_title, status) VALUES (${AUDIT_SHOW_1}, 'Phase 5D-B Audit Show 1', 'planned'); INSERT OR REPLACE INTO shows (id, original_title, status) VALUES (${AUDIT_SHOW_2}, 'Phase 5D-B Audit Show 2', 'planned');"
+
+      - name: Build and deploy isolated audit Worker
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@"${WRANGLER_VERSION}" deploy --dry-run --outdir .wrangler-phase5d-b-audit
+          OUTPUT="$(npx --yes wrangler@"${WRANGLER_VERSION}" deploy 2>&1)"
+          printf '%s\n' "${OUTPUT}"
+          AUDIT_URL="$(printf '%s\n' "${OUTPUT}" | grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' | tail -n 1)"
+          test -n "${AUDIT_URL}" || { echo "Audit Worker URL was not returned by Wrangler"; exit 1; }
+          echo "url=${AUDIT_URL}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify gate, origin and authorization boundaries
+        env:
+          AUDIT_URL: ${{ steps.deploy.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CAPABILITY=""
+          for attempt in $(seq 1 20); do
+            if CAPABILITY="$(curl --fail --silent --show-error "${AUDIT_URL}/api/push/public-key" 2>/dev/null)"; then
+              break
+            fi
+            sleep 3
+          done
+          CAPABILITY="${CAPABILITY}" node -e '
+            const data = JSON.parse(process.env.CAPABILITY || "{}");
+            if (data.enabled !== true || data.configured !== true || data.publicKey !== "phase5d-b-audit-public-key" || data.maxShows !== 100) process.exit(1);
+          '
+
+          BODY='{"subscription":{"endpoint":"https://push.example.test/subscriptions/phase5d-b-audit","keys":{"p256dh":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","auth":"BBBBBBBBBBBBBBBB"}},"showIds":['"${AUDIT_SHOW_1}"'],"timezone":"Asia/Hong_Kong","titleRegion":"HK"}'
+
+          WRONG_ORIGIN_STATUS="$(curl --silent --output /tmp/wrong-origin.json --write-out '%{http_code}' -X POST "${AUDIT_URL}/api/push/subscriptions" -H 'content-type: application/json' -H 'Origin: https://wrong-origin.example' --data "${BODY}")"
+          test "${WRONG_ORIGIN_STATUS}" = "403"
+
+          NO_ORIGIN_STATUS="$(curl --silent --output /tmp/no-origin.json --write-out '%{http_code}' -X POST "${AUDIT_URL}/api/push/subscriptions" -H 'content-type: application/json' --data "${BODY}")"
+          test "${NO_ORIGIN_STATUS}" = "403"
+
+          NO_TOKEN_STATUS="$(curl --silent --output /tmp/no-token.json --write-out '%{http_code}' -X PUT "${AUDIT_URL}/api/push/subscription" -H 'content-type: application/json' -H "Origin: ${AUDIT_URL}" --data '{"showIds":[]}')"
+          test "${NO_TOKEN_STATUS}" = "401"
+
+      - name: Exercise create, update and full delete
+        id: lifecycle
+        env:
+          AUDIT_URL: ${{ steps.deploy.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BODY='{"subscription":{"endpoint":"https://push.example.test/subscriptions/phase5d-b-audit","keys":{"p256dh":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","auth":"BBBBBBBBBBBBBBBB"}},"showIds":['"${AUDIT_SHOW_1}"'],"timezone":"Asia/Hong_Kong","titleRegion":"HK"}'
+          REGISTER_JSON="$(curl --fail-with-body --silent --show-error -X POST "${AUDIT_URL}/api/push/subscriptions" -H 'content-type: application/json' -H "Origin: ${AUDIT_URL}" --data "${BODY}")"
+          MANAGE_TOKEN="$(REGISTER_JSON="${REGISTER_JSON}" node -e 'const d=JSON.parse(process.env.REGISTER_JSON); if(d.ok!==true||d.persisted!==true||!d.manageToken||!d.endpointHash) process.exit(1); process.stdout.write(d.manageToken)')"
+          ENDPOINT_HASH="$(REGISTER_JSON="${REGISTER_JSON}" node -e 'const d=JSON.parse(process.env.REGISTER_JSON); process.stdout.write(d.endpointHash)')"
+          echo "::add-mask::${MANAGE_TOKEN}"
+          echo "manage_token=${MANAGE_TOKEN}" >> "${GITHUB_OUTPUT}"
+          echo "endpoint_hash=${ENDPOINT_HASH}" >> "${GITHUB_OUTPUT}"
+
+          DB_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${AUDIT_DB_NAME}" --remote --json --command "SELECT endpoint_hash, endpoint, manage_token_hash, timezone, title_region FROM push_subscriptions; SELECT subscription_id, show_id FROM push_subscription_shows;")"
+          DB_JSON="${DB_JSON}" MANAGE_TOKEN="${MANAGE_TOKEN}" ENDPOINT_HASH="${ENDPOINT_HASH}" AUDIT_SHOW_1="${AUDIT_SHOW_1}" node <<'NODE'
+          const crypto = require('crypto');
+          const payload = JSON.parse(process.env.DB_JSON);
+          const all = [];
+          const walk = (value) => {
+            if (Array.isArray(value)) return value.forEach(walk);
+            if (value && typeof value === 'object') {
+              if ('endpoint_hash' in value || 'show_id' in value) all.push(value);
+              Object.values(value).forEach(walk);
+            }
+          };
+          walk(payload);
+          const subscription = all.find((row) => row.endpoint_hash === process.env.ENDPOINT_HASH);
+          const mapping = all.find((row) => Number(row.show_id) === Number(process.env.AUDIT_SHOW_1));
+          const tokenHash = crypto.createHash('sha256').update(process.env.MANAGE_TOKEN).digest('hex');
+          if (!subscription || subscription.manage_token_hash !== tokenHash || subscription.timezone !== 'Asia/Hong_Kong' || subscription.title_region !== 'HK') process.exit(1);
+          if (!mapping) process.exit(1);
+          if (process.env.DB_JSON.includes(process.env.MANAGE_TOKEN)) process.exit(1);
+          NODE
+
+          UPDATE_JSON="$(curl --fail-with-body --silent --show-error -X PUT "${AUDIT_URL}/api/push/subscription" -H 'content-type: application/json' -H "Origin: ${AUDIT_URL}" -H "Authorization: Bearer ${MANAGE_TOKEN}" --data '{"showIds":['"${AUDIT_SHOW_2}"'],"timezone":"UTC","titleRegion":"TW"}')"
+          UPDATE_JSON="${UPDATE_JSON}" node -e 'const d=JSON.parse(process.env.UPDATE_JSON); if(d.ok!==true||d.showCount!==1||d.timezone!=="UTC"||d.titleRegion!=="TW") process.exit(1)'
+
+          MAP_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${AUDIT_DB_NAME}" --remote --json --command "SELECT ps.timezone, ps.title_region, pss.show_id FROM push_subscriptions ps JOIN push_subscription_shows pss ON pss.subscription_id = ps.id;")"
+          MAP_JSON="${MAP_JSON}" AUDIT_SHOW_2="${AUDIT_SHOW_2}" node -e '
+            const text=process.env.MAP_JSON; const data=JSON.parse(text); let rows=[]; const walk=v=>{if(Array.isArray(v))v.forEach(walk);else if(v&&typeof v==="object"){if("show_id" in v)rows.push(v);Object.values(v).forEach(walk)}}; walk(data); if(rows.length!==1||Number(rows[0].show_id)!==Number(process.env.AUDIT_SHOW_2)||rows[0].timezone!=="UTC"||rows[0].title_region!=="TW") process.exit(1);
+          '
+
+          DELETE_JSON="$(curl --fail-with-body --silent --show-error -X DELETE "${AUDIT_URL}/api/push/subscription" -H "Origin: ${AUDIT_URL}" -H "Authorization: Bearer ${MANAGE_TOKEN}")"
+          DELETE_JSON="${DELETE_JSON}" node -e 'const d=JSON.parse(process.env.DELETE_JSON); if(d.ok!==true||d.deleted!==true) process.exit(1)'
+
+          COUNTS_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${AUDIT_DB_NAME}" --remote --json --command "SELECT (SELECT COUNT(*) FROM push_subscriptions) AS subscriptions, (SELECT COUNT(*) FROM push_subscription_shows) AS mappings, (SELECT COUNT(*) FROM notification_deliveries) AS deliveries;")"
+          COUNTS_JSON="${COUNTS_JSON}" node -e '
+            const data=JSON.parse(process.env.COUNTS_JSON); let row=null; const walk=v=>{if(Array.isArray(v))v.forEach(walk);else if(v&&typeof v==="object"){if("subscriptions" in v)row=v;Object.values(v).forEach(walk)}}; walk(data); if(!row||Number(row.subscriptions)!==0||Number(row.mappings)!==0||Number(row.deliveries)!==0) process.exit(1);
+          '
+
+          SECOND_DELETE_STATUS="$(curl --silent --output /tmp/second-delete.json --write-out '%{http_code}' -X DELETE "${AUDIT_URL}/api/push/subscription" -H "Origin: ${AUDIT_URL}" -H "Authorization: Bearer ${MANAGE_TOKEN}")"
+          test "${SECOND_DELETE_STATUS}" = "404"
+
+      - name: Publish Phase 5D-B persistence acceptance
+        env:
+          AUDIT_URL: ${{ steps.deploy.outputs.url }}
+        shell: bash
+        run: |
+          {
+            echo "## Phase 5D-B isolated persistence acceptance"
+            echo
+            echo "- Accountless register: passed"
+            echo "- Same-origin mutation boundary: passed"
+            echo "- Hashed management capability: passed"
+            echo "- Stable show-ID mapping create/update: passed"
+            echo "- Viewing/search/account data persisted: no"
+            echo "- Full revoke/delete cascade: passed"
+            echo "- Notification delivery runner: absent"
+            echo "- Production subscription gate changed: no"
+            echo "- Audit Worker: ${AUDIT_URL}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  cleanup:
+    if: always() && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'phase-5d-b-persistence-audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      AUDIT_DB_NAME: series-hub-push-audit-pr-${{ github.event.pull_request.number }}
+      AUDIT_WORKER_NAME: series-hub-push-audit-pr-${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Delete isolated audit Worker
+        shell: bash
+        run: |
+          set +e
+          npx --yes wrangler@"${WRANGLER_VERSION}" delete --name "${AUDIT_WORKER_NAME}"
+          exit 0
+
+      - name: Delete isolated audit D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATABASES="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 list --json)"
+          DB_ID="$(printf '%s' "${DATABASES}" | jq -r --arg name "${AUDIT_DB_NAME}" '.[] | select(.name == $name) | .uuid' | head -n 1)"
+          if [ -n "${DB_ID}" ] && [ "${DB_ID}" != "null" ]; then
+            npx --yes wrangler@"${WRANGLER_VERSION}" d1 delete "${AUDIT_DB_NAME}" --skip-confirmation
+          else
+            echo "Audit D1 ${AUDIT_DB_NAME} is already absent"
+          fi
