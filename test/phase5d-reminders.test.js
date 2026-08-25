@@ -14,7 +14,8 @@ import {
 
 const worker = fs.readFileSync(new URL("../src/phase4-worker.js", import.meta.url), "utf8");
 const delivery = fs.readFileSync(new URL("../src/push-delivery.js", import.meta.url), "utf8");
-const config = JSON.parse(fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
+const configText = fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+const config = JSON.parse(configText);
 const migration = fs.readFileSync(new URL("../migrations/0014_phase5d_push_subscriptions.sql", import.meta.url), "utf8");
 const packageJson = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -102,7 +103,7 @@ test("production sender uses the already-proven Worker-compatible web-push packa
   assert.ok(config.compatibility_flags.includes("nodejs_compat"));
   assert.match(delivery, /webpush\.sendNotification/);
   assert.match(delivery, /VAPID_PRIVATE_KEY/);
-  assert.doesNotMatch(config, /VAPID_PRIVATE_KEY/);
+  assert.doesNotMatch(configText, /VAPID_PRIVATE_KEY/);
 });
 
 test("dry-run path is protected and cannot enable sending while the production gate is false", () => {
