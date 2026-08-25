@@ -7,8 +7,7 @@ const ui = fs.readFileSync(new URL("../public/phase5c-ui.js", import.meta.url), 
 const state = fs.readFileSync(new URL("../public/viewing-state.js", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../public/phase5c.css", import.meta.url), "utf8");
 
-test("Phase 5C exposes local viewing-state assets and production marker", () => {
-  assert.match(html, /Phase 5C/);
+test("Phase 5C viewing-state assets remain loaded after later Phase 5 additions", () => {
   assert.match(html, /phase5c\.css/);
   assert.match(html, /phase5c-ui\.js/);
 });
@@ -28,8 +27,9 @@ test("Phase 5C state controls are limited to My Shows and support local filterin
   assert.match(css, /\.show-viewing-state/);
 });
 
-test("Phase 5C does not add accounts, backend user state, or notification infrastructure", () => {
+test("Phase 5C layer itself does not add accounts, backend user state, or notification infrastructure", () => {
   assert.doesNotMatch(ui, /\/api\/tracking|\/api\/favorites|\/api\/viewing|method:\s*["']POST["']/);
   assert.doesNotMatch(state, /fetch\(|\/api\//);
-  assert.doesNotMatch(html, /service-worker|push subscription|PushManager/i);
+  assert.doesNotMatch(ui, /serviceWorker|PushManager|push subscription/i);
+  assert.doesNotMatch(state, /serviceWorker|PushManager|push subscription/i);
 });
