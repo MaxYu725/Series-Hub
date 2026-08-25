@@ -8,12 +8,12 @@ const client = fs.readFileSync(new URL("../public/push-client.js", import.meta.u
 const sw = fs.readFileSync(new URL("../public/push-sw.js", import.meta.url), "utf8");
 const tracking = fs.readFileSync(new URL("../public/tracking.js", import.meta.url), "utf8");
 
-test("Phase 5D-B assets are loaded but production registration stays feature-gated", () => {
+test("Phase 5D notification assets remain loaded with a safe registration fallback", () => {
   assert.match(html, /Phase 5D-B/);
   assert.match(html, /phase5d\.css/);
   assert.match(html, /phase5d-ui\.js/);
   assert.match(ui, /if \(!capability\.enabled\)/);
-  assert.match(ui, /production 登記仍保持關閉/);
+  assert.match(ui, /裝置通知登記目前暫停/);
 });
 
 test("notification permission is requested only inside the explicit settings button click", () => {
@@ -31,6 +31,13 @@ test("Phase 5D-B sync uploads tracked show IDs but not viewing states", () => {
   assert.match(client, /authorization: `Bearer \$\{manageToken\}`/);
   assert.doesNotMatch(client, /viewing-state|viewingStates|searchInput|search_history/);
   assert.match(tracking, /series-hub-tracking-changed/);
+});
+
+test("Phase 5D-C UI explains the narrow 24-hour episode reminder behavior", () => {
+  assert.match(ui, /可靠逐集播映時間/);
+  assert.match(ui, /約 24 小時前提醒/);
+  assert.match(ui, /約 24 小時前發送提醒/);
+  assert.doesNotMatch(ui, /暫不發送節目提醒/);
 });
 
 test("disable flow deletes server state before clearing local management", () => {

@@ -29,10 +29,10 @@ test("Phase 5D-C reminder window is the hourly 23-to-24-hour slice", () => {
   assert.equal(MAX_DELIVERIES_PER_RUN, 30);
 });
 
-test("Phase 5D-C feature gate remains deny-by-default on the implementation branch", () => {
+test("Phase 5D-C production gate is explicit and enabled only after implementation validation", () => {
   assert.equal(episodeRemindersEnabled({}), false);
   assert.equal(episodeRemindersEnabled({ EPISODE_REMINDERS_ENABLED: "true" }), true);
-  assert.equal(config.vars.EPISODE_REMINDERS_ENABLED, "false");
+  assert.equal(config.vars.EPISODE_REMINDERS_ENABLED, "true");
   assert.ok(config.triggers.crons.includes(EPISODE_REMINDER_CRON));
 });
 
@@ -106,7 +106,7 @@ test("production sender uses the already-proven Worker-compatible web-push packa
   assert.doesNotMatch(configText, /VAPID_PRIVATE_KEY/);
 });
 
-test("dry-run path is protected and cannot enable sending while the production gate is false", () => {
+test("internal reminder execution remains protected and default invocation is dry-run", () => {
   assert.match(worker, /\/api\/internal\/episode-reminders/);
   assert.match(worker, /authorizeEditorialWrite\(request, env\)/);
   assert.match(worker, /send && !episodeRemindersEnabled\(env\)/);

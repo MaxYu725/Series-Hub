@@ -19,7 +19,7 @@
   },
   "vars": {
     "PUSH_SUBSCRIPTIONS_ENABLED": "true",
-    "EPISODE_REMINDERS_ENABLED": "false"
+    "EPISODE_REMINDERS_ENABLED": "true"
   },
   "secrets": {
     "required": [
