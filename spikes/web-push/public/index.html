@@ -68,14 +68,14 @@
         if (permission !== "granted") throw new Error(`Notification permission: ${permission}`);
 
         setStatus("Fetching preview VAPID public key…");
-        const keyResponse = await fetch("/api/vapid-public-key", { cache: "no-store" });
-        const keyData = await keyResponse.json();
-        if (!keyResponse.ok || !keyData?.publicKey) throw new Error(`VAPID key unavailable (${keyResponse.status})`);
+        const healthResponse = await fetch("/health", { cache: "no-store" });
+        const health = await healthResponse.json();
+        if (!healthResponse.ok || !health?.vapidPublicKey) throw new Error(`VAPID key unavailable (${healthResponse.status})`);
 
         let subscription = await registration.pushManager.getSubscription();
         if (subscription) {
           const existingKey = subscription.options?.applicationServerKey;
-          const expected = base64urlToUint8Array(keyData.publicKey);
+          const expected = base64urlToUint8Array(health.vapidPublicKey);
           const existing = existingKey ? new Uint8Array(existingKey) : null;
           const sameKey = existing && existing.length === expected.length && existing.every((byte, index) => byte === expected[index]);
           if (!sameKey) {
@@ -88,14 +88,14 @@
           setStatus("Creating browser Push subscription…");
           subscription = await registration.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: base64urlToUint8Array(keyData.publicKey)
+            applicationServerKey: base64urlToUint8Array(health.vapidPublicKey)
           });
         }
 
         const endpointHost = new URL(subscription.endpoint).host;
         setStatus(`Subscription created via ${endpointHost}.\nSending one encrypted test push…`);
 
-        const response = await fetch("/api/send-test", {
+        const response = await fetch("/send-test", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ subscription: subscription.toJSON() })
