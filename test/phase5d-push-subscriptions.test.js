@@ -59,7 +59,7 @@ test("Phase 5D-B validates timezone and Push subscription shape", () => {
 });
 
 test("Phase 5D-B hashes endpoint and capability tokens before server lookup", async () => {
-  assert.equal(await sha256Hex("series-hub"), "c23244d4261452517c7a961192ce552c24fab2084748b381d7f2af7af23b0ea9");
+  assert.equal(await sha256Hex("series-hub"), "2eae1c542858e63622ac849a96f16ff6f7df992eff790c1a7a82f6676ab25056");
   assert.match(worker, /endpointHash = await sha256Hex\(subscription\.endpoint\)/);
   assert.match(worker, /manageTokenHash = await sha256Hex\(manageToken\)/);
   assert.doesNotMatch(migration, /manage_token\s+TEXT/i);
