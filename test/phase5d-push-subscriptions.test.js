@@ -31,11 +31,11 @@ function memoryStorage() {
   };
 }
 
-test("Phase 5D-B remains disabled unless explicitly feature-gated on", () => {
+test("Phase 5D-B helper remains deny-by-default while accepted production config explicitly enables it", () => {
   assert.equal(pushSubscriptionsEnabled({}), false);
   assert.equal(pushSubscriptionsEnabled({ PUSH_SUBSCRIPTIONS_ENABLED: "false" }), false);
   assert.equal(pushSubscriptionsEnabled({ PUSH_SUBSCRIPTIONS_ENABLED: "true" }), true);
-  assert.match(config, /"PUSH_SUBSCRIPTIONS_ENABLED": "false"/);
+  assert.match(config, /"PUSH_SUBSCRIPTIONS_ENABLED": "true"/);
 });
 
 test("Phase 5D-B validates only bounded stable show IDs and title regions", () => {
