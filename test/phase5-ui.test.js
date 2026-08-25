@@ -30,3 +30,10 @@ test("Phase 5A keeps Phase 3 region state authoritative while My Shows is active
   assert.match(ui, /regionSelect\.disabled = true/);
   assert.match(ui, /regionSelect\.disabled = false/);
 });
+
+test("tracking decoration cannot create a MutationObserver feedback loop", () => {
+  assert.match(ui, /function syncTrackingButton\(/);
+  assert.match(ui, /if \(button\.textContent !== text\) button\.textContent = text/);
+  assert.match(ui, /observer\.observe\(showGrid, \{ childList: true \}\)/);
+  assert.doesNotMatch(ui, /observer\.observe\(showGrid, \{[^}]*subtree:\s*true/);
+});
