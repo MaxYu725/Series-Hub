@@ -47,24 +47,19 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/health") {
+      const publicConfigured = Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PUBLIC_KEY !== "generated-by-ci");
       return json({
         ok: true,
         phase: "5d-a-web-push-spike",
         persistentStorage: false,
-        vapidPublicConfigured: Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PUBLIC_KEY !== "generated-by-ci"),
+        vapidPublicConfigured: publicConfigured,
         vapidPrivateConfigured: Boolean(env.VAPID_PRIVATE_KEY),
+        vapidPublicKey: publicConfigured ? env.VAPID_PUBLIC_KEY : null,
         sender: "web-push@3.6.7"
       });
     }
 
-    if (request.method === "GET" && url.pathname === "/api/vapid-public-key") {
-      if (!env.VAPID_PUBLIC_KEY || env.VAPID_PUBLIC_KEY === "generated-by-ci") {
-        return json({ ok: false, error: "vapid_not_configured" }, 503);
-      }
-      return json({ ok: true, publicKey: env.VAPID_PUBLIC_KEY });
-    }
-
-    if (request.method === "POST" && url.pathname === "/api/send-test") {
+    if (request.method === "POST" && url.pathname === "/send-test") {
       if (!sameOriginRequest(request)) return json({ ok: false, error: "same_origin_required" }, 403);
       if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
         return json({ ok: false, error: "vapid_not_configured" }, 503);
