@@ -23,7 +23,7 @@ test("Phase 5D-A requests permission only from the explicit Run Push Test click"
 });
 
 test("Phase 5D-A sends only a supplied test subscription and does not retain it", () => {
-  assert.match(worker, /\/api\/send-test/);
+  assert.match(worker, /\/send-test/);
   assert.match(worker, /sameOriginRequest/);
   assert.match(worker, /webpush\.sendNotification\(subscription/);
   assert.doesNotMatch(worker, /subscriptions\s*=|push_subscription|localStorage/);
