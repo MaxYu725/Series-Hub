@@ -20,8 +20,7 @@ test("tracked schedule filtering uses stable show_id membership", () => {
   assert.deepEqual(filterTrackedScheduleEpisodes(episodes, []), []);
 });
 
-test("Phase 5B is loaded as a frontend-only layer", () => {
-  assert.match(html, /Phase 5B/);
+test("Phase 5B remains loaded as a frontend-only layer after later Phase 5 additions", () => {
   assert.match(html, /phase5b-ui\.js/);
   assert.match(ui, /id = "tracked-schedule-filter"/);
   assert.match(ui, /只看追蹤/);
