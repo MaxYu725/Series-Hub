@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Series Hub · Phase 5D-A Web Push Spike</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f5f7fb; background: #0b0d12; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; }
+    main { width: min(680px, 100%); border: 1px solid #2b303a; border-radius: 18px; padding: 24px; background: #11141b; box-sizing: border-box; }
+    h1 { margin: 0 0 10px; font-size: 1.45rem; }
+    p { color: #b8c0cd; line-height: 1.55; }
+    .notice { padding: 12px 14px; border-radius: 12px; background: #181d27; color: #dfe5ee; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+    button { border: 1px solid #3a4250; background: #f3f5f8; color: #11141b; border-radius: 999px; padding: 10px 15px; font: inherit; font-weight: 700; cursor: pointer; }
+    button.secondary { background: #181d27; color: #f5f7fb; }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    #status { margin-top: 18px; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.84rem; color: #d5dbe5; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Phase 5D-A · Web Push feasibility spike</h1>
+    <p>This isolated preview proves that a Cloudflare Worker can send one encrypted VAPID Web Push notification to this browser. It does not use D1 and does not persist the subscription.</p>
+    <p class="notice">Notification permission is requested only after pressing <strong>Run Push Test</strong>. This preview is separate from production Series Hub.</p>
+    <div class="actions">
+      <button id="run" type="button">Run Push Test</button>
+      <button id="unsubscribe" class="secondary" type="button">Unsubscribe Test</button>
+    </div>
+    <div id="status" role="status" aria-live="polite">Ready.</div>
+  </main>
+
+  <script type="module">
+    const runButton = document.querySelector("#run");
+    const unsubscribeButton = document.querySelector("#unsubscribe");
+    const status = document.querySelector("#status");
+
+    function setStatus(message) {
+      status.textContent = message;
+    }
+
+    function base64urlToUint8Array(value) {
+      const padded = value + "=".repeat((4 - (value.length % 4)) % 4);
+      const normalized = padded.replace(/-/g, "+").replace(/_/g, "/");
+      const binary = atob(normalized);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      return bytes;
+    }
+
+    async function readyRegistration() {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+        throw new Error("This browser does not expose Service Worker + PushManager + Notifications.");
+      }
+      await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      return navigator.serviceWorker.ready;
+    }
+
+    runButton.addEventListener("click", async () => {
+      runButton.disabled = true;
+      try {
+        setStatus("Registering Service Worker…");
+        const registration = await readyRegistration();
+
+        setStatus("Requesting notification permission from this explicit click…");
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") throw new Error(`Notification permission: ${permission}`);
+
+        setStatus("Fetching preview VAPID public key…");
+        const keyResponse = await fetch("/api/vapid-public-key", { cache: "no-store" });
+        const keyData = await keyResponse.json();
+        if (!keyResponse.ok || !keyData?.publicKey) throw new Error(`VAPID key unavailable (${keyResponse.status})`);
+
+        let subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+          const existingKey = subscription.options?.applicationServerKey;
+          const expected = base64urlToUint8Array(keyData.publicKey);
+          const existing = existingKey ? new Uint8Array(existingKey) : null;
+          const sameKey = existing && existing.length === expected.length && existing.every((byte, index) => byte === expected[index]);
+          if (!sameKey) {
+            await subscription.unsubscribe();
+            subscription = null;
+          }
+        }
+
+        if (!subscription) {
+          setStatus("Creating browser Push subscription…");
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: base64urlToUint8Array(keyData.publicKey)
+          });
+        }
+
+        const endpointHost = new URL(subscription.endpoint).host;
+        setStatus(`Subscription created via ${endpointHost}.\nSending one encrypted test push…`);
+
+        const response = await fetch("/api/send-test", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ subscription: subscription.toJSON() })
+        });
+        const result = await response.json();
+        if (!response.ok || result?.ok !== true) {
+          throw new Error(`Push sender failed: ${JSON.stringify(result)}`);
+        }
+
+        setStatus(`Push service accepted the message (HTTP ${result.pushServiceStatus}).\nWaiting for the native notification…\nNo subscription was persisted on the server.`);
+      } catch (error) {
+        setStatus(`FAILED: ${error?.message || error}`);
+      } finally {
+        runButton.disabled = false;
+      }
+    });
+
+    unsubscribeButton.addEventListener("click", async () => {
+      unsubscribeButton.disabled = true;
+      try {
+        const registration = await readyRegistration();
+        const subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+          setStatus("No active test subscription in this preview origin.");
+          return;
+        }
+        const result = await subscription.unsubscribe();
+        setStatus(result ? "Test subscription removed from this browser." : "Browser reported that the subscription was not removed.");
+      } catch (error) {
+        setStatus(`FAILED: ${error?.message || error}`);
+      } finally {
+        unsubscribeButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
