@@ -26,7 +26,8 @@ test("notification permission is requested only inside the explicit settings but
 });
 
 test("Phase 5D-B sync uploads tracked show IDs but not viewing states", () => {
-  assert.match(client, /showIds: loadTrackedShowIds\(\)/);
+  assert.match(client, /showIds = loadTrackedShowIds\(\)/);
+  assert.match(client, /JSON\.stringify\(\{ showIds, timezone: currentTimezone\(\), titleRegion \}\)/);
   assert.match(client, /authorization: `Bearer \$\{manageToken\}`/);
   assert.doesNotMatch(client, /viewing-state|viewingStates|searchInput|search_history/);
   assert.match(tracking, /series-hub-tracking-changed/);
