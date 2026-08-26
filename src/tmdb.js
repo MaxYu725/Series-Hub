@@ -568,8 +568,35 @@ function uniqueCandidateCount(feeds) {
   return ids.size;
 }
 
-export function selectRoundRobinCandidates(feeds, limit = TMDB_SYNC_BUDGET.detailRequests) {
-  const sourceLists = (feeds || []).map((feed) => (Array.isArray(feed) ? feed : []));
+export function candidateRotationOffset(
+  feeds,
+  limit = TMDB_SYNC_BUDGET.detailRequests,
+  now = new Date()
+) {
+  const sourceLists = (feeds || []).filter((feed) => Array.isArray(feed) && feed.length > 0);
+  const safeLimit = Math.max(1, Number(limit) || 1);
+  const activeFeedCount = Math.max(1, sourceLists.length);
+  const stride = Math.max(1, Math.floor(safeLimit / activeFeedCount));
+  const maxFeedLength = sourceLists.reduce((max, feed) => Math.max(max, feed.length), 0);
+  const rotationSlots = Math.max(1, Math.ceil(maxFeedLength / stride));
+  const timestamp = now instanceof Date && Number.isFinite(now.getTime())
+    ? now.getTime()
+    : Date.now();
+  const sixHourSlot = Math.floor(timestamp / (6 * 60 * 60 * 1000));
+  return (sixHourSlot % rotationSlots) * stride;
+}
+
+export function selectRoundRobinCandidates(
+  feeds,
+  limit = TMDB_SYNC_BUDGET.detailRequests,
+  offset = 0
+) {
+  const safeOffset = Math.max(0, Math.trunc(Number(offset) || 0));
+  const sourceLists = (feeds || []).map((feed) => {
+    if (!Array.isArray(feed) || feed.length === 0) return [];
+    const start = safeOffset % feed.length;
+    return start === 0 ? [...feed] : [...feed.slice(start), ...feed.slice(0, start)];
+  });
   const cursors = sourceLists.map(() => 0);
   const seen = new Set();
   const selected = [];
@@ -652,7 +679,12 @@ export async function syncTmdbCatalog(env, options = {}) {
 
     const candidateFeeds = [...networkFeeds, ...scheduleFeeds, ...broadFeeds];
     recordsSeen = uniqueCandidateCount(candidateFeeds);
-    const selectedCandidates = selectRoundRobinCandidates(candidateFeeds, detailLimit);
+    const candidateOffset = candidateRotationOffset(candidateFeeds, detailLimit, now);
+    const selectedCandidates = selectRoundRobinCandidates(
+      candidateFeeds,
+      detailLimit,
+      candidateOffset
+    );
     const detailsResults = await fetchDetailsInBatches(env, selectedCandidates);
 
     for (const entry of detailsResults) {
@@ -689,6 +721,7 @@ export async function syncTmdbCatalog(env, options = {}) {
       source: "tmdb",
       recordsSeen,
       recordsSelected: selectedCandidates.length,
+      candidateOffset,
       recordsChanged,
       discoveryRequests: candidateFeeds.length,
       externalRequestBudget: candidateFeeds.length + selectedCandidates.length,
