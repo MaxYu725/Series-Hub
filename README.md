@@ -6,7 +6,7 @@ The core model is **series → seasons → episodes**. Season is first-class bec
 
 ## Current status
 
-**Phase 5C — browser-local viewing states: COMPLETE and production-accepted.**
+**Phase 5D-C — targeted background episode reminders: COMPLETE and production-accepted.**
 
 Completed:
 
@@ -15,16 +15,18 @@ Completed:
 - Phase 1B — US scripted catalog quality, lifecycle classification and network balancing;
 - Phase 2A — exact TVmaze mapping + normalized episode/schedule API;
 - Phase 2B — Today / This Week schedule UI with browser-local timezone handling;
-- Phase 3A — HK/TW/CN preferred-title resolution, provenance, fallback and controlled manual override;
-- Phase 3B — title-quality production audit and proof that editorial overrides survive TMDB refreshes;
-- Phase 4A–4F — attributed official renewal/cancellation/production evidence, visible UI projection, verified official source registry and production acceptance across Apple, Amazon, WBD/HBO, Netflix and FOX;
-- Phase 5A — local-only show tracking and the **我的劇集 / My Shows** view without accounts or server-side user data;
-- Phase 5B — **只看追蹤 / Tracked only** filtering for Today / This Week using the existing schedule API and stable Series Hub show IDs;
-- Phase 5C — local per-show viewing states and My Shows state filtering: **追看中 / 等下一季 / 已看完 / 暫停**.
+- Phase 3A/3B — HK/TW/CN preferred-title resolution, provenance, fallback, audit and controlled manual override;
+- Phase 4A–4F — attributed official renewal/cancellation/production evidence, visible UI projection and verified official source registry across Apple, Amazon, WBD/HBO, Netflix and FOX;
+- Phase 5A — browser-local **我的劇集 / My Shows** tracking;
+- Phase 5B — **只看追蹤 / Tracked only** filtering for Today / This Week;
+- Phase 5C — browser-local per-show viewing states: **追看中 / 等下一季 / 已看完 / 暫停**;
+- Phase 5D-A — isolated Web Push feasibility proof with a real native browser notification;
+- Phase 5D-B — accountless Push subscription persistence, explicit opt-in and full revoke/delete;
+- Phase 5D-C — hourly targeted `episode_24h` Web Push reminders with deduplication, stale-subscription cleanup and real production-device acceptance.
 
-**Next planned phase: Phase 5D — notification architecture design and feasibility checkpoint.**
+**Next recommended phase: Phase 5E — US-series maturity / hardening checkpoint.**
 
-Phase 5D should define notification triggers, permission UX, service-worker/Web Push requirements, push-subscription storage, deduplication, expiry, privacy/retention and failure behavior before any background notification implementation is accepted. It should explicitly compare a local/foreground-only option with true background Web Push. Accounts or broader server-side identity remain out of scope unless a demonstrated product need justifies them.
+Do not immediately broaden notification types or introduce accounts. First harden catalog/schedule coverage, regional-title quality, lifecycle consistency, mobile UX and notification observability. Phase 6 geographic expansion should follow only after the US-series baseline is judged mature.
 
 ## Product views
 
@@ -33,51 +35,93 @@ Catalog:
 - **播映中 / Airing** — a current season is actively releasing episodes;
 - **即將播映 / Upcoming** — a show/season has a confirmed future date;
 - **計劃播出 / Planned** — returning / in-production series with no confirmed date yet;
-- **我的劇集 / My Shows** — shows selected by the user in this browser, with current catalog metadata re-fetched from the normal API. Tracked shows can also be assigned a browser-local viewing state and filtered by that state.
+- **我的劇集 / My Shows** — shows selected in this browser, with current metadata re-fetched from the normal catalog API.
 
 Schedule:
 
-- **今日 / Today** — episodes that fall on the browser's local calendar day when a TVmaze airstamp is available;
+- **今日 / Today** — episodes falling on the browser's local calendar day when a real timestamp exists;
 - **本週 / This Week** — seven local calendar days starting today;
-- **只看追蹤 / Tracked only** — optional browser-local filter for Today / This Week, matching schedule rows by stable `show_id` against the local tracked-show list.
+- **只看追蹤 / Tracked only** — optional local filter using stable Series Hub `show_id` membership.
 
-When TVmaze provides an `air_timestamp`, Series Hub converts it to the browser's local timezone for date grouping and time display. If only source `air_date` / `air_time` exists, the UI labels it as source timing rather than inventing a local time.
+When TVmaze provides an `air_timestamp`, Series Hub converts it to the browser's local timezone for date grouping and time display. If only source `air_date` / `air_time` exists, the UI preserves it as source timing rather than inventing a local timestamp.
 
-## Phase 5 local-personalization policy
+## Local-first personalization and notification boundary
 
-Phase 5A–5C intentionally do **not** create an account system.
+### Browser-local tracking
 
-Tracking:
+Tracking storage key:
 
-- local storage key: `series-hub-tracked-shows-v1`;
-- only stable Series Hub show IDs are persisted;
-- metadata is not copied into tracking storage;
-- My Shows reuses the existing `airing`, `upcoming` and `planned` catalog APIs;
-- Phase 5B reuses `/api/schedule` and filters the returned schedule in the browser.
+```text
+series-hub-tracked-shows-v1
+```
 
-Viewing states:
+Only stable Series Hub show IDs are persisted. Metadata is not copied into local tracking storage.
 
-- local storage key: `series-hub-viewing-states-v1`;
-- values are keyed by stable Series Hub show ID;
-- supported states are `watching`, `waiting`, `completed`, `paused`;
-- UI labels are **追看中**, **等下一季**, **已看完**, **暫停**;
-- states are editable and filterable inside My Shows;
-- no viewing-state data is sent to the backend.
+### Browser-local viewing states
 
-Backend boundaries through Phase 5C:
+Viewing-state storage key:
 
-- no `/api/tracking`, `/api/favorites` or `/api/viewing` endpoint exists;
-- no D1 user/profile/favorites/viewing-state table exists;
-- no new personalization cron job exists;
-- no service worker, Push API subscription or notification backend has been introduced by Phase 5A–5C.
+```text
+series-hub-viewing-states-v1
+```
 
-This keeps personalization reversible and low-risk while the product UX is being validated. True background notification work is deliberately separated into Phase 5D because Web Push introduces a materially different privacy and infrastructure boundary.
+Supported values:
+
+- `watching` — 追看中
+- `waiting` — 等下一季
+- `completed` — 已看完
+- `paused` — 暫停
+
+Viewing-state data remains browser-local and is not uploaded to the backend.
+
+### Accountless background notifications
+
+Phase 5D intentionally introduced a narrow new server-side privacy boundary without introducing accounts.
+
+Only after the user explicitly enables notifications does production store:
+
+- the browser/device Push endpoint and encryption material;
+- a SHA-256 hash of a high-entropy management capability;
+- timezone and title-region preference for notification presentation;
+- stable Series Hub `show_id` values selected for notification routing;
+- compact delivery/deduplication status facts.
+
+It does **not** store an account, profile, viewing state, search history or server-authoritative My Shows metadata.
+
+The user can disable notifications from My Shows; this deletes the server subscription, show mappings and dependent delivery rows and unsubscribes the browser.
+
+See [`docs/PHASE5D_NOTIFICATIONS.md`](docs/PHASE5D_NOTIFICATIONS.md) for the complete notification contract and acceptance history.
+
+## Background reminder behavior
+
+Accepted production notification kind:
+
+```text
+episode_24h
+```
+
+A device is eligible only when:
+
+1. it explicitly opted in;
+2. the show is mapped to that Push subscription;
+3. TVmaze supplied a real `air_timestamp`;
+4. the episode is numbered and belongs to a numbered season;
+5. the episode enters the approximately 23–24 hour reminder window;
+6. the same subscription/episode reminder has not already been successfully delivered.
+
+Production reminder cadence:
+
+```text
+7 * * * *
+```
+
+The runner is isolated from TMDB/TVmaze sync, uses bounded fan-out, retries only transient failures while still eligible, deletes permanent 404/410 Push endpoints and purges stale inactive subscriptions according to the accepted retention policy.
 
 ## Data-source responsibilities
 
 ### TMDB — canonical catalog metadata
 
-TMDB supplies/anchors:
+TMDB anchors:
 
 - series and season records;
 - original and English titles;
@@ -87,8 +131,6 @@ TMDB supplies/anchors:
 - original networks/services;
 - base Series Hub lifecycle classification;
 - external IDs used for exact cross-source mapping.
-
-The US scripted catalog discovery budget remains bounded. FOX uses a rolling recent first-air window so its current slate is not crowded out by historical popularity results; already-selected TMDB detail responses are allowed to persist up to the detail limit instead of being discarded by a lower unrelated cap.
 
 ### TVmaze — episode and schedule facts
 
@@ -105,7 +147,7 @@ TVmaze supplements:
 
 ### Official lifecycle sources — attributed evidence
 
-Phase 4 adds a separate event-sourced evidence layer. Official evidence does **not** overwrite `shows.status`, `shows.tmdb_status` or the normal catalog lifecycle.
+Official lifecycle evidence is event-sourced and does **not** overwrite the normal TMDB-derived catalog status.
 
 Verified official publishing surfaces through Phase 4F:
 
@@ -118,80 +160,94 @@ Verified official publishing surfaces through Phase 4F:
 | `netflix_tudum` | Netflix Tudum |
 | `fox_flash` | FOXFLASH |
 
-See [`docs/PHASE4_LIFECYCLE.md`](docs/PHASE4_LIFECYCLE.md) for the complete evidence contract, normalization rules and collector gate.
+See [`docs/PHASE4_LIFECYCLE.md`](docs/PHASE4_LIFECYCLE.md).
 
-## Phase 4 production acceptance
+## Production acceptance checkpoints
 
-Production acceptance through Phase 4F includes:
+### Phase 4
 
-1. **Silo** — season 3 renewed; season 4 renewed/final via Apple TV Press.
-2. **For All Mankind** — season 6 final-season decision plus conservative production-state evidence via Apple TV Press.
-3. **Reacher** — season 5 renewed via Amazon Entertainment while the catalog remained independently `airing`.
-4. **House of the Dragon** — season 4 renewed via WBD/HBO Pressroom.
-5. **Wednesday** — season 3 renewed plus independent `filming` evidence via Netflix Tudum.
-6. **Murder in a Small Town** — naturally ingested after FOX catalog-coverage repairs; season 3 renewal anchored to FOXFLASH.
+Accepted official evidence includes:
 
-The FOX work also exposed and repaired two general catalog issues instead of bypassing them with orphan evidence: current FOX discovery was hidden by historical popularity results, and selected TMDB detail records were previously capped below the already-paid detail request limit.
+- **Silo** — season 3 renewed; season 4 renewed/final via Apple TV Press;
+- **For All Mankind** — season 6 final-season decision plus conservative production-state evidence;
+- **Reacher** — season 5 renewed via Amazon Entertainment;
+- **House of the Dragon** — season 4 renewed via WBD/HBO Pressroom;
+- **Wednesday** — season 3 renewed plus independent filming evidence via Netflix Tudum;
+- **Murder in a Small Town** — season 3 renewal anchored to FOXFLASH after catalog-coverage repairs.
 
-## Phase 5 production acceptance
+### Phase 5A–5C
 
-### Phase 5A — My Shows
+Accepted production behavior:
 
-Production audit confirmed:
+- browser-local My Shows tracking;
+- Today/This Week tracked-only filtering;
+- four local viewing states and state filtering;
+- no account/user/profile/viewing-state backend was introduced;
+- a Phase 5 tracking MutationObserver feedback-loop freeze discovered during mobile testing was fixed and regression-covered.
 
-- homepage served the Phase 5A assets and **我的劇集** control;
-- `phase5.css`, `phase5-ui.js` and `tracking.js` were live;
-- versioned local tracking storage was present;
-- My Shows continued to use `/api/shows` rather than a new user-data endpoint;
-- `/health` remained healthy;
-- standard isolated Cloudflare validation passed unit tests, fresh D1 migrations, Worker build, preview runtime and production regression.
+### Phase 5D-A
 
-### Phase 5B — tracked-only schedule
+An isolated Cloudflare Worker spike proved Web Push compatibility with the existing stack and a real browser received a native test notification. The spike stored no subscription and was closed without merge.
 
-Production audit confirmed:
+### Phase 5D-B
 
-- `phase5b-ui.js` and **只看追蹤** were live;
-- Today / This Week continued to use the existing `/api/schedule` endpoint;
-- sampled production schedule rows exposed stable positive Series Hub `show_id` values;
-- no tracking/favorites backend endpoint was introduced;
-- `/health` remained healthy;
-- standard isolated Cloudflare validation passed.
+Isolated and production acceptance proved:
 
-### Phase 5C — local viewing states
+- D1 subscription migration works;
+- registration/update/delete works;
+- same-origin mutation protection works;
+- only the hashed management capability is stored server-side;
+- tracked show mappings can be replaced safely;
+- stable VAPID production provisioning works;
+- a real production browser could enable notifications and fully revoke/delete them again.
 
-Production audit confirmed:
+### Phase 5D-C
 
-- homepage serves the `Phase 5C` marker plus `phase5c.css` and `phase5c-ui.js`;
-- Phase 5B remains loaded alongside Phase 5C;
-- `viewing-state.js` is live with storage key `series-hub-viewing-states-v1`;
-- the four planned states are live: `watching`, `waiting`, `completed`, `paused`;
-- state controls remain scoped to My Shows;
-- no tracking/favorites/viewing backend endpoint or POST user-state path was introduced;
-- `/health` remains healthy;
-- dedicated read-only production acceptance and normal isolated Cloudflare validation both passed.
+Production acceptance proved:
 
-Production-network probes remain explicit audit workflows and are never placed in the default `npm test` suite. Audit-only files are closed without merge.
+- the hourly `episode_24h` delivery runner is enabled;
+- protected dry-run remains non-sending;
+- a real opted-in device subscription and two tracked-show mappings were present;
+- production sent a real episode reminder and the device visibly received the native notification;
+- the matching D1 delivery record is `sent`;
+- final read-only audit recorded 1 successful `episode_24h` delivery, 0 pending transient failures and 0 terminal failures;
+- the active accountless subscription and show mappings remained healthy after delivery.
+
+Production-network audits remain separate from the default unit-test suite. Audit-only PR code is closed without merge.
 
 ## Architecture
 
 ```text
-                    ┌──────────────┐
-                    │     TMDB     │
-                    └──────┬───────┘
-                           │ metadata / external IDs
-                           ▼
-GitHub main ── Actions ──► Cloudflare Worker ◄──── TVmaze
-                           │       │                   episode/schedule
-                           │       ├── Static Assets
-                           │       ├── Public API
-                           │       ├── Lifecycle evidence projection
-                           │       └── Cron / sync
-                           ▼
-                    D1: series-hub-db
+                  ┌──────────────┐
+                  │     TMDB     │
+                  └──────┬───────┘
+                         │ metadata / external IDs
+                         ▼
+GitHub main ─ Actions ─► Cloudflare Worker ◄──── TVmaze
+                         │       │                  episode/schedule
+                         │       ├── Static assets
+                         │       ├── Public API
+                         │       ├── Lifecycle evidence projection
+                         │       ├── Catalog/schedule sync
+                         │       └── Hourly episode reminder runner
+                         ▼
+                  D1: series-hub-db
+                         │
+                         ├── catalog / seasons / episodes
+                         ├── aliases / lifecycle evidence
+                         └── accountless Push routing + delivery dedup
 
-Browser localStorage
-      ├── tracked Series Hub show IDs
-      └── per-show viewing states
+Browser
+  ├── localStorage: tracked show IDs
+  ├── localStorage: viewing states
+  ├── localStorage: Push management capability after opt-in
+  └── Service Worker: /push-sw.js
+                         │
+                         ▼
+                 Browser Push service
+                         │
+                         ▼
+                Native device notification
 ```
 
 Production Worker:
@@ -209,13 +265,14 @@ series-hub-db
 Production sync cadence:
 
 - TMDB: minute 17 every six hours;
-- TVmaze: minute 47 every six hours.
+- TVmaze: minute 47 every six hours;
+- `episode_24h` reminders: minute 7 every hour.
 
-The two source pipelines have separate `sync_runs` records so one source cannot hide the operational state of the other.
+The TMDB and TVmaze source pipelines retain separate `sync_runs`; the notification runner is operationally isolated from both.
 
 ## Browser-only development rule
 
-Normal project work does **not** require a local clone, PowerShell, local Node.js, Docker or a user-installed Wrangler environment.
+Normal project work does **not** require a local clone, PowerShell, local Node.js, Docker or user-installed Wrangler.
 
 ```text
 GitHub branch
@@ -233,9 +290,9 @@ main
 Production migration → deployment → live validation
 ```
 
-Every normal repository PR receives an isolated preview Worker/D1, no production TMDB secret and no cron triggers. Preview resources are deleted when the PR closes. Unmerged application code therefore cannot write production D1.
+Normal application PRs use isolated preview Worker/D1 resources, no production TMDB secret and no cron triggers. Preview resources are deleted when the PR closes. Unmerged application code therefore cannot write production D1.
 
-Dedicated production-audit PRs may read public production endpoints only; audit-only files are closed without merge.
+Dedicated production audits are read-only or explicitly bounded and are closed without merge when their code is audit-only.
 
 ## Repository layout
 
@@ -243,24 +300,16 @@ Dedicated production-audit PRs may read public production endpoints only; audit-
 Series-Hub/
 ├── README.md
 ├── docs/
-│   └── PHASE4_LIFECYCLE.md
+│   ├── PHASE4_LIFECYCLE.md
+│   └── PHASE5D_NOTIFICATIONS.md
 ├── package.json
 ├── wrangler.jsonc
 ├── .github/workflows/
 ├── migrations/
 │   ├── 0001_initial.sql
-│   ├── 0002_phase1_tmdb.sql
-│   ├── 0003_phase1b_catalog_scope.sql
-│   ├── 0004_phase1b_excluded_genres.sql
-│   ├── 0005_phase2_tvmaze.sql
-│   ├── 0006_phase3_title_aliases.sql
-│   ├── 0007_phase4_lifecycle_evidence.sql
-│   ├── 0008_phase4a_initial_official_evidence.sql
-│   ├── 0009_phase4c_official_sources.sql
-│   ├── 0010_phase4d_amazon_reacher_evidence.sql
-│   ├── 0011_phase4e_netflix_tudum_source.sql
-│   ├── 0012_phase4e_wbd_netflix_evidence.sql
-│   └── 0013_phase4f_fox_murder_small_town_evidence.sql
+│   ├── ...
+│   ├── 0013_phase4f_fox_murder_small_town_evidence.sql
+│   └── 0014_phase5d_push_subscriptions.sql
 ├── src/
 │   ├── index.js
 │   ├── phase4-worker.js
@@ -269,7 +318,9 @@ Series-Hub/
 │   ├── tmdb.js
 │   ├── tvmaze.js
 │   ├── title-aliases.js
-│   └── title-admin.js
+│   ├── title-admin.js
+│   ├── push-subscriptions.js
+│   └── push-delivery.js
 ├── public/
 │   ├── index.html
 │   ├── app.js
@@ -277,22 +328,21 @@ Series-Hub/
 │   ├── phase5-ui.js
 │   ├── phase5b-ui.js
 │   ├── phase5c-ui.js
+│   ├── phase5d-ui.js
 │   ├── tracking.js
 │   ├── viewing-state.js
+│   ├── push-client.js
+│   ├── push-sw.js
 │   ├── schedule-utils.js
-│   ├── styles.css
-│   ├── phase3.css
-│   ├── phase4.css
-│   ├── phase5.css
-│   └── phase5c.css
+│   └── *.css
 └── test/
 ```
 
-## Public API
+## Public and device API
 
 ### `GET /health`
 
-Reports service health, D1 reachability and source configuration. The historical internal phase identifier may remain `3-regional-titles`; user-facing feature phase is tracked separately and must not be inferred solely from this legacy identifier.
+Reports service health, D1 reachability and source configuration. The historical internal phase identifier may remain older than the user-facing feature phase and must not be treated as the roadmap source of truth.
 
 ### `GET /api/shows`
 
@@ -301,9 +351,7 @@ Query parameters:
 - `status=airing|upcoming|planned|completed|unknown`
 - `q=<English or Chinese title>`
 - `limit=1..100`
-- `region=HK|TW|CN` (default `HK`)
-
-Returns normalized TMDB catalog data plus TVmaze-derived last/next episode dates when available.
+- `region=HK|TW|CN`
 
 ### `GET /api/schedule`
 
@@ -311,33 +359,25 @@ Query parameters:
 
 - `from=YYYY-MM-DD`
 - `days=1..14`
-- `region=HK|TW|CN` (default `HK`)
+- `region=HK|TW|CN`
 
-Returns normalized TVmaze episode facts joined to Series Hub show/season/title/network data.
+### Lifecycle/title routes
 
-### `GET /api/lifecycle`
+- `GET /api/lifecycle`
+- `GET /api/shows/:id/lifecycle`
+- `GET /api/title-audit`
+- `GET /api/shows/:id/aliases`
+- `GET /api/shows/:id/episodes`
+- `GET /api/sync-status?source=tmdb|tvmaze`
 
-Returns the active official lifecycle projection for catalog shows. It exists so the frontend can decorate cards without one lifecycle request per show.
+### Push device routes
 
-### `GET /api/shows/:id/lifecycle`
+- `GET /api/push/public-key`
+- `POST /api/push/subscriptions`
+- `PUT /api/push/subscription`
+- `DELETE /api/push/subscription`
 
-Returns attributed active lifecycle evidence and decision/production/schedule summaries for one show.
-
-### `GET /api/title-audit`
-
-Reports HK/TW/CN title coverage, missing regional titles and manual preferred-title usage.
-
-### `GET /api/shows/:id/aliases`
-
-Returns attributed aliases plus the resolved regional preferred title.
-
-### `GET /api/shows/:id/episodes`
-
-Returns retained normalized TVmaze episode records for one Series Hub show.
-
-### `GET /api/sync-status?source=tmdb|tvmaze`
-
-Returns the latest sync run for the requested source.
+Push mutations require the accepted same-origin/device-capability contract; they do not create user accounts.
 
 ### Protected internal routes
 
@@ -345,21 +385,9 @@ Returns the latest sync run for the requested source.
 - `POST /api/internal/tvmaze-sync`
 - `POST /api/internal/title-override`
 - `POST /api/internal/lifecycle-evidence`
+- `POST /api/internal/episode-reminders`
 
-Internal writes are protected by the existing derived authorization-key contract. Preview Workers do not receive the production TMDB token.
-
-## Catalog scope
-
-The initial catalog remains US scripted/miniseries, live-action focused. Broad discovery excludes Animation, Documentary, Kids, News, Reality and Talk, and detail-level filtering repeats the protection before persistence.
-
-Target networks/services include major US broadcast, cable and streaming sources such as Apple TV, HBO, Prime Video, Netflix, FX/FXX, FOX, ABC, NBC, CBS, Paramount+, Hulu and Peacock.
-
-## Timezone rules
-
-1. **TVmaze has `air_timestamp`:** convert it into the browser local timezone and group the episode under that local calendar date.
-2. **Only source date/time exists:** preserve `air_date` / `air_time`, label it as source timing and do not fabricate a local timestamp.
-
-The frontend requests a one-day buffer around the local schedule window so a US evening broadcast that becomes the following date in a UTC+ timezone is not dropped from Today / This Week.
+The reminder route defaults to dry-run; actual send requires the explicit production send path/gate. Internal writes use the existing derived authorization-key contract.
 
 ## Core data principles
 
@@ -377,9 +405,10 @@ The frontend requests a one-day buffer around the local schedule window so a US 
 12. No production TVmaze title fuzzy matching.
 13. Local-time conversion is performed only when a real timestamp exists.
 14. Deployment success alone is not acceptance; production contracts are audited at phase boundaries.
-15. Production-network probes must stay outside the default unit-test suite.
-16. Personalization should remain local-first until server-side identity provides a demonstrated product benefit.
-17. Background notification infrastructure must not be smuggled into a local-personalization phase; its privacy and persistence contracts require a separate design gate.
+15. Production-network probes stay outside the default unit-test suite.
+16. My Shows and viewing states remain local-first; server-side notification routing is a deliberately narrow exception with explicit opt-in.
+17. No account/server identity system is introduced unless a demonstrated product requirement justifies it.
+18. Notification scope must not expand silently; new alert classes require their own acceptance evidence.
 
 ## Roadmap
 
@@ -389,14 +418,29 @@ The frontend requests a one-day buffer around the local schedule window so a US 
 - **Phase 2A — Complete:** exact TVmaze mapping and episode/schedule normalization.
 - **Phase 2B — Complete:** Today / This Week schedule UI and timezone-safe display.
 - **Phase 3 — Complete:** regional Chinese title policy, fallback, provenance, live audit and protected manual override.
-- **Phase 4 — Complete through 4F:** official renewal/cancellation/production evidence, source registry, UI projection and Apple/Amazon/WBD/Netflix/FOX production acceptance.
+- **Phase 4 — Complete through 4F:** official lifecycle evidence and production acceptance.
 - **Phase 5A — Complete:** browser-local My Shows tracking.
-- **Phase 5B — Complete:** tracked-only Today / This Week schedule filtering.
-- **Phase 5C — Complete:** browser-local per-show viewing states and My Shows state filtering.
-- **Phase 5D — Next:** notification architecture design/feasibility gate covering triggers, Service Worker/Web Push, subscription persistence, deduplication, permission UX, privacy and fallback behavior before implementation.
-- **Later Phase 5:** implement only the notification model that passes Phase 5D; evaluate account/server-side identity separately rather than assuming it is required.
-- **Phase 6:** expansion beyond US series.
+- **Phase 5B — Complete:** tracked-only Today / This Week filtering.
+- **Phase 5C — Complete:** browser-local viewing states and My Shows state filtering.
+- **Phase 5D-A — Complete:** Web Push feasibility proof.
+- **Phase 5D-B — Complete:** accountless Push subscription persistence and revoke/delete.
+- **Phase 5D-C — Complete:** production `episode_24h` reminders with real-device acceptance.
+- **Phase 5D-D — Deferred/optional:** renewal/final-season Push alerts, per-show notification-type controls or queue/batching if later justified.
+- **Phase 5E — Recommended next:** US-series maturity/hardening audit before geographic expansion.
+- **Phase 6 — Later:** expansion beyond US series after the maturity gate passes.
 
 ## Handoff checkpoint
 
-As of the Phase 5C production acceptance, the safest continuation point is **Phase 5D notification architecture design**, not immediate push implementation. Do not rebuild Phase 4, reseed accepted lifecycle evidence, or replace the existing local tracking/state storage with accounts by default. Preserve the browser-only GitHub → isolated preview → Cloudflare workflow, keep production probes in dedicated audit workflows, and require an explicit privacy/persistence contract before any service worker or push-subscription backend is introduced.
+As of the Phase 5D-C production acceptance, **do not rebuild Phase 4, replace local tracking/viewing states with accounts, rotate VAPID keys casually, or broaden notification types by default**.
+
+The accepted production baseline is:
+
+- US scripted catalog via TMDB;
+- exact TVmaze episode/schedule linkage;
+- HK/TW/CN regional title handling;
+- attributed official lifecycle evidence;
+- local My Shows + viewing states;
+- optional accountless Web Push subscription;
+- hourly deduplicated `episode_24h` reminders that have been proven on a real production device.
+
+The safest next step is **Phase 5E: measure and harden the current US-series product**—especially catalog/schedule completeness, title/lifecycle quality, mobile stability and notification reliability—before adding broader alerts, accounts or non-US catalog scope.
