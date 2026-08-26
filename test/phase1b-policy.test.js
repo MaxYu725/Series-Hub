@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   CORE_NETWORK_SEEDS,
   TMDB_SYNC_BUDGET,
+  candidateRotationOffset,
   isIncludedUsScriptedSeries,
   isTargetNetworkSeries,
   networkDiscoveryParams,
@@ -142,5 +143,35 @@ test("round-robin candidate selection de-duplicates IDs without starving later f
   assert.deepEqual(
     selectRoundRobinCandidates(feeds, 4).map((item) => item.id),
     [1, 3, 4, 2]
+  );
+});
+
+
+test("candidate rotation advances page-one slices across six-hour sync slots", () => {
+  const feeds = Array.from({ length: 8 }, (_, feedIndex) =>
+    Array.from({ length: 20 }, (_, itemIndex) => ({ id: feedIndex * 100 + itemIndex }))
+  );
+  const offsets = [0, 6, 12, 18].map((hour) =>
+    candidateRotationOffset(
+      feeds,
+      40,
+      new Date(`2026-08-24T${String(hour).padStart(2, "0")}:00:00Z`)
+    )
+  );
+
+  assert.equal(new Set(offsets).size, 4);
+  assert.deepEqual([...offsets].sort((a, b) => a - b), [0, 5, 10, 15]);
+});
+
+test("round-robin rotation starts from the requested feed offset and wraps safely", () => {
+  const feeds = [
+    [{ id: 1 }, { id: 2 }, { id: 3 }],
+    [{ id: 10 }, { id: 11 }, { id: 12 }],
+    [{ id: 20 }, { id: 21 }, { id: 22 }]
+  ];
+
+  assert.deepEqual(
+    selectRoundRobinCandidates(feeds, 6, 1).map((item) => item.id),
+    [2, 11, 21, 3, 12, 22]
   );
 });
