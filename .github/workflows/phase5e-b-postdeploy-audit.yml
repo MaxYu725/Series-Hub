@@ -1,0 +1,74 @@
+name: Audit Phase 5E-B post-deploy baseline
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.event.pull_request.head.ref == 'audit-phase5e-b-postdeploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      WRANGLER_VERSION: "4.125.0"
+      PRODUCTION_DB_NAME: "series-hub-db"
+      PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+
+      - name: Verify Phase 5E-B production baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+
+          STATE_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT (SELECT COUNT(*) FROM shows WHERE status IN ('airing','upcoming','planned')) AS active_shows, (SELECT COUNT(*) FROM shows WHERE status IN ('airing','upcoming','planned') AND tvmaze_id IS NOT NULL) AS active_tvmaze_mapped, (SELECT COUNT(*) FROM shows WHERE status IN ('airing','upcoming','planned') AND datetime(created_at) >= datetime('now','-2 hours')) AS active_created_2h, (SELECT COUNT(*) FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id=s.id WHERE s.status IN ('airing','upcoming','planned') AND p.title_zh_hk IS NOT NULL AND p.title_zh_hk<>'') AS hk_covered, (SELECT COUNT(*) FROM episodes e JOIN seasons se ON se.id=e.season_id JOIN shows s ON s.id=se.show_id WHERE s.status IN ('airing','upcoming','planned') AND se.season_number>0 AND e.episode_number>0) AS active_numbered_episodes, (SELECT COUNT(*) FROM episodes e JOIN seasons se ON se.id=e.season_id JOIN shows s ON s.id=se.show_id WHERE s.status IN ('airing','upcoming','planned') AND se.season_number>0 AND e.episode_number>0 AND e.air_timestamp IS NOT NULL AND e.air_timestamp<>'') AS active_timestamped_episodes; SELECT src.source_key, sr.status, sr.records_seen, sr.records_changed, ROUND((julianday('now')-julianday(sr.started_at))*24,2) AS hours_ago FROM sources src LEFT JOIN sync_runs sr ON sr.id=(SELECT id FROM sync_runs x WHERE x.source_id=src.id ORDER BY x.started_at DESC,x.id DESC LIMIT 1) WHERE src.source_key IN ('tmdb','tvmaze') ORDER BY src.source_key;" )"
+
+          STATE_JSON="${STATE_JSON}" node - <<'NODE'
+          const data = JSON.parse(process.env.STATE_JSON);
+          const found = [];
+          const walk = (value) => {
+            if (Array.isArray(value)) return value.forEach(walk);
+            if (!value || typeof value !== 'object') return;
+            found.push(value);
+            Object.values(value).forEach(walk);
+          };
+          walk(data);
+          const base = found.find(x => Object.prototype.hasOwnProperty.call(x, 'active_shows')) || {};
+          const syncRows = found.filter(x => Object.prototype.hasOwnProperty.call(x, 'source_key'));
+          console.log(`active shows: ${base.active_shows}`);
+          console.log(`active TVmaze mapped: ${base.active_tvmaze_mapped}`);
+          console.log(`active shows created in last 2h: ${base.active_created_2h}`);
+          console.log(`HK covered: ${base.hk_covered}`);
+          console.log(`active numbered episodes: ${base.active_numbered_episodes}`);
+          console.log(`active timestamped episodes: ${base.active_timestamped_episodes}`);
+          for (const row of syncRows) console.log(`${row.source_key}: ${row.status}, seen=${row.records_seen}, changed=${row.records_changed}, ${row.hours_ago}h ago`);
+          if (Number(base.active_shows || 0) < 34) throw new Error('Active catalog regressed below the Phase 5E-A baseline');
+          if (!syncRows.some(x => x.source_key === 'tmdb' && ['success','success_with_warnings'].includes(x.status))) throw new Error('TMDB sync not healthy');
+          if (!syncRows.some(x => x.source_key === 'tvmaze' && ['success','success_with_warnings'].includes(x.status))) throw new Error('TVmaze sync not healthy');
+          NODE
+
+          HEALTH="$(curl --fail --silent --show-error --retry 3 --retry-all-errors "${PRODUCTION_URL}/health")"
+          HEALTH="${HEALTH}" node -e 'const h=JSON.parse(process.env.HEALTH); if(h.ok!==true) process.exit(1);'
+
+          {
+            echo "## Phase 5E-B post-deploy audit"
+            echo
+            echo '```text'
+            STATE_JSON="${STATE_JSON}" node - <<'NODE'
+          const data=JSON.parse(process.env.STATE_JSON); const out=[]; const walk=v=>{if(Array.isArray(v))return v.forEach(walk); if(!v||typeof v!=='object')return; if('active_shows'in v) out.push(`active shows=${v.active_shows}; mapped=${v.active_tvmaze_mapped}; new_2h=${v.active_created_2h}; HK=${v.hk_covered}; numbered=${v.active_numbered_episodes}; timestamped=${v.active_timestamped_episodes}`); if('source_key'in v) out.push(`${v.source_key}: ${v.status}; seen=${v.records_seen}; changed=${v.records_changed}; age=${v.hours_ago}h`); Object.values(v).forEach(walk);}; walk(data); console.log([...new Set(out)].join('\n'));
+          NODE
+            echo '```'
+            echo
+            echo "Immediate deployment sync can remain on offset 0 if deployed during the 00–06 UTC slot. Phase 5E-B breadth acceptance therefore requires a later scheduled six-hour slot to prove rotated discovery adds or refreshes a different candidate slice."
+          } >> "${GITHUB_STEP_SUMMARY}"
