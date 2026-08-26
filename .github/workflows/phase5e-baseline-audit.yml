@@ -1,0 +1,189 @@
+name: Audit Phase 5E US-series maturity baseline
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.event.pull_request.head.ref == 'audit-phase5e-baseline'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      WRANGLER_VERSION: "4.125.0"
+      PRODUCTION_DB_NAME: "series-hub-db"
+      PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+
+      - name: Validate production read access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+
+      - name: Measure catalog and schedule maturity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_query() {
+            local name="$1"
+            local sql="$2"
+            npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "${sql}" > "${RUNNER_TEMP}/${name}.json"
+          }
+
+          run_query catalog "SELECT COUNT(*) AS total_shows, SUM(CASE WHEN status='airing' THEN 1 ELSE 0 END) AS airing, SUM(CASE WHEN status='upcoming' THEN 1 ELSE 0 END) AS upcoming, SUM(CASE WHEN status='planned' THEN 1 ELSE 0 END) AS planned, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed, SUM(CASE WHEN status='unknown' THEN 1 ELSE 0 END) AS unknown, SUM(CASE WHEN poster_url IS NULL OR poster_url='' THEN 1 ELSE 0 END) AS missing_poster, SUM(CASE WHEN english_title IS NULL OR english_title='' THEN 1 ELSE 0 END) AS missing_english_title FROM shows;"
+
+          run_query mapping "SELECT COUNT(*) AS active_total, SUM(CASE WHEN tvmaze_id IS NOT NULL THEN 1 ELSE 0 END) AS active_mapped_tvmaze, SUM(CASE WHEN tvmaze_id IS NULL THEN 1 ELSE 0 END) AS active_unmapped_tvmaze, SUM(CASE WHEN tvmaze_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM seasons se JOIN episodes e ON e.season_id=se.id WHERE se.show_id=shows.id AND se.season_number>0 AND e.episode_number>0) THEN 1 ELSE 0 END) AS mapped_without_numbered_episodes FROM shows WHERE status IN ('airing','upcoming','planned');"
+
+          run_query episodes "SELECT COUNT(*) AS numbered_episodes, SUM(CASE WHEN e.air_timestamp IS NOT NULL AND e.air_timestamp<>'' THEN 1 ELSE 0 END) AS timestamped_episodes, SUM(CASE WHEN e.air_date IS NOT NULL AND e.air_date<>'' AND (e.air_timestamp IS NULL OR e.air_timestamp='') THEN 1 ELSE 0 END) AS dated_without_timestamp, SUM(CASE WHEN e.air_timestamp IS NOT NULL AND julianday(e.air_timestamp)>=julianday('now') AND julianday(e.air_timestamp)<julianday('now','+30 days') THEN 1 ELSE 0 END) AS next_30d_timestamped, SUM(CASE WHEN e.air_date IS NOT NULL AND julianday(e.air_date)>=julianday(date('now')) AND julianday(e.air_date)<julianday(date('now','+30 days')) AND (e.air_timestamp IS NULL OR e.air_timestamp='') THEN 1 ELSE 0 END) AS next_30d_dated_without_timestamp FROM episodes e JOIN seasons se ON se.id=e.season_id WHERE se.season_number>0 AND e.episode_number>0;"
+
+          run_query titles "SELECT COUNT(*) AS active_total, SUM(CASE WHEN p.title_zh_hk IS NOT NULL AND p.title_zh_hk<>'' THEN 1 ELSE 0 END) AS hk_covered, SUM(CASE WHEN p.title_zh_tw IS NOT NULL AND p.title_zh_tw<>'' THEN 1 ELSE 0 END) AS tw_covered, SUM(CASE WHEN p.title_zh_cn IS NOT NULL AND p.title_zh_cn<>'' THEN 1 ELSE 0 END) AS cn_covered, SUM(CASE WHEN p.title_zh_hk IS NULL OR p.title_zh_hk='' THEN 1 ELSE 0 END) AS hk_missing, SUM(CASE WHEN p.title_zh_tw IS NULL OR p.title_zh_tw='' THEN 1 ELSE 0 END) AS tw_missing, SUM(CASE WHEN p.title_zh_cn IS NULL OR p.title_zh_cn='' THEN 1 ELSE 0 END) AS cn_missing, SUM(CASE WHEN p.title_zh_hk_source='manual' THEN 1 ELSE 0 END) AS hk_manual FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id=s.id WHERE s.status IN ('airing','upcoming','planned');"
+
+          run_query lifecycle "SELECT COUNT(*) AS active_total, SUM(CASE WHEN EXISTS (SELECT 1 FROM active_lifecycle_events le WHERE le.show_id=s.id) THEN 1 ELSE 0 END) AS with_official_evidence, SUM(CASE WHEN EXISTS (SELECT 1 FROM active_lifecycle_events le WHERE le.show_id=s.id AND le.event_type IN ('renewed','ordered','final_season','premiere_dated')) THEN 1 ELSE 0 END) AS with_forward_evidence, SUM(CASE WHEN EXISTS (SELECT 1 FROM active_lifecycle_events le WHERE le.show_id=s.id AND le.event_type IN ('cancelled','ended')) THEN 1 ELSE 0 END) AS with_end_evidence FROM shows s WHERE s.status IN ('airing','upcoming','planned');"
+
+          run_query push "SELECT (SELECT COUNT(*) FROM push_subscriptions WHERE disabled_at IS NULL) AS active_subscriptions, (SELECT COUNT(*) FROM push_subscription_shows pss JOIN push_subscriptions ps ON ps.id=pss.subscription_id WHERE ps.disabled_at IS NULL) AS active_show_mappings, (SELECT COUNT(*) FROM notification_deliveries WHERE kind='episode_24h' AND status='sent') AS sent_total, (SELECT COUNT(*) FROM notification_deliveries WHERE kind='episode_24h' AND status='sent' AND julianday(sent_at)>=julianday('now','-7 days')) AS sent_7d, (SELECT COUNT(*) FROM notification_deliveries WHERE kind='episode_24h' AND status='failed_transient') AS transient_failures, (SELECT COUNT(*) FROM notification_deliveries WHERE kind='episode_24h' AND status='failed_terminal') AS terminal_failures;"
+
+          run_query sync "SELECT src.source_key, sr.status, sr.started_at, sr.finished_at, sr.records_seen, sr.records_changed, sr.error_summary, ROUND((julianday('now')-julianday(sr.started_at))*24,2) AS hours_ago FROM sources src LEFT JOIN sync_runs sr ON sr.id=(SELECT id FROM sync_runs x WHERE x.source_id=src.id ORDER BY x.started_at DESC, x.id DESC LIMIT 1) WHERE src.source_key IN ('tmdb','tvmaze') ORDER BY src.source_key;"
+
+          run_query networks "SELECT n.canonical_name AS network, COUNT(DISTINCT s.id) AS active_shows FROM shows s JOIN show_networks sn ON sn.show_id=s.id JOIN networks n ON n.id=sn.network_id WHERE s.status IN ('airing','upcoming','planned') GROUP BY n.id,n.canonical_name ORDER BY active_shows DESC,n.canonical_name LIMIT 20;"
+
+          run_query gaps "SELECT s.id AS show_id, COALESCE(s.english_title,s.original_title) AS title, s.status, s.imdb_id, s.thetvdb_id FROM shows s WHERE s.status IN ('airing','upcoming','planned') AND s.tvmaze_id IS NULL ORDER BY COALESCE(s.popularity,0) DESC, s.id LIMIT 20;"
+
+      - name: Probe production public contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 --retry-all-errors "${PRODUCTION_URL}/health" > "${RUNNER_TEMP}/health.json"
+          curl --fail --silent --show-error --retry 3 --retry-all-errors "${PRODUCTION_URL}/api/shows?status=airing&limit=100&region=HK" > "${RUNNER_TEMP}/airing.json"
+          TODAY="$(date -u +%F)"
+          curl --fail --silent --show-error --retry 3 --retry-all-errors "${PRODUCTION_URL}/api/schedule?from=${TODAY}&days=14&region=HK" > "${RUNNER_TEMP}/schedule.json"
+          curl --fail --silent --show-error --retry 3 --retry-all-errors "${PRODUCTION_URL}/" > "${RUNNER_TEMP}/home.html"
+
+          grep -q 'phase5d-ui.js' "${RUNNER_TEMP}/home.html"
+          grep -q 'viewport' "${RUNNER_TEMP}/home.html"
+          grep -q '我的劇集' "${RUNNER_TEMP}/home.html"
+
+      - name: Publish Phase 5E baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNNER_TEMP="${RUNNER_TEMP}" node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const root = process.env.RUNNER_TEMP;
+
+          function read(name) {
+            return JSON.parse(fs.readFileSync(path.join(root, `${name}.json`), 'utf8'));
+          }
+          function objects(value, out = []) {
+            if (Array.isArray(value)) for (const item of value) objects(item, out);
+            else if (value && typeof value === 'object') {
+              out.push(value);
+              for (const v of Object.values(value)) objects(v, out);
+            }
+            return out;
+          }
+          function row(name, key) {
+            return objects(read(name)).find((x) => Object.prototype.hasOwnProperty.call(x, key)) || {};
+          }
+          function rows(name, key) {
+            return objects(read(name)).filter((x) => Object.prototype.hasOwnProperty.call(x, key));
+          }
+          function pct(a, b) {
+            a = Number(a || 0); b = Number(b || 0);
+            return b ? `${(a * 100 / b).toFixed(1)}%` : 'n/a';
+          }
+          function apiCount(value) {
+            if (Array.isArray(value)) return value.length;
+            if (!value || typeof value !== 'object') return 0;
+            for (const key of ['shows','episodes','schedule','items','results','data']) {
+              if (Array.isArray(value[key])) return value[key].length;
+            }
+            for (const v of Object.values(value)) {
+              const n = apiCount(v);
+              if (n) return n;
+            }
+            return 0;
+          }
+
+          const catalog = row('catalog', 'total_shows');
+          const mapping = row('mapping', 'active_total');
+          const episodes = row('episodes', 'numbered_episodes');
+          const titles = row('titles', 'hk_covered');
+          const lifecycle = row('lifecycle', 'with_official_evidence');
+          const push = row('push', 'active_subscriptions');
+          const sync = rows('sync', 'source_key').filter((x, i, a) => a.findIndex(y => y.source_key === x.source_key) === i);
+          const networks = rows('networks', 'network').filter((x, i, a) => a.findIndex(y => y.network === x.network) === i).slice(0,20);
+          const gaps = rows('gaps', 'show_id').filter((x, i, a) => a.findIndex(y => y.show_id === x.show_id) === i).slice(0,20);
+          const health = read('health');
+          const airingApi = read('airing');
+          const scheduleApi = read('schedule');
+
+          if (Number(catalog.total_shows || 0) < 1) throw new Error('Production catalog is unexpectedly empty');
+          if (!sync.some(x => x.source_key === 'tmdb') || !sync.some(x => x.source_key === 'tvmaze')) throw new Error('Missing TMDB/TVmaze sync state');
+
+          const lines = [];
+          lines.push('## Phase 5E-A — US-series maturity baseline');
+          lines.push('');
+          lines.push('### Catalog');
+          lines.push(`- Total shows: ${catalog.total_shows}`);
+          lines.push(`- Airing / Upcoming / Planned / Completed / Unknown: ${catalog.airing} / ${catalog.upcoming} / ${catalog.planned} / ${catalog.completed} / ${catalog.unknown}`);
+          lines.push(`- Missing poster: ${catalog.missing_poster}; missing English title: ${catalog.missing_english_title}`);
+          lines.push('');
+          lines.push('### TVmaze / episode coverage');
+          lines.push(`- Active catalog shows: ${mapping.active_total}`);
+          lines.push(`- Exact TVmaze mapping: ${mapping.active_mapped_tvmaze} (${pct(mapping.active_mapped_tvmaze, mapping.active_total)})`);
+          lines.push(`- Active shows without TVmaze mapping: ${mapping.active_unmapped_tvmaze}`);
+          lines.push(`- Mapped active shows without numbered episodes: ${mapping.mapped_without_numbered_episodes}`);
+          lines.push(`- Numbered episodes retained: ${episodes.numbered_episodes}`);
+          lines.push(`- Episodes with real timestamp: ${episodes.timestamped_episodes} (${pct(episodes.timestamped_episodes, episodes.numbered_episodes)})`);
+          lines.push(`- Next 30d timestamped / dated-without-timestamp: ${episodes.next_30d_timestamped} / ${episodes.next_30d_dated_without_timestamp}`);
+          lines.push('');
+          lines.push('### Regional title coverage — active catalog');
+          lines.push(`- HK: ${titles.hk_covered}/${titles.active_total} (${pct(titles.hk_covered, titles.active_total)}), missing ${titles.hk_missing}, manual preferred ${titles.hk_manual}`);
+          lines.push(`- TW: ${titles.tw_covered}/${titles.active_total} (${pct(titles.tw_covered, titles.active_total)}), missing ${titles.tw_missing}`);
+          lines.push(`- CN: ${titles.cn_covered}/${titles.active_total} (${pct(titles.cn_covered, titles.active_total)}), missing ${titles.cn_missing}`);
+          lines.push('');
+          lines.push('### Lifecycle evidence');
+          lines.push(`- Active shows with attributed official evidence: ${lifecycle.with_official_evidence}/${lifecycle.active_total} (${pct(lifecycle.with_official_evidence, lifecycle.active_total)})`);
+          lines.push(`- Forward evidence (renewed/ordered/final/premiere dated): ${lifecycle.with_forward_evidence}`);
+          lines.push(`- End evidence (cancelled/ended): ${lifecycle.with_end_evidence}`);
+          lines.push('');
+          lines.push('### Push observability');
+          lines.push(`- Active subscriptions / show mappings: ${push.active_subscriptions} / ${push.active_show_mappings}`);
+          lines.push(`- episode_24h sent total / last 7d: ${push.sent_total} / ${push.sent_7d}`);
+          lines.push(`- transient / terminal failures: ${push.transient_failures} / ${push.terminal_failures}`);
+          lines.push('');
+          lines.push('### Source freshness');
+          for (const x of sync) lines.push(`- ${x.source_key}: ${x.status}; ${x.hours_ago}h ago; seen ${x.records_seen}; changed ${x.records_changed}${x.error_summary ? `; error=${x.error_summary}` : ''}`);
+          lines.push('');
+          lines.push('### Production API/static smoke');
+          lines.push(`- /health: ${health.ok === false ? 'reported not-ok' : 'reachable'}`);
+          lines.push(`- Airing API sampled rows: ${apiCount(airingApi)}`);
+          lines.push(`- 14-day schedule sampled rows: ${apiCount(scheduleApi)}`);
+          lines.push('- Phase 5D UI asset, mobile viewport and My Shows marker: present');
+          lines.push('');
+          lines.push('### Largest active network/service groups');
+          for (const x of networks) lines.push(`- ${x.network}: ${x.active_shows}`);
+          lines.push('');
+          lines.push('### Highest-priority active shows without exact TVmaze mapping');
+          if (!gaps.length) lines.push('- none');
+          else for (const x of gaps) lines.push(`- #${x.show_id} ${x.title} — ${x.status}; IMDb=${x.imdb_id || 'none'}; TheTVDB=${x.thetvdb_id || 'none'}`);
+          lines.push('');
+          lines.push('This is a read-only baseline. Gaps are measurements, not automatic failures; Phase 5E-B should fix the highest-impact systemic gap rather than patching individual titles blindly.');
+
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
+          console.log(lines.join('\n'));
+          NODE
