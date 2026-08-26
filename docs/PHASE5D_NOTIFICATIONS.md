@@ -1,326 +1,212 @@
-# Phase 5D — Notification architecture design
+# Phase 5D — Background notification architecture
 
-Status: **DESIGN / FEASIBILITY GATE**
+Status: **COMPLETE THROUGH PHASE 5D-C — PRODUCTION ACCEPTED**
 
-Phase 5D deliberately separates background notifications from Phase 5A–5C local personalization. My Shows, tracked-only schedule filtering and viewing states remain browser-local and usable without notifications.
+Phase 5D introduced true background notifications without replacing Series Hub's local-first personalization model with accounts.
 
-The purpose of this phase is to choose a notification architecture before adding a Service Worker, Push API subscription, server-side subscription data or notification cron.
+## Final architecture decision
 
-## Decision summary
-
-Recommended model: **accountless, device-scoped targeted Web Push with explicit opt-in**.
+Production uses **accountless, device-scoped targeted Web Push with explicit opt-in**.
 
 - no user account is required;
-- local My Shows remains authoritative in `series-hub-tracked-shows-v1`;
-- local viewing states remain authoritative in `series-hub-viewing-states-v1`;
-- when the user explicitly enables notifications, the server may store only the minimum device subscription data and the subset of stable Series Hub show IDs selected for notifications;
-- viewing states, titles, search history and other local personalization are not uploaded;
-- notification permission is never requested automatically on page load;
-- disabling notifications deletes the device subscription and its show mappings from D1;
-- first production trigger should be a narrowly defined episode reminder, not a broad collection of renewal/news alerts.
+- My Shows remains authoritative in browser storage key `series-hub-tracked-shows-v1`;
+- viewing states remain authoritative in browser storage key `series-hub-viewing-states-v1`;
+- only after the user explicitly enables notifications does the server store the minimum Push subscription data plus stable Series Hub show IDs selected for notification routing;
+- viewing states, search history and normal catalog metadata are not uploaded as personalization data;
+- notification permission is requested only from an explicit user action in My Shows;
+- disabling notifications unsubscribes the browser and deletes the server subscription, mappings and dependent delivery history;
+- the accepted first trigger is `episode_24h` only.
 
-This is a new privacy boundary compared with Phase 5A–5C and must be treated as such.
+## Why server-side subscription data is required
 
-## Why pure localStorage cannot provide reliable background notifications
+A closed browser tab cannot rely on page timers or `localStorage` for reliable background reminders. A Service Worker can receive Push events while the page is closed, but it cannot directly use page `localStorage` as a routing database.
 
-The current Phase 5A–5C design is intentionally local-only. That works while the page is open, but a closed browser tab cannot rely on page timers or `localStorage` to create reliable background notifications.
+Series Hub therefore stores only the minimum notification-specific device routing data rather than moving the complete My Shows or viewing-state model to the server.
 
-A Service Worker can receive Push API events while the page is closed, but it cannot directly read page `localStorage`. A generic push sent to every device and then silently discarded by non-matching clients is also a poor production model: it wastes fan-out work and can conflict with browser expectations that push delivery results in a user-visible notification.
+## Production notification scope
 
-Therefore reliable targeted background delivery requires the backend to know which subscribed device should receive which show notification. The proposed compromise is to store only notification-specific show IDs for an anonymous device subscription rather than moving the full My Shows profile to the server.
+The accepted production rule is:
 
-## Alternatives considered
-
-### A. Foreground-only browser notifications
-
-Keep all personalization local and use the Notifications API only while the site is open.
-
-Advantages:
-
-- no new server-side personal data;
-- no Push API subscription storage;
-- simplest implementation.
-
-Limitations:
-
-- not a true background reminder;
-- unreliable when the tab/browser is closed;
-- does not satisfy the intended notification feature.
-
-**Decision:** retain as fallback behavior, not the primary Phase 5D target.
-
-### B. Generic Web Push to every subscriber, filter locally
-
-Send a generic push after each data sync and let the Service Worker inspect local mirrored state.
-
-Advantages:
-
-- backend does not need show selections.
-
-Limitations:
-
-- Service Worker cannot use `localStorage`, so state must be duplicated into IndexedDB;
-- every subscriber receives every sync wake-up;
-- non-matching pushes may become silent pushes;
-- inefficient and difficult to scale cleanly;
-- user-visible-only push behavior becomes harder to guarantee.
-
-**Decision:** reject for production.
-
-### C. Accountless targeted Web Push
-
-Store a browser/device push subscription plus only the show IDs enabled for notifications.
-
-Advantages:
-
-- targeted delivery;
-- no account or identity system;
-- local My Shows and viewing states stay local-first;
-- avoids waking unrelated devices;
-- clean deduplication and unsubscribe semantics.
-
-Costs:
-
-- creates a small server-side pseudonymous personalization dataset;
-- requires VAPID/Web Push sender support, D1 tables, a Service Worker and a delivery runner;
-- requires explicit privacy/retention rules.
-
-**Decision:** recommended architecture.
-
-## Initial notification scope
-
-The first production notification should be intentionally narrow:
-
-> **Tracked episode reminder:** notify a subscribed device once when a selected show has a numbered episode with a reliable `air_timestamp` entering the next 24-hour window.
+> Notify an opted-in device once when a tracked show has a numbered TVmaze episode with a real `air_timestamp` entering the approximately 23–24 hour reminder window.
 
 Rules:
 
-1. Only TVmaze episodes with a real timestamp are eligible.
-2. Use stable Series Hub `show_id` and episode identity; never title fuzzy matching.
-3. Send at most one `episode_24h` notification per subscription + episode.
-4. If the timestamp changes before delivery, use the updated timestamp.
-5. If only source `air_date` / `air_time` exists, do not fabricate a precise reminder time.
-6. Season premieres (`SxxE01`) naturally use the same trigger and may receive a premiere-specific label in the payload/UI.
-7. Renewal/cancellation, filming and general news alerts remain out of the first implementation slice.
+1. Only episodes with a real TVmaze timestamp are eligible.
+2. Routing uses stable Series Hub `show_id`; no title fuzzy matching is used.
+3. At most one successful `episode_24h` delivery is recorded per subscription + episode identity.
+4. Changed timestamps are evaluated from the latest stored episode data before delivery.
+5. A date/time without a reliable timestamp does not receive a fabricated precise reminder.
+6. Season premieres use the same mechanism.
+7. Renewal/cancellation, filming and general-news Push alerts remain outside the accepted Phase 5D-C scope.
 
-This keeps Phase 5D grounded in the already accepted TVmaze schedule contract.
+## Permission and browser UX
 
-## Permission UX
+The production flow is:
 
-Notification permission must be user initiated.
+1. User opens **我的劇集 / My Shows**.
+2. User presses **開啟通知**.
+3. Series Hub explains that the device Push subscription and selected show IDs will be stored server-side.
+4. Only that explicit gesture may invoke `Notification.requestPermission()`.
+5. The browser registers `/push-sw.js` and creates a `PushManager` subscription.
+6. The server registers the subscription and returns a high-entropy management capability.
+7. The raw management capability stays in browser storage; only its SHA-256 hash is stored in D1.
+8. **關閉通知** deletes the server subscription and then unsubscribes the browser.
 
-Recommended My Shows flow:
+Permission denial does not break My Shows and is not followed by repeated automatic prompts.
 
-1. User opens **我的劇集**.
-2. User chooses **開啟通知**.
-3. Series Hub explains what will leave the browser: a device push subscription and selected show IDs only.
-4. Only then call `Notification.requestPermission()` from the user gesture.
-5. If granted, create a `PushManager` subscription and register it with Series Hub.
-6. If denied, keep My Shows fully functional and do not repeatedly prompt.
-7. **關閉通知** must unsubscribe in the browser and delete the server-side subscription record.
+## Production D1 model
 
-No permission prompt should appear automatically during normal catalog browsing.
+Migration: `0014_phase5d_push_subscriptions.sql`
 
-## Proposed server-side data model
+### `push_config`
 
-No account/user/profile table is required.
+Stores non-secret notification configuration such as the VAPID public key.
 
 ### `push_subscriptions`
 
-Suggested fields:
+Stores only notification-device routing material:
 
-- `id` — internal integer primary key;
-- `endpoint_hash` — unique hash used for deduplication/lookups;
-- `endpoint` — Push API endpoint;
-- `p256dh` — browser public encryption key;
-- `auth` — browser auth secret;
-- `manage_token_hash` — hash of a random capability token used to update/delete this device subscription;
-- `timezone` — IANA browser timezone for display/reminder semantics when needed;
-- `title_region` — `HK|TW|CN` for notification title preference;
-- `created_at`;
-- `updated_at`;
-- `last_seen_at`;
-- `disabled_at` nullable.
+- Push endpoint and endpoint hash;
+- `p256dh` and `auth` encryption material;
+- SHA-256 management-token hash;
+- timezone;
+- title region (`HK|TW|CN`);
+- timestamps and optional disabled state.
 
-Do **not** store IP address, user-agent history, search history, viewing state or title metadata as part of this feature.
+It does not store an account, viewing state, search history or user-agent/IP history for this feature.
 
 ### `push_subscription_shows`
 
-Suggested fields:
-
-- `subscription_id`;
-- `show_id`;
-- `created_at`;
-- unique `(subscription_id, show_id)`.
-
-This table represents only the shows that this device opted to receive notifications for. It is not a server-authoritative copy of My Shows.
+Maps a subscription to stable Series Hub `show_id` values selected for notifications. It is not the authoritative My Shows database.
 
 ### `notification_deliveries`
 
-Suggested fields:
+Stores compact delivery/deduplication facts:
 
-- `subscription_id`;
-- `kind` — initially `episode_24h`;
-- `entity_key` — stable episode fingerprint/ID;
-- `scheduled_for`;
-- `sent_at`;
-- `status`;
-- `error_code` nullable;
-- unique `(subscription_id, kind, entity_key)`.
+- subscription ID;
+- kind (`episode_24h`);
+- stable episode entity key;
+- scheduled timestamp;
+- sent timestamp;
+- delivery status/error code.
 
-The unique constraint is the primary duplicate-delivery guard.
+Unique `(subscription_id, kind, entity_key)` is the successful-delivery deduplication boundary.
 
-## Subscription-management capability
+## API surface
 
-Because there is no account, subscription mutation needs a device-scoped capability rather than an identity login.
+Device/public routes:
 
-Recommended contract:
+- `GET /api/push/public-key`
+- `POST /api/push/subscriptions`
+- `PUT /api/push/subscription`
+- `DELETE /api/push/subscription`
 
-- registration returns a high-entropy random management token;
-- only a hash of the management token is stored in D1;
-- the raw token remains in browser storage alongside notification settings;
-- update/delete calls send the token in an authorization header, not in URLs;
-- losing site storage simply means the old subscription becomes stale and is eventually purged or can be replaced by a new one.
+Protected internal route:
 
-The Push endpoint itself should not be treated as sufficient authorization for mutation.
+- `POST /api/internal/episode-reminders`
+  - default: dry-run/non-sending;
+  - `?send=1`: delivery only when the production reminder gate is enabled.
 
-## Proposed API surface
-
-Public/device endpoints:
-
-- `GET /api/push/public-key` — returns the VAPID public key only;
-- `POST /api/push/subscriptions` — register a device subscription and initial notification show IDs;
-- `PUT /api/push/subscription` — update notification show IDs / timezone / title region using the management token;
-- `DELETE /api/push/subscription` — revoke/delete the current device subscription using the management token.
-
-Protected/internal endpoint or scheduled handler:
-
-- notification-delivery runner, protected by the existing internal authorization pattern when invoked over HTTP;
-- normal cron execution should call the same internal delivery logic without exposing a public mutation path.
-
-All device write routes must enforce strict size limits, HTTPS Push endpoints, bounded show-ID counts and same-origin browser use where applicable.
+Device mutation routes use same-origin checks and a device management capability rather than an account login.
 
 ## Service Worker responsibilities
 
-The Service Worker should stay small and notification-specific.
+`public/push-sw.js` remains notification-specific:
 
-Responsibilities:
-
-- receive targeted `push` events;
-- validate/parse a compact notification payload;
-- call `registration.showNotification()`;
-- route notification clicks to Series Hub / My Shows;
-- handle subscription-change events by asking the page/server to refresh registration when possible;
-- contain no canonical catalog, lifecycle or tracking logic.
-
-The Service Worker should not become a second application backend or duplicate the main catalog state machine.
+- receives targeted Push events;
+- parses the compact payload;
+- always converts accepted Push delivery into a visible native notification;
+- handles notification clicks and opens/focuses Series Hub;
+- does not duplicate catalog, lifecycle or tracking state machines.
 
 ## Delivery runner
 
-Recommended first runner cadence: **hourly**.
+Production cadence: **hourly at minute 7**.
 
-Each run should:
+The runner:
 
-1. query upcoming TVmaze-backed episodes with reliable timestamps in a narrow reminder window;
-2. join only subscribed show IDs;
-3. exclude successful delivery fingerprints already recorded;
-4. send targeted Web Push messages;
-5. record success/failure atomically enough to prevent normal duplicate sends;
-6. delete subscriptions that return permanent gone/not-found responses;
-7. retry only bounded transient failures.
+1. queries tracked numbered episodes entering the accepted reminder window;
+2. joins only active subscription/show mappings;
+3. skips already-successful delivery fingerprints;
+4. sends encrypted targeted Web Push;
+5. records success/failure status;
+6. removes Push subscriptions returning permanent 404/410 responses;
+7. retries only bounded transient failures while the episode remains eligible;
+8. purges stale inactive subscriptions according to the retention policy;
+9. limits one run to a bounded send batch so Push fan-out cannot silently grow without an explicit scale review.
 
-Do not trigger a full generic push fan-out from every TMDB/TVmaze sync.
-
-The delivery worker must respect Cloudflare outbound-subrequest limits. If subscription volume approaches a level where one scheduled invocation cannot safely fan out, Phase 5D should stop and add an explicit queue/batch design rather than silently increasing scope.
+Reminder failure is isolated from TMDB and TVmaze sync.
 
 ## VAPID and secrets
 
-Required configuration should be separated into:
+- VAPID public key: stored in D1 `push_config` and exposed to opted-in browser clients.
+- VAPID private key: Cloudflare Worker secret only.
+- private key is not stored in GitHub or served to the frontend.
+- production bootstrap preserves an existing complete VAPID pair and refuses unsafe key rotation while subscriptions exist.
 
-- **VAPID public key** — safe to expose to frontend clients;
-- **VAPID private key** — Cloudflare secret only, never committed or served;
-- optional contact/subject metadata required by the chosen Web Push sender implementation.
-
-Before adding production tables or UI, run an isolated feasibility spike proving that the chosen Worker-compatible Web Push implementation can:
-
-1. generate/sign a valid VAPID request;
-2. send a test notification to a real browser Push subscription;
-3. build under the existing Wrangler environment without destabilizing the Worker;
-4. correctly classify permanent vs transient Push service failures.
-
-## Retention and privacy rules
-
-Minimum recommended rules:
+## Retention and privacy contract
 
 - explicit opt-in only;
-- disabling notifications deletes subscription + show mappings + delivery history for that subscription;
-- HTTP 404/410 from a Push service deletes the stale subscription;
-- inactive subscriptions older than 90 days should be purged unless refreshed;
-- do not retain notification delivery bodies after delivery; keep only compact dedup/status facts;
-- no account creation as a side effect of enabling notifications;
-- local viewing states never leave the browser in Phase 5D;
-- notification show IDs are used only for notification routing.
+- no account creation;
+- viewing states remain local;
+- notification show IDs are used only for notification routing;
+- disabling notifications deletes subscription + mappings + dependent delivery history;
+- permanent 404/410 Push endpoints are removed;
+- inactive subscriptions are eligible for stale cleanup;
+- delivery payload bodies are not retained as history; only compact dedup/status facts remain.
 
-## Failure behavior
+## Phase acceptance history
 
-Notifications are optional. Failure must never break the catalog, schedule or My Shows.
+### Phase 5D-A — Web Push feasibility: COMPLETE
 
-- Push registration failure: show a local status; keep tracking functional.
-- Permission denied: no retry loop or nagging prompt.
-- Backend subscription failure: browser subscription may be rolled back or marked unregistered locally.
-- Delivery failure: retry only transient failures; permanent endpoint failures purge the subscription.
-- Notification runner failure: normal TMDB/TVmaze sync remains independent.
+A preview-only isolated spike proved:
 
-This preserves the existing source and personalization isolation principles.
+- `web-push@3.6.7` works under the Cloudflare Worker `nodejs_compat` environment;
+- CI-generated VAPID configuration works;
+- Service Worker + PushManager registration works on a real browser;
+- a native test notification was received;
+- no D1 persistence was required for the spike.
 
-## Implementation slices after this design gate
+The spike PR was closed without merge and its temporary Worker was deleted.
 
-### Phase 5D-A — Web Push feasibility spike
+### Phase 5D-B — accountless subscription persistence: COMPLETE
 
-- Service Worker registration in an isolated branch;
-- VAPID test configuration using preview-only secrets;
-- one manually initiated test subscription/send path;
-- no production notification table migration yet;
-- prove Cloudflare Worker compatibility first.
+Isolated and production acceptance proved:
 
-### Phase 5D-B — accountless subscription persistence
+- fresh D1 migration works;
+- registration/update/delete works;
+- same-origin mutation protection works;
+- only the hashed management capability is stored server-side;
+- tracked show mappings can be replaced safely;
+- no account/viewing-state/search-history data is added;
+- a real production browser could enable notifications and fully revoke/delete them again;
+- stable VAPID production provisioning works.
 
-- new immutable D1 migration for the three notification tables;
-- public-key + register/update/delete routes;
-- explicit My Shows opt-in UI;
-- production remains disabled behind a feature gate until acceptance.
+### Phase 5D-C — targeted episode reminders: COMPLETE
 
-### Phase 5D-C — targeted episode reminders
+Implementation and production acceptance proved:
 
-- hourly delivery runner;
-- `episode_24h` only;
-- deduplication + stale subscription cleanup;
-- isolated preview tests, then dedicated production acceptance.
+- `EPISODE_REMINDERS_ENABLED` is enabled in production;
+- the dedicated hourly cron is live;
+- protected production dry-run works without sending or mutating delivery state;
+- a real opted-in device subscription and tracked-show mappings were present;
+- a real `episode_24h` reminder was sent by production and visibly received on the device;
+- the matching D1 delivery record has status `sent`;
+- final read-only acceptance found 1 successful `episode_24h` delivery, 0 pending transient failures and 0 terminal failures;
+- the active accountless subscription and its two show mappings remained healthy after delivery.
 
-### Phase 5D-D — optional expansion
+This satisfies the original Phase 5D acceptance requirement for an actual native background notification backed by production delivery evidence.
 
-Only after 5D-C is stable:
+## Phase 5D-D — optional expansion: DEFERRED
 
-- official renewal/final-season alerts;
-- per-show notification toggles beyond the default tracked list;
-- queue/batching architecture if subscriber scale requires it.
+Possible later work:
 
-## Acceptance gates
+- official renewal/final-season Push alerts;
+- per-show notification-type controls;
+- queue/batching architecture if subscription volume requires it.
 
-No Phase 5D implementation should reach production until all of the following are true:
-
-1. Existing Phase 5A–5C local tracking/state behavior remains unchanged when notifications are disabled.
-2. Permission is requested only from an explicit user gesture.
-3. The browser can fully revoke the server subscription.
-4. No account is created.
-5. Only notification-specific show IDs are stored server-side; viewing states remain local.
-6. VAPID private material is a Cloudflare secret.
-7. Push delivery is deduplicated.
-8. Stale subscriptions are purged.
-9. Notification runner failure cannot block TMDB/TVmaze sync.
-10. Production-network tests stay outside default `npm test`.
-11. A dedicated production audit verifies live Service Worker/assets, `/health`, subscription deletion and at least one real device delivery before the phase is accepted.
+These are deliberately **not** part of the current accepted notification baseline. The first production model should now be allowed to operate and accumulate reliability evidence before alert scope is widened.
 
 ## Current recommendation
 
-Proceed next with **Phase 5D-A only**: an isolated Web Push feasibility spike. Do not create production notification tables, cron fan-out or account infrastructure until the spike proves Worker/browser compatibility and the user explicitly accepts the new device-subscription privacy boundary.
+Do **not** immediately expand notification types or introduce accounts. Keep the accepted `episode_24h` model running and use the next project phase to harden the US-series product: catalog/schedule coverage, title quality, lifecycle consistency, mobile UX and notification observability. Phase 6 geographic expansion should follow only after that maturity checkpoint.
