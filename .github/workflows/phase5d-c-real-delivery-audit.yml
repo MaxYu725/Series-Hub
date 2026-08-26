@@ -1,0 +1,95 @@
+name: Audit Phase 5D-C real delivery
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.event.pull_request.head.ref == 'audit-phase5d-c-real-delivery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+      WRANGLER_VERSION: "4.125.0"
+      PRODUCTION_DB_NAME: "series-hub-db"
+
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+
+      - name: Verify first real production reminder delivery
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+
+          STATE_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'sent') AS sent_total, (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'sent' AND julianday(sent_at) >= julianday('now','-12 hours')) AS sent_recent, (SELECT ROUND((julianday('now') - julianday(MAX(sent_at))) * 24, 2) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'sent') AS last_sent_hours_ago, (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'failed_transient') AS transient_pending, (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'failed_terminal') AS terminal_failures;" )"
+
+          STATE_JSON="${STATE_JSON}" node - <<'NODE'
+          const data = JSON.parse(process.env.STATE_JSON);
+          let row = null;
+          const walk = (value) => {
+            if (Array.isArray(value)) return value.forEach(walk);
+            if (!value || typeof value !== 'object') return;
+            if ('sent_total' in value) row = value;
+            Object.values(value).forEach(walk);
+          };
+          walk(data);
+          const sentTotal = Number(row?.sent_total || 0);
+          const sentRecent = Number(row?.sent_recent || 0);
+          const lastSentHoursAgo = Number(row?.last_sent_hours_ago);
+          const transientPending = Number(row?.transient_pending || 0);
+          const terminalFailures = Number(row?.terminal_failures || 0);
+          console.log(`episode_24h sent total: ${sentTotal}`);
+          console.log(`episode_24h sent in last 12h: ${sentRecent}`);
+          console.log(`last sent hours ago: ${Number.isFinite(lastSentHoursAgo) ? lastSentHoursAgo : 'n/a'}`);
+          console.log(`transient failures pending: ${transientPending}`);
+          console.log(`terminal failures recorded: ${terminalFailures}`);
+          if (sentTotal < 1) throw new Error('No successful episode_24h production delivery has been recorded');
+          if (sentRecent < 1) throw new Error('No recent successful episode_24h production delivery found after user confirmation');
+          if (!Number.isFinite(lastSentHoursAgo) || lastSentHoursAgo > 12) throw new Error('Latest successful delivery is too old for this acceptance');
+          NODE
+
+      - name: Verify live subscription remains active
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATE_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT (SELECT COUNT(*) FROM push_subscriptions WHERE disabled_at IS NULL) AS active_subscriptions, (SELECT COUNT(*) FROM push_subscription_shows pss JOIN push_subscriptions ps ON ps.id = pss.subscription_id WHERE ps.disabled_at IS NULL) AS active_show_mappings;" )"
+          STATE_JSON="${STATE_JSON}" node - <<'NODE'
+          const data = JSON.parse(process.env.STATE_JSON);
+          let row = null;
+          const walk = (value) => {
+            if (Array.isArray(value)) return value.forEach(walk);
+            if (!value || typeof value !== 'object') return;
+            if ('active_subscriptions' in value) row = value;
+            Object.values(value).forEach(walk);
+          };
+          walk(data);
+          const subscriptions = Number(row?.active_subscriptions || 0);
+          const mappings = Number(row?.active_show_mappings || 0);
+          console.log(`active subscriptions: ${subscriptions}`);
+          console.log(`active show mappings: ${mappings}`);
+          if (subscriptions < 1) throw new Error('No active production subscription remains');
+          if (mappings < 1) throw new Error('No active notification show mapping remains');
+          NODE
+
+      - name: Publish acceptance evidence
+        run: |
+          {
+            echo "## Phase 5D-C real delivery audit"
+            echo
+            echo "- User-visible native notification: confirmed externally by user"
+            echo "- Matching successful episode_24h D1 delivery: confirmed"
+            echo "- Delivery is recent enough for this acceptance: confirmed"
+            echo "- Active production Push subscription remains present: confirmed"
+            echo "- Active tracked-show notification mapping remains present: confirmed"
+            echo "- Audit mutated production data: no"
+          } >> "${GITHUB_STEP_SUMMARY}"
