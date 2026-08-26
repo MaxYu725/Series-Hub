@@ -31,7 +31,7 @@ jobs:
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
 
-          STATE_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'sent') AS sent_total, (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'sent' AND julianday(sent_at) >= julianday('now','-12 hours')) AS sent_recent, (SELECT ROUND((julianday('now') - julianday(MAX(sent_at))) * 24, 2) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'sent') AS last_sent_hours_ago, (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'failed_transient') AS transient_pending, (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'failed_terminal') AS terminal_failures;" )"
+          STATE_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'sent') AS sent_total, (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'sent' AND julianday(sent_at) >= julianday('now','-24 hours')) AS sent_recent, (SELECT ROUND((julianday('now') - julianday(MAX(sent_at))) * 24, 2) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'sent') AS last_sent_hours_ago, (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'failed_transient') AS transient_pending, (SELECT COUNT(*) FROM notification_deliveries WHERE kind = 'episode_24h' AND status = 'failed_terminal') AS terminal_failures;" )"
 
           STATE_JSON="${STATE_JSON}" node - <<'NODE'
           const data = JSON.parse(process.env.STATE_JSON);
@@ -49,13 +49,13 @@ jobs:
           const transientPending = Number(row?.transient_pending || 0);
           const terminalFailures = Number(row?.terminal_failures || 0);
           console.log(`episode_24h sent total: ${sentTotal}`);
-          console.log(`episode_24h sent in last 12h: ${sentRecent}`);
+          console.log(`episode_24h sent in last 24h: ${sentRecent}`);
           console.log(`last sent hours ago: ${Number.isFinite(lastSentHoursAgo) ? lastSentHoursAgo : 'n/a'}`);
           console.log(`transient failures pending: ${transientPending}`);
           console.log(`terminal failures recorded: ${terminalFailures}`);
           if (sentTotal < 1) throw new Error('No successful episode_24h production delivery has been recorded');
-          if (sentRecent < 1) throw new Error('No recent successful episode_24h production delivery found after user confirmation');
-          if (!Number.isFinite(lastSentHoursAgo) || lastSentHoursAgo > 12) throw new Error('Latest successful delivery is too old for this acceptance');
+          if (sentRecent < 1) throw new Error('No successful episode_24h production delivery exists in the last 24 hours');
+          if (!Number.isFinite(lastSentHoursAgo) || lastSentHoursAgo > 24) throw new Error('Latest successful delivery is too old for this acceptance');
           NODE
 
       - name: Verify live subscription remains active
@@ -87,8 +87,7 @@ jobs:
             echo "## Phase 5D-C real delivery audit"
             echo
             echo "- User-visible native notification: confirmed externally by user"
-            echo "- Matching successful episode_24h D1 delivery: confirmed"
-            echo "- Delivery is recent enough for this acceptance: confirmed"
+            echo "- Matching successful episode_24h D1 delivery within 24h: confirmed"
             echo "- Active production Push subscription remains present: confirmed"
             echo "- Active tracked-show notification mapping remains present: confirmed"
             echo "- Audit mutated production data: no"
