@@ -1,0 +1,36 @@
+name: Audit Phase 5E-C title coverage
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  WRANGLER_VERSION: "4.125.0"
+  PRODUCTION_DB_NAME: "series-hub-db"
+
+jobs:
+  audit:
+    if: github.head_ref == 'audit-phase5e-c-title-coverage'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read regional title coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT COUNT(*) AS active, SUM(CASE WHEN p.title_zh_hk IS NOT NULL AND p.title_zh_hk<>'' THEN 1 ELSE 0 END) AS hk, SUM(CASE WHEN p.title_zh_tw IS NOT NULL AND p.title_zh_tw<>'' THEN 1 ELSE 0 END) AS tw, SUM(CASE WHEN p.title_zh_cn IS NOT NULL AND p.title_zh_cn<>'' THEN 1 ELSE 0 END) AS cn, SUM(CASE WHEN (p.title_zh_hk IS NULL OR p.title_zh_hk='') AND ((p.title_zh_tw IS NOT NULL AND p.title_zh_tw<>'') OR (p.title_zh_cn IS NOT NULL AND p.title_zh_cn<>'')) THEN 1 ELSE 0 END) AS hk_fallback_available, SUM(CASE WHEN (p.title_zh_hk IS NULL OR p.title_zh_hk='') AND (p.title_zh_tw IS NULL OR p.title_zh_tw='') AND (p.title_zh_cn IS NULL OR p.title_zh_cn='') THEN 1 ELSE 0 END) AS no_chinese FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id=s.id WHERE s.status IN ('airing','upcoming','planned'); SELECT s.id,s.english_title,s.status,COALESCE(p.title_zh_hk,'') AS hk,COALESCE(p.title_zh_tw,'') AS tw,COALESCE(p.title_zh_cn,'') AS cn,COALESCE(p.title_zh_hk_source,'') AS hk_source,COALESCE(p.title_zh_tw_source,'') AS tw_source,COALESCE(p.title_zh_cn_source,'') AS cn_source FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id=s.id WHERE s.status IN ('airing','upcoming','planned') AND (p.title_zh_hk IS NULL OR p.title_zh_hk='') ORDER BY s.english_title;" )"
+          JSON="${JSON}" node - <<'NODE'
+          const payload=JSON.parse(process.env.JSON); const rows=[];
+          const walk=v=>{if(Array.isArray(v))return v.forEach(walk); if(!v||typeof v!=='object')return; if(Array.isArray(v.results)) rows.push(...v.results); Object.values(v).forEach(walk);}; walk(payload);
+          const summary=rows.find(r=>'active' in r)||{};
+          console.log(`active=${summary.active}; HK=${summary.hk}; TW=${summary.tw}; CN=${summary.cn}; HK-fallback=${summary.hk_fallback_available}; no-Chinese=${summary.no_chinese}`);
+          for(const r of rows.filter(r=>'english_title' in r)) console.log(`MISSING_HK | ${r.id} | ${r.english_title} | ${r.status} | TW=${r.tw||'-'} | CN=${r.cn||'-'} | sources=${r.tw_source||'-'}/${r.cn_source||'-'}`);
+          if(Number(summary.active||0)<67) throw new Error('active catalog regressed');
+          NODE
