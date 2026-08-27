@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "series-hub",
-  "main": "./src/phase4-worker.js",
+  "main": "./src/phase5e-worker.js",
   "compatibility_date": "2026-08-23",
   "compatibility_flags": [
     "nodejs_compat"
@@ -30,7 +30,7 @@
     "crons": [
       "7 * * * *",
       "17 */6 * * *",
-      "47 */6 * * *"
+      "47 * * * *"
     ]
   },
   "d1_databases": [
