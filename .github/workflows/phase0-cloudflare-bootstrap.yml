@@ -148,16 +148,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          HEALTH_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/health")"
-          SHOWS_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/shows")"
+          TMP_DIR="$(mktemp -d)"
+          trap 'rm -rf "${TMP_DIR}"' EXIT
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/health" -o "${TMP_DIR}/health.json"
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/shows" -o "${TMP_DIR}/shows.json"
 
-          HEALTH_JSON="${HEALTH_JSON}" SHOWS_JSON="${SHOWS_JSON}" node -e '
-            const health = JSON.parse(process.env.HEALTH_JSON);
-            const shows = JSON.parse(process.env.SHOWS_JSON);
-            if (health.ok !== true || health.databaseConfigured !== true || health.databaseReachable !== true) process.exit(1);
-            if (!["2-tvmaze-schedule", "3-regional-titles"].includes(health.phase)) process.exit(1);
-            if (!Array.isArray(shows.data)) process.exit(1);
-          '
+          node - "${TMP_DIR}" <<'NODE'
+          const fs = require('fs');
+          const dir = process.argv[2];
+          const health = JSON.parse(fs.readFileSync(`${dir}/health.json`, 'utf8'));
+          const shows = JSON.parse(fs.readFileSync(`${dir}/shows.json`, 'utf8'));
+          if (health.ok !== true || health.databaseConfigured !== true || health.databaseReachable !== true) process.exit(1);
+          if (!["2-tvmaze-schedule", "3-regional-titles"].includes(health.phase)) process.exit(1);
+          if (!Array.isArray(shows.data)) process.exit(1);
+          NODE
 
       - name: Publish validation summary
         env:
@@ -323,21 +327,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          HEALTH_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/health")"
-          SHOWS_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/shows?limit=60")"
-          SCHEDULE_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/schedule?days=14")"
-          TMDB_SYNC_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/sync-status?source=tmdb")"
-          TVMAZE_SYNC_JSON="$(curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/sync-status?source=tvmaze")"
+          TMP_DIR="$(mktemp -d)"
+          trap 'rm -rf "${TMP_DIR}"' EXIT
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/health" -o "${TMP_DIR}/health.json"
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/shows?limit=60" -o "${TMP_DIR}/shows.json"
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/schedule?days=14" -o "${TMP_DIR}/schedule.json"
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/sync-status?source=tmdb" -o "${TMP_DIR}/tmdb.json"
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 "${PRODUCTION_URL}/api/sync-status?source=tvmaze" -o "${TMP_DIR}/tvmaze.json"
 
-          HEALTH_JSON="${HEALTH_JSON}" SHOWS_JSON="${SHOWS_JSON}" SCHEDULE_JSON="${SCHEDULE_JSON}" TMDB_SYNC_JSON="${TMDB_SYNC_JSON}" TVMAZE_SYNC_JSON="${TVMAZE_SYNC_JSON}" node -e '
-            const health = JSON.parse(process.env.HEALTH_JSON);
-            const shows = JSON.parse(process.env.SHOWS_JSON);
-            const schedule = JSON.parse(process.env.SCHEDULE_JSON);
-            const tmdb = JSON.parse(process.env.TMDB_SYNC_JSON);
-            const tvmaze = JSON.parse(process.env.TVMAZE_SYNC_JSON);
-            if (health.ok !== true || health.phase !== "3-regional-titles" || health.tmdbConfigured !== true || health.tvmazeEnabled !== true) process.exit(1);
-            if (!Array.isArray(shows.data) || shows.meta?.phase !== "3-regional-titles" || shows.data.length < 1) process.exit(1);
-            if (!Array.isArray(schedule.data) || schedule.meta?.source !== "TVmaze") process.exit(1);
-            if (!tmdb.data || !["success", "success_with_warnings"].includes(tmdb.data.status)) process.exit(1);
-            if (!tvmaze.data || !["success", "success_with_warnings"].includes(tvmaze.data.status) || Number(tvmaze.data.records_changed || 0) < 1) process.exit(1);
-          '
+          node - "${TMP_DIR}" <<'NODE'
+          const fs = require('fs');
+          const dir = process.argv[2];
+          const read = (name) => JSON.parse(fs.readFileSync(`${dir}/${name}.json`, 'utf8'));
+          const health = read('health');
+          const shows = read('shows');
+          const schedule = read('schedule');
+          const tmdb = read('tmdb');
+          const tvmaze = read('tvmaze');
+          if (health.ok !== true || health.phase !== "3-regional-titles" || health.tmdbConfigured !== true || health.tvmazeEnabled !== true) process.exit(1);
+          if (!Array.isArray(shows.data) || shows.meta?.phase !== "3-regional-titles" || shows.data.length < 1) process.exit(1);
+          if (!Array.isArray(schedule.data) || schedule.meta?.source !== "TVmaze") process.exit(1);
+          if (!tmdb.data || !["success", "success_with_warnings"].includes(tmdb.data.status)) process.exit(1);
+          if (!tvmaze.data || !["success", "success_with_warnings"].includes(tvmaze.data.status) || Number(tvmaze.data.records_changed || 0) < 1) process.exit(1);
+          NODE
