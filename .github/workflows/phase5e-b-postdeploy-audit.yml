@@ -1,5 +1,4 @@
-# Audit-only workflow. Do not merge.
-name: Audit Phase 5E-B rotation acceptance
+name: Audit Phase 5E-B post-deploy baseline
 
 on:
   pull_request:
@@ -14,7 +13,7 @@ jobs:
   audit:
     if: github.event.pull_request.head.ref == 'audit-phase5e-b-postdeploy'
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 6
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
@@ -26,82 +25,30 @@ jobs:
       - name: Checkout audit branch
         uses: actions/checkout@v4
 
-      - name: Read Phase 5E-B production state
+      - name: Verify Phase 5E-C starting baseline
         shell: bash
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}"
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
 
-          SUMMARY_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT (SELECT COUNT(*) FROM shows WHERE status IN ('airing','upcoming','planned')) AS active_shows, (SELECT COUNT(*) FROM shows WHERE status IN ('airing','upcoming','planned') AND tvmaze_id IS NOT NULL) AS active_tvmaze_mapped, (SELECT COUNT(*) FROM shows WHERE status IN ('airing','upcoming','planned') AND datetime(created_at) > datetime('2026-08-26 03:06:14')) AS active_created_since_5eb, (SELECT COUNT(*) FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id=s.id WHERE s.status IN ('airing','upcoming','planned') AND p.title_zh_hk IS NOT NULL AND p.title_zh_hk<>'') AS hk_covered, (SELECT COUNT(*) FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id=s.id WHERE s.status IN ('airing','upcoming','planned') AND p.title_zh_tw IS NOT NULL AND p.title_zh_tw<>'') AS tw_covered, (SELECT COUNT(*) FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id=s.id WHERE s.status IN ('airing','upcoming','planned') AND p.title_zh_cn IS NOT NULL AND p.title_zh_cn<>'') AS cn_covered, (SELECT COUNT(*) FROM episodes e JOIN seasons se ON se.id=e.season_id JOIN shows s ON s.id=se.show_id WHERE s.status IN ('airing','upcoming','planned') AND se.season_number>0 AND e.episode_number>0) AS active_numbered_episodes, (SELECT COUNT(*) FROM episodes e JOIN seasons se ON se.id=e.season_id JOIN shows s ON s.id=se.show_id WHERE s.status IN ('airing','upcoming','planned') AND se.season_number>0 AND e.episode_number>0 AND e.air_timestamp IS NOT NULL AND e.air_timestamp<>'') AS active_timestamped_episodes, (SELECT COUNT(*) FROM push_subscriptions WHERE disabled_at IS NULL) AS active_push_subscriptions, (SELECT COUNT(*) FROM push_subscription_shows pss JOIN push_subscriptions ps ON ps.id=pss.subscription_id WHERE ps.disabled_at IS NULL) AS active_push_mappings;" )"
+          STATE_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT (SELECT COUNT(*) FROM shows WHERE status IN ('airing','upcoming','planned')) AS active_shows, (SELECT COUNT(*) FROM shows WHERE status IN ('airing','upcoming','planned') AND tvmaze_id IS NOT NULL) AS active_tvmaze_mapped, (SELECT COUNT(*) FROM shows WHERE status IN ('airing','upcoming','planned') AND tvmaze_id IS NULL) AS active_tvmaze_unmapped, (SELECT COUNT(*) FROM shows WHERE status IN ('airing','upcoming','planned') AND tvmaze_synced_at IS NULL) AS never_tvmaze_synced, (SELECT COUNT(*) FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id=s.id WHERE s.status IN ('airing','upcoming','planned') AND p.title_zh_hk IS NOT NULL AND p.title_zh_hk<>'') AS hk_covered, (SELECT COUNT(*) FROM episodes e JOIN seasons se ON se.id=e.season_id JOIN shows s ON s.id=se.show_id WHERE s.status IN ('airing','upcoming','planned') AND se.season_number>0 AND e.episode_number>0) AS active_numbered_episodes, (SELECT COUNT(*) FROM episodes e JOIN seasons se ON se.id=e.season_id JOIN shows s ON s.id=se.show_id WHERE s.status IN ('airing','upcoming','planned') AND se.season_number>0 AND e.episode_number>0 AND e.air_timestamp IS NOT NULL AND e.air_timestamp<>'') AS active_timestamped_episodes, ROUND(MAX((julianday('now')-julianday(tvmaze_synced_at))*24),2) AS max_tvmaze_age_hours, ROUND(AVG((julianday('now')-julianday(tvmaze_synced_at))*24),2) AS avg_tvmaze_age_hours FROM shows WHERE status IN ('airing','upcoming','planned') AND tvmaze_synced_at IS NOT NULL; SELECT src.source_key, sr.status, sr.records_seen, sr.records_changed, ROUND((julianday('now')-julianday(sr.started_at))*24,2) AS hours_ago FROM sources src LEFT JOIN sync_runs sr ON sr.id=(SELECT id FROM sync_runs x WHERE x.source_id=src.id ORDER BY x.started_at DESC,x.id DESC LIMIT 1) WHERE src.source_key IN ('tmdb','tvmaze') ORDER BY src.source_key;" )"
 
-          RUNS_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT sr.id, sr.started_at, sr.finished_at, sr.status, sr.records_seen, sr.records_changed FROM sync_runs sr JOIN sources src ON src.id=sr.source_id WHERE src.source_key='tmdb' AND datetime(sr.started_at) >= datetime('2026-08-26 03:06:14') ORDER BY datetime(sr.started_at) DESC, sr.id DESC LIMIT 8;" )"
-
-          NEW_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT s.id, s.english_title, s.status, s.created_at, s.updated_at, s.tvmaze_id, COALESCE(p.title_zh_hk,'') AS title_zh_hk FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id=s.id WHERE s.status IN ('airing','upcoming','planned') AND datetime(s.created_at) > datetime('2026-08-26 03:06:14') ORDER BY datetime(s.created_at) ASC, s.id ASC LIMIT 30;" )"
-
-          MISSING_HK_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT s.id, s.english_title, s.status FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id=s.id WHERE s.status IN ('airing','upcoming','planned') AND (p.title_zh_hk IS NULL OR p.title_zh_hk='') ORDER BY s.english_title LIMIT 20;" )"
-
-          HEALTH_JSON="$(curl --fail --silent --show-error --retry 3 --retry-all-errors "${PRODUCTION_URL}/health")"
-
-          SUMMARY_JSON="${SUMMARY_JSON}" RUNS_JSON="${RUNS_JSON}" NEW_JSON="${NEW_JSON}" MISSING_HK_JSON="${MISSING_HK_JSON}" HEALTH_JSON="${HEALTH_JSON}" node - <<'NODE'
-          function rows(payload) {
-            const out = [];
-            const walk = (value) => {
-              if (Array.isArray(value)) return value.forEach(walk);
-              if (!value || typeof value !== 'object') return;
-              if (Array.isArray(value.results)) out.push(...value.results);
-              Object.values(value).forEach(walk);
-            };
-            walk(JSON.parse(payload));
-            return out;
-          }
-
-          const summaryRows = rows(process.env.SUMMARY_JSON);
-          const summary = summaryRows.find((row) => Object.prototype.hasOwnProperty.call(row, 'active_shows')) || {};
-          const runs = rows(process.env.RUNS_JSON).filter((row) => Object.prototype.hasOwnProperty.call(row, 'started_at'));
-          const newShows = rows(process.env.NEW_JSON).filter((row) => Object.prototype.hasOwnProperty.call(row, 'english_title'));
-          const missingHk = rows(process.env.MISSING_HK_JSON).filter((row) => Object.prototype.hasOwnProperty.call(row, 'english_title'));
-          const health = JSON.parse(process.env.HEALTH_JSON);
-
-          console.log(`active shows: ${summary.active_shows}`);
-          console.log(`active TVmaze mapped: ${summary.active_tvmaze_mapped}`);
-          console.log(`active created since Phase 5E-B deploy: ${summary.active_created_since_5eb}`);
-          console.log(`HK/TW/CN coverage: ${summary.hk_covered}/${summary.tw_covered}/${summary.cn_covered}`);
-          console.log(`numbered/timestamped episodes: ${summary.active_numbered_episodes}/${summary.active_timestamped_episodes}`);
-          console.log(`Push subscriptions/mappings: ${summary.active_push_subscriptions}/${summary.active_push_mappings}`);
-          console.log(`health: ${health.ok === true ? 'ok' : 'failed'}`);
-          console.log('TMDB runs since deploy:');
-          for (const run of runs) console.log(`- ${run.started_at} | ${run.status} | seen=${run.records_seen} changed=${run.records_changed}`);
-          console.log('New active shows since deploy:');
-          if (!newShows.length) console.log('- none');
-          for (const show of newShows) console.log(`- ${show.english_title} | ${show.status} | created=${show.created_at} | tvmaze=${show.tvmaze_id || 'none'} | hk=${show.title_zh_hk || 'missing'}`);
-          console.log('Missing HK preferred titles:');
-          if (!missingHk.length) console.log('- none');
-          for (const show of missingHk) console.log(`- ${show.english_title} | ${show.status}`);
-
-          if (health.ok !== true) throw new Error('Production health failed');
-          if (Number(summary.active_shows || 0) < 34) throw new Error('Active catalog regressed below Phase 5E-A baseline');
-          if (Number(summary.active_tvmaze_mapped || 0) !== Number(summary.active_shows || 0)) throw new Error('Active TVmaze mapping is no longer complete');
-          if (Number(summary.active_timestamped_episodes || 0) !== Number(summary.active_numbered_episodes || 0)) throw new Error('Episode timestamp coverage regressed');
-          if (!runs.some((run) => ['success','success_with_warnings'].includes(run.status))) throw new Error('No healthy TMDB sync found since Phase 5E-B deploy');
-
-          const scheduledSlots = runs.filter((run) => {
-            const d = new Date(String(run.started_at).replace(' ', 'T') + 'Z');
-            return Number.isFinite(d.getTime()) && [6,12,18].includes(d.getUTCHours());
-          });
-          if (scheduledSlots.length < 1) throw new Error('No later rotated six-hour TMDB slot has completed yet');
-
-          const changedCounts = new Set(scheduledSlots.map((run) => Number(run.records_changed || 0)));
-          const breadthSignal = Number(summary.active_created_since_5eb || 0) > 0 || changedCounts.size > 1 || scheduledSlots.some((run) => Number(run.records_changed || 0) !== 26);
-          if (!breadthSignal) throw new Error('Later rotated slots completed but no measurable breadth signal was observed');
+          STATE_JSON="${STATE_JSON}" node - <<'NODE'
+          const data = JSON.parse(process.env.STATE_JSON);
+          const found=[]; const walk=v=>{if(Array.isArray(v))return v.forEach(walk); if(!v||typeof v!=='object')return; found.push(v); Object.values(v).forEach(walk);}; walk(data);
+          const base=found.find(x=>'active_shows' in x)||{}; const sync=found.filter(x=>'source_key' in x);
+          console.log(`active shows: ${base.active_shows}`);
+          console.log(`mapped/unmapped: ${base.active_tvmaze_mapped}/${base.active_tvmaze_unmapped}`);
+          console.log(`never TVmaze synced: ${base.never_tvmaze_synced}`);
+          console.log(`TVmaze age max/avg hours: ${base.max_tvmaze_age_hours}/${base.avg_tvmaze_age_hours}`);
+          console.log(`HK covered: ${base.hk_covered}`);
+          console.log(`numbered/timestamped: ${base.active_numbered_episodes}/${base.active_timestamped_episodes}`);
+          for(const row of sync) console.log(`${row.source_key}: ${row.status}, seen=${row.records_seen}, changed=${row.records_changed}, age=${row.hours_ago}h`);
+          if(Number(base.active_shows||0)<67) throw new Error('Catalog regressed');
+          if(Number(base.active_timestamped_episodes||0)!==Number(base.active_numbered_episodes||0)) throw new Error('Timestamp coverage regressed');
+          if(!sync.some(x=>x.source_key==='tvmaze' && ['success','success_with_warnings'].includes(x.status))) throw new Error('TVmaze latest sync unhealthy');
           NODE
 
-      - name: Publish audit checkpoint
-        shell: bash
-        run: |
-          {
-            echo "## Phase 5E-B rotation acceptance audit"
-            echo
-            echo "Read-only production audit completed successfully."
-            echo "A later six-hour TMDB slot has completed after deployment, the catalog did not regress, TVmaze mapping and episode timestamp coverage remain complete, and production shows a measurable rotated-slice breadth signal."
-          } >> "${GITHUB_STEP_SUMMARY}"
+          HEALTH="$(curl --fail --silent --show-error --retry 3 --retry-all-errors "${PRODUCTION_URL}/health")"
+          HEALTH="${HEALTH}" node -e 'const h=JSON.parse(process.env.HEALTH); if(h.ok!==true) process.exit(1);'
