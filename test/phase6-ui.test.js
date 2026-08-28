@@ -2,12 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [html, script, navigation, css, worker, wrangler] = await Promise.all([
+const [html, script, navigation, css, worker, details, wrangler] = await Promise.all([
   readFile(new URL("../public/show.html", import.meta.url), "utf8"),
   readFile(new URL("../public/show-details.js", import.meta.url), "utf8"),
   readFile(new URL("../public/phase6-ui.js", import.meta.url), "utf8"),
   readFile(new URL("../public/phase6.css", import.meta.url), "utf8"),
   readFile(new URL("../src/phase6-worker.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/phase6-details.js", import.meta.url), "utf8"),
   readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8")
 ]);
 
@@ -20,11 +21,13 @@ test("Phase 6A detail page contains the required product surfaces", () => {
   assert.match(html, /src="\/show-details\.js"/);
 });
 
-test("Phase 6A detail UI keeps TMDB credentials server-side and lazy-loads trailer playback", () => {
+test("Phase 6A detail UI keeps TMDB credentials server-side and lazy-loads privacy-enhanced trailer playback", () => {
   assert.doesNotMatch(script, /TMDB_API_TOKEN/);
-  assert.match(script, /youtube-nocookie/);
+  assert.match(details, /youtube-nocookie/);
+  assert.match(details, /TMDB_API_TOKEN/);
   assert.match(script, /detail-trailer-play/);
   assert.match(script, /createElement\("iframe"\)/);
+  assert.match(script, /frame\.src = video\.embed_url/);
 });
 
 test("Phase 6A catalog navigation uses stable show ids without mutating card contents", () => {
