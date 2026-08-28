@@ -50,3 +50,11 @@ Real-device acceptance must cover at least:
 **Non-US expansion remains blocked until Phase 5E-D4 is explicitly accepted.**
 
 Passing backend sync checks alone is not sufficient. Phase 6 starts only after the current US-series experience is both operationally healthy and sufficiently polished for routine mobile use.
+
+## Acceptance status
+
+**Accepted on 2026-08-28 (Asia/Hong_Kong).** The final production real-device review was explicitly confirmed as `驗收正常` after the content-first landing flow, grouped multi-episode schedule cards, Airing next-schedule display, and the 390 px mobile filter regression fix were deployed and verified.
+
+The Phase 6 gate above is therefore satisfied. Phase 6 non-US expansion is no longer blocked by Phase 5E-D4 acceptance.
+
+See `docs/PHASE5E_D_ACCEPTANCE.md` for the production evidence and final closeout record.
