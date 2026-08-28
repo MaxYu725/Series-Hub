@@ -37,6 +37,8 @@ function boot() {
   const emptyState = document.querySelector("#empty-state");
   const emptyTitle = document.querySelector("#empty-title");
   const emptyCopy = document.querySelector("#empty-copy");
+  const emptyActions = document.querySelector("#empty-actions");
+  const retryViewButton = document.querySelector("#retry-view-button");
   const searchInput = document.querySelector("#search-input");
   const regionSelect = document.querySelector("#title-region-select");
   if (!filters || !weekButton || !scheduleList || !showCount || !viewContext || !emptyState || !searchInput || !regionSelect) return;
@@ -93,6 +95,8 @@ function boot() {
       emptyTitle.textContent = snapshot.emptyTitle;
       emptyCopy.textContent = snapshot.emptyCopy;
     }
+    if (emptyActions) emptyActions.hidden = true;
+    if (retryViewButton) retryViewButton.hidden = true;
     snapshot = null;
   }
 
@@ -113,12 +117,18 @@ function boot() {
       days: String(Math.min(days + 2, 14)),
       region: regionSelect.value || "HK"
     });
-    const response = await fetch(`/api/schedule?${params}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Schedule ${response.status}`);
-    const payload = await response.json();
-    if (request !== requestId || !active) return null;
-    return scheduleWindow(payload.data, today, days, browserTimeZone)
-      .filter((episode) => matchesScheduleQuery(episode, searchInput.value.trim()));
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(`/api/schedule?${params}`, { cache: "no-store", signal: controller.signal });
+      if (!response.ok) throw new Error(`Schedule ${response.status}`);
+      const payload = await response.json();
+      if (request !== requestId || !active) return null;
+      return scheduleWindow(payload.data, today, days, browserTimeZone)
+        .filter((episode) => matchesScheduleQuery(episode, searchInput.value.trim()));
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }
 
   function applyRows(episodes) {
@@ -145,6 +155,7 @@ function boot() {
 
     showCount.textContent = `${visibleTotal} 集`;
     emptyState.hidden = visibleTotal !== 0;
+    emptyState.removeAttribute("data-state");
     if (visibleTotal === 0) {
       emptyTitle.textContent = trackedIds.length ? "這個時段沒有已追蹤劇集" : "尚未追蹤任何劇集";
       emptyCopy.textContent = trackedIds.length
@@ -160,6 +171,8 @@ function boot() {
     takeSnapshot();
     const view = activeView();
     viewContext.textContent = `${snapshot.context} · 只顯示這個瀏覽器已追蹤的劇集。`;
+    if (emptyActions) emptyActions.hidden = true;
+    if (retryViewButton) retryViewButton.hidden = true;
     try {
       const episodes = await fetchCurrentSchedule(view, request);
       if (!episodes || request !== requestId || !active) return;
@@ -173,8 +186,13 @@ function boot() {
       console.error(error);
       if (request !== requestId || !active) return;
       emptyState.hidden = false;
+      emptyState.dataset.state = "error";
       emptyTitle.textContent = "追蹤排程暫時無法讀取";
-      emptyCopy.textContent = "一般今日／本週排程仍可使用；關閉「只看追蹤」即可返回。";
+      emptyCopy.textContent = error?.name === "AbortError"
+        ? "連線等候超過 12 秒。可立即重試，或關閉「只看追蹤」返回一般排程。"
+        : "一般今日／本週排程仍可使用；可立即重試，或關閉「只看追蹤」返回。";
+      if (emptyActions) emptyActions.hidden = false;
+      if (retryViewButton) retryViewButton.hidden = false;
     }
   }
 
@@ -209,6 +227,10 @@ function boot() {
 
   regionSelect.addEventListener("change", () => {
     if (active) window.setTimeout(applyTrackedFilter, 0);
+  });
+
+  window.addEventListener("series-hub:retry", () => {
+    if (active && isScheduleView()) applyTrackedFilter();
   });
 
   window.addEventListener("storage", (event) => {
