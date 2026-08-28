@@ -1,0 +1,56 @@
+name: Phase 5E-D2 lifecycle tie audit
+
+on:
+  push:
+    branches:
+      - audit-phase5e-d2-lifecycle-consistency
+    paths:
+      - .github/workflows/phase5e-d2-tie-audit.yml
+
+permissions:
+  contents: read
+
+env:
+  WRANGLER_VERSION: "4.125.0"
+  PRODUCTION_DB_NAME: "series-hub-db"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+    steps:
+      - name: Inspect same-date decision or production ties
+        shell: bash
+        run: |
+          set -euo pipefail
+          SQL="WITH ranked AS (
+            SELECT le.id, le.show_id, s.english_title, COALESCE(le.season_number,-1) AS season_key,
+              le.event_type, le.source_published_at,
+              CASE le.event_type
+                WHEN 'ended' THEN 'decision' WHEN 'cancelled' THEN 'decision' WHEN 'final_season' THEN 'decision' WHEN 'renewed' THEN 'decision' WHEN 'ordered' THEN 'decision'
+                WHEN 'production_paused' THEN 'production' WHEN 'post_production' THEN 'production' WHEN 'wrapped' THEN 'production' WHEN 'filming' THEN 'production' WHEN 'pre_production' THEN 'production'
+                ELSE NULL END AS dimension
+            FROM lifecycle_events le JOIN shows s ON s.id=le.show_id WHERE le.is_retracted=0
+          ), keys AS (
+            SELECT show_id, season_key, dimension, source_published_at
+            FROM ranked WHERE dimension IS NOT NULL AND source_published_at IS NOT NULL
+            GROUP BY show_id, season_key, dimension, source_published_at HAVING COUNT(*)>1
+          )
+          SELECT r.english_title, r.season_key, r.dimension, r.source_published_at, GROUP_CONCAT(r.event_type, ',') AS event_types, COUNT(*) AS events
+          FROM ranked r JOIN keys k ON k.show_id=r.show_id AND k.season_key=r.season_key AND k.dimension=r.dimension AND k.source_published_at=r.source_published_at
+          GROUP BY r.show_id, r.season_key, r.dimension, r.source_published_at
+          ORDER BY r.english_title, r.season_key;"
+          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "${SQL}" >/tmp/ties.json
+          JSON="$(cat /tmp/ties.json)" node - <<'NODE'
+          const data=JSON.parse(process.env.JSON); const rows=[];
+          const walk=v=>{if(Array.isArray(v)){for(const x of v)walk(x);return;} if(!v||typeof v!=='object')return; if('event_types' in v)rows.push(v); else Object.values(v).forEach(walk);}; walk(data);
+          console.log(JSON.stringify(rows));
+          for (const row of rows) {
+            const types=String(row.event_types||'').split(',');
+            const contradictory = types.includes('cancelled') && (types.includes('renewed') || types.includes('ordered'));
+            if (contradictory) throw new Error(`same-date contradictory lifecycle decisions for ${row.english_title}`);
+          }
+          NODE
