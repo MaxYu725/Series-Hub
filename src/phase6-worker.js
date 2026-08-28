@@ -51,10 +51,65 @@ async function localizeDetailBody(env, body, region) {
   return body;
 }
 
+async function listSeasonEpisodes(env, showId, seasonNumber) {
+  if (!env.DB) {
+    return json({ data: [], meta: { count: 0, showId, seasonNumber, source: "TVmaze", databaseConfigured: false } });
+  }
+  if (!Number.isSafeInteger(showId) || showId <= 0 || !Number.isSafeInteger(seasonNumber) || seasonNumber <= 0) {
+    return json({ ok: false, error: "invalid_season_episode_request" }, { status: 400 });
+  }
+
+  try {
+    const result = await env.DB.prepare(
+      `SELECT
+        e.id,
+        e.tvmaze_id,
+        se.season_number,
+        e.episode_number,
+        e.name,
+        e.overview,
+        e.air_date,
+        e.air_time,
+        e.air_timestamp,
+        e.runtime_minutes,
+        e.image_url,
+        e.source_url
+       FROM episodes e
+       JOIN seasons se ON se.id = e.season_id
+       WHERE se.show_id = ?1 AND se.season_number = ?2
+       ORDER BY
+         CASE WHEN e.episode_number IS NULL THEN 1 ELSE 0 END,
+         e.episode_number ASC,
+         COALESCE(e.air_timestamp, e.air_date, '9999-12-31') ASC
+       LIMIT 200`
+    ).bind(showId, seasonNumber).all();
+
+    const rows = result.results || [];
+    return json({
+      data: rows,
+      meta: {
+        count: rows.length,
+        showId,
+        seasonNumber,
+        source: "TVmaze",
+        attribution_url: "https://www.tvmaze.com",
+        phase: "6c-season-episodes"
+      }
+    });
+  } catch (error) {
+    return json({
+      ok: false,
+      error: "season_episodes_query_failed",
+      detail: error instanceof Error ? error.message : String(error)
+    }, { status: 503 });
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const detailsMatch = request.method === "GET" && url.pathname.match(/^\/api\/shows\/(\d+)\/details$/);
+    const seasonEpisodesMatch = request.method === "GET" && url.pathname.match(/^\/api\/shows\/(\d+)\/seasons\/(\d+)\/episodes$/);
 
     if (detailsMatch) {
       try {
@@ -69,6 +124,10 @@ export default {
           detail: error instanceof Error ? error.message : String(error)
         }, { status: 503 });
       }
+    }
+
+    if (seasonEpisodesMatch) {
+      return listSeasonEpisodes(env, Number(seasonEpisodesMatch[1]), Number(seasonEpisodesMatch[2]));
     }
 
     return phase5eWorker.fetch(request, env, ctx);
