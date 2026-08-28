@@ -45,6 +45,41 @@ test("source freshness degrades after missed six-hour sync cycles", () => {
   assert.equal(classifySyncSource({ status: "failed", finished_at: "2026-08-28 11:55:00" }, now).state, "error");
 });
 
+test("an active sync reports in-progress while freshness comes from the latest completed run", () => {
+  const now = Date.parse("2026-08-28T12:00:00Z");
+  const running = classifySyncSource({
+    current_status: "running",
+    current_started_at: "2026-08-28 11:58:00",
+    status: "success",
+    finished_at: "2026-08-28 06:30:00",
+    records_seen: 120,
+    records_changed: 25
+  }, now);
+
+  assert.equal(running.state, "ok");
+  assert.equal(running.inProgress, true);
+  assert.equal(running.currentStatus, "running");
+  assert.equal(running.finishedAt, "2026-08-28 06:30:00");
+  assert.equal(running.ageMinutes, 330);
+
+  const firstEverRun = classifySyncSource({
+    current_status: "running",
+    current_started_at: "2026-08-28 11:58:00",
+    status: null,
+    finished_at: null
+  }, now);
+  assert.equal(firstEverRun.state, "warn");
+  assert.equal(firstEverRun.inProgress, true);
+});
+
+test("operational query separates the newest run from the newest completed run", () => {
+  assert.match(ops, /WITH latest_any AS/);
+  assert.match(ops, /latest_finished AS/);
+  assert.match(ops, /WHERE finished_at IS NOT NULL/);
+  assert.match(ops, /current_run\.status AS current_status/);
+  assert.match(ops, /finished_run\.finished_at/);
+});
+
 test("Push readiness is assessed independently from TMDB and TVmaze", () => {
   const env = { PUSH_SUBSCRIPTIONS_ENABLED: "true", EPISODE_REMINDERS_ENABLED: "true", VAPID_PRIVATE_KEY: "configured" };
   assert.equal(classifyPushState({ public_key_configured: 1, active_subscriptions: 1, active_show_mappings: 2 }, env).state, "ok");
@@ -69,4 +104,6 @@ test("homepage renders TMDB, TVmaze and Push as separate operational indicators"
   assert.match(opsUi, /makePill\("TMDB"/);
   assert.match(opsUi, /makePill\("TVmaze"/);
   assert.match(opsUi, /makePill\("Push"/);
+  assert.match(opsUi, /同步中/);
+  assert.match(opsUi, /上次完成/);
 });
