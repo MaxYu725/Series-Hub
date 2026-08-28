@@ -34,8 +34,8 @@ jobs:
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
           curl --fail --silent --show-error --retry 3 "${PRODUCTION_URL}/health" | jq -e '.ok == true and .databaseReachable == true' >/dev/null
           curl --fail --silent --show-error --retry 3 "${PRODUCTION_URL}/api/lifecycle" >/tmp/lifecycle.json
-          jq -e '.ok == true and (.data | type == "array")' /tmp/lifecycle.json >/dev/null
-          echo "Lifecycle API projected shows: $(jq '.data | length' /tmp/lifecycle.json)"
+          jq -e '(.data | type == "object") and (.meta.showCount | type == "number") and (.meta.eventCount | type == "number")' /tmp/lifecycle.json >/dev/null
+          echo "Lifecycle API projected shows: $(jq '.meta.showCount' /tmp/lifecycle.json); events: $(jq '.meta.eventCount' /tmp/lifecycle.json)"
 
       - name: Audit lifecycle storage integrity
         shell: bash
@@ -98,8 +98,8 @@ jobs:
             HAVING COUNT(*) > 1
           )
           SELECT COUNT(*) AS same_timestamp_dimension_ties FROM ties;"
-          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "${SQL}" >/tmp/ties.json
-          JSON="$(cat /tmp/ties.json)" node - <<'NODE'
+          JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "${SQL}")"
+          JSON="${JSON}" node - <<'NODE'
           const data=JSON.parse(process.env.JSON); let row;
           const walk=v=>{if(Array.isArray(v))return v.forEach(walk); if(!v||typeof v!=='object')return; if('same_timestamp_dimension_ties' in v)row=v; Object.values(v).forEach(walk);}; walk(data);
           console.log(`same_timestamp_dimension_ties=${Number(row?.same_timestamp_dimension_ties||0)}`);
