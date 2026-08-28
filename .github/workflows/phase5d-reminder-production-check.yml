@@ -1,11 +1,7 @@
 name: Phase 5D-C production reminder verification
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/phase5d-reminder-production-check.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
