@@ -5,7 +5,7 @@ on:
     branches:
       - audit-phase5e-d4-schedule-ux-production
     paths:
-      - scripts/phase5e-d4-schedule-ux-audit.mjs
+      - scripts/phase5e-d4-schedule-ux-audit-v2.mjs
       - .github/workflows/phase5e-d4-schedule-ux-audit.yml
   workflow_dispatch:
 
@@ -35,13 +35,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/phase5e-d4-schedule-ux-audit.mjs
+          node scripts/phase5e-d4-schedule-ux-audit-v2.mjs
 
       - name: Upload visual evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase5e-d4-schedule-ux-screenshots
+          name: phase5e-d4-schedule-ux-screenshots-v2
           path: d4-schedule-ux-screenshots
           if-no-files-found: warn
           retention-days: 7
@@ -54,6 +54,7 @@ jobs:
             echo "## Phase 5E-D4 schedule UX production audit"
             echo
             echo "- content-first landing flow: passed"
+            echo "- Today/Week controls remain visible on 390px phone: passed"
             echo "- same-show daily episode grouping: passed"
             echo "- multi-episode batch labeling: passed"
             echo "- Airing next-schedule visibility: passed"
