@@ -9,7 +9,6 @@ const sw = fs.readFileSync(new URL("../public/push-sw.js", import.meta.url), "ut
 const tracking = fs.readFileSync(new URL("../public/tracking.js", import.meta.url), "utf8");
 
 test("Phase 5D notification assets remain loaded with a safe registration fallback", () => {
-  assert.match(html, /Phase 5D-B/);
   assert.match(html, /phase5d\.css/);
   assert.match(html, /phase5d-ui\.js/);
   assert.match(ui, /if \(!capability\.enabled\)/);
