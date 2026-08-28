@@ -69,6 +69,12 @@ test("mobile controls have visible keyboard focus and minimum touch height", () 
   assert.match(ux, /prefers-reduced-motion: reduce/);
 });
 
+test("content-first mobile catalog tools keep the horizontal filter strip inside its viewport", () => {
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.content-panel > \.catalog-tools \{[\s\S]*?align-items:\s*stretch/);
+  assert.match(css, /\.content-panel > \.catalog-tools \.filters \{[\s\S]*?width:\s*100%[\s\S]*?max-width:\s*100%[\s\S]*?min-width:\s*0/);
+  assert.match(css, /@media \(max-width: 600px\)[\s\S]*?\.filters \{[\s\S]*?margin-inline:\s*0[\s\S]*?padding-inline:\s*0/);
+});
+
 test("Phase 6 remains blocked on explicit real-device UI UX acceptance", () => {
   assert.match(plan, /Non-US expansion remains blocked/);
   assert.match(plan, /360–430 px/);
