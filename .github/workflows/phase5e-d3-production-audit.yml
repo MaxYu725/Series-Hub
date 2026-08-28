@@ -1,0 +1,104 @@
+name: Phase 5E-D3 production acceptance audit
+
+on:
+  push:
+    branches:
+      - audit-phase5e-d3-production
+    paths:
+      - .github/workflows/phase5e-d3-production-audit.yml
+
+permissions:
+  contents: read
+
+env:
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate public source-separated operational status
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API secret is missing"; exit 1; }
+
+          READY=0
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent --show-error "${PRODUCTION_URL}/api/ops-status" -o /tmp/ops.json; then
+              if jq -e '.ok == true and .meta.aggregateOnly == true and .data.tmdb and .data.tvmaze and .data.push' /tmp/ops.json >/dev/null; then
+                READY=1
+                break
+              fi
+            fi
+            echo "Operational status not ready yet (${attempt}/20)"
+            sleep 3
+          done
+          test "${READY}" -eq 1 || { echo "Production operational status did not become ready"; exit 1; }
+
+          node <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/ops.json', 'utf8'));
+          const { tmdb, tvmaze, push, overall } = payload.data;
+          for (const [name, source] of Object.entries({ tmdb, tvmaze })) {
+            if (!['ok', 'warn'].includes(source.state)) throw new Error(`${name} freshness state is ${source.state}`);
+            if (!source.finishedAt) throw new Error(`${name} has no finishedAt`);
+          }
+          if (!['ok', 'warn', 'idle'].includes(push.state)) throw new Error(`Push readiness state is ${push.state}`);
+          if (push.vapidConfigured !== true) throw new Error('Push VAPID readiness is not configured');
+          if (!['ok', 'warn'].includes(overall)) throw new Error(`overall state is ${overall}`);
+
+          const forbidden = new Set(['endpoint', 'p256dh', 'auth', 'manage_token', 'manage_token_hash', 'manageToken']);
+          const walk = value => {
+            if (Array.isArray(value)) return value.forEach(walk);
+            if (!value || typeof value !== 'object') return;
+            for (const [key, child] of Object.entries(value)) {
+              if (forbidden.has(key)) throw new Error(`forbidden sensitive field exposed: ${key}`);
+              walk(child);
+            }
+          };
+          walk(payload);
+          console.log(`TMDB=${tmdb.state} age=${tmdb.ageMinutes}m; TVmaze=${tvmaze.state} age=${tvmaze.ageMinutes}m; Push=${push.state}; overall=${overall}`);
+          NODE
+
+          curl --fail --silent --show-error "${PRODUCTION_URL}/" -o /tmp/index.html
+          grep -q 'id="ops-status"' /tmp/index.html
+          grep -q 'phase5e-ops-ui.js' /tmp/index.html
+
+      - name: Verify historical v1 key is invalid and v2 dry-run is accepted
+        shell: bash
+        run: |
+          set -euo pipefail
+          OLD_KEY="$(node -e 'const crypto=require("crypto"); process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v1:" + process.env.TMDB_API_TOKEN).digest("hex"));')"
+          NEW_KEY="$(node -e 'const crypto=require("crypto"); process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v2:" + process.env.TMDB_API_TOKEN).digest("hex"));')"
+          echo "::add-mask::${OLD_KEY}"
+          echo "::add-mask::${NEW_KEY}"
+
+          OLD_STATUS="$(curl --silent --show-error -o /tmp/v1.json -w '%{http_code}' -X POST -H "x-series-hub-sync-key: ${OLD_KEY}" "${PRODUCTION_URL}/api/internal/episode-reminders")"
+          test "${OLD_STATUS}" = "401" || { echo "Historical v1 authorization unexpectedly returned HTTP ${OLD_STATUS}"; exit 1; }
+          jq -e '.error == "unauthorized"' /tmp/v1.json >/dev/null
+
+          NEW_JSON="$(curl --fail --silent --show-error -X POST -H "x-series-hub-sync-key: ${NEW_KEY}" "${PRODUCTION_URL}/api/internal/episode-reminders")"
+          printf '%s' "${NEW_JSON}" | jq -e '.ok == true and .dryRun == true and .attempted == 0 and .sent == 0' >/dev/null
+          echo "Production rejects v1 and accepts masked v2 for a non-sending dry-run."
+
+      - name: Publish Phase 5E-D3 acceptance result
+        shell: bash
+        run: |
+          {
+            echo "## Phase 5E-D3 production acceptance"
+            echo
+            echo "- TMDB freshness: observable and non-error"
+            echo "- TVmaze freshness: observable and non-error"
+            echo "- Push readiness: observable without subscription credentials"
+            echo "- Homepage source indicators: live"
+            echo "- Historical derived authorization v1: rejected"
+            echo "- Current masked v2 authorization: accepted for non-sending dry-run"
+            echo "- Phase 6 remains blocked pending Phase 5E-D4 real-device UI/UX acceptance"
+          } >> "${GITHUB_STEP_SUMMARY}"
