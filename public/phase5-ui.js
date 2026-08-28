@@ -19,6 +19,8 @@ function boot() {
   const emptyState = document.querySelector("#empty-state");
   const emptyTitle = document.querySelector("#empty-title");
   const emptyCopy = document.querySelector("#empty-copy");
+  const emptyActions = document.querySelector("#empty-actions");
+  const retryViewButton = document.querySelector("#retry-view-button");
   const searchInput = document.querySelector("#search-input");
   const regionSelect = document.querySelector("#title-region-select");
   if (!myButton || !showGrid || !scheduleList || !viewTitle || !searchInput || !regionSelect) return;
@@ -143,6 +145,8 @@ function boot() {
     scheduleList.hidden = true;
     showGrid.replaceChildren();
     emptyState.hidden = true;
+    if (emptyActions) emptyActions.hidden = true;
+    if (retryViewButton) retryViewButton.hidden = true;
     showCount.textContent = "載入中…";
     viewKicker.textContent = "MY SHOWS";
     viewTitle.textContent = "我的劇集";
@@ -194,7 +198,9 @@ function boot() {
       showCount.textContent = "讀取失敗";
       emptyState.hidden = false;
       emptyTitle.textContent = "我的劇集暫時無法讀取";
-      emptyCopy.textContent = "追蹤清單仍保留在這個瀏覽器，稍後重新開啟即可。";
+      emptyCopy.textContent = "追蹤清單仍保留在這個瀏覽器，可立即重新載入。";
+      if (emptyActions) emptyActions.hidden = false;
+      if (retryViewButton) retryViewButton.hidden = false;
     }
   }
 
@@ -240,6 +246,10 @@ function boot() {
     window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(loadMyShows, 250);
   }, true);
+
+  window.addEventListener("series-hub:retry", (event) => {
+    if (event?.detail?.view === "my-shows" && myActive) loadMyShows();
+  });
 
   const observer = new MutationObserver(() => {
     if (!myActive) decorateTrackingButtons();

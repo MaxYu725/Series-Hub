@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/phase5.css">
   <link rel="stylesheet" href="/phase5c.css">
   <link rel="stylesheet" href="/phase5d.css">
+  <link rel="stylesheet" href="/phase5e.css">
 </head>
 <body>
   <header class="site-header">
@@ -23,14 +24,14 @@
         <h1>Series Hub</h1>
       </div>
     </div>
-    <div class="phase-chip phase-4">Phase 5D-B</div>
+    <div class="phase-chip phase-4">Phase 5E-D</div>
   </header>
 
   <main>
     <section class="hero">
       <p class="eyebrow">TMDB CATALOG · TVMAZE SCHEDULE · REGIONAL TITLES · OFFICIAL LIFECYCLE · LOCAL TRACKING</p>
       <h2>今日播甚麼，一眼睇清。</h2>
-      <p class="hero-copy">TMDB 維持劇集、Season 與基礎 lifecycle 主資料；TVmaze 補充逐集日期與時間。中文譯名按香港、台灣或中國大陸偏好顯示；官方續訂及製作狀態另行標示。劇集可加入「我的劇集」，在今日／本週排程使用「只看追蹤」，並設定「追看中、等下一季、已看完、暫停」本機狀態。追蹤與觀看狀態仍以目前瀏覽器為主；只有使用者日後主動開啟背景通知時，才會另外保存該裝置的 Push subscription 及選定劇集 ID，並可完整刪除。</p>
+      <p class="hero-copy">TMDB 維持劇集、Season 與基礎 lifecycle 主資料；TVmaze 補充逐集日期與時間。中文譯名按香港、台灣或中國大陸偏好顯示；官方續訂及製作狀態另行標示。劇集可加入「我的劇集」，在今日／本週排程使用「只看追蹤」，並設定「追看中、等下一季、已看完、暫停」本機狀態。追蹤與觀看狀態仍以目前瀏覽器為主；只有使用者主動開啟通知時，才會另外保存該裝置的 Push subscription 及選定劇集 ID。有可靠逐集播映時間時可在約 24 小時前提醒，並可隨時完整刪除裝置訂閱。</p>
 
       <div class="health-line" aria-live="polite">
         <span class="status-dot" id="status-dot"></span>
@@ -68,7 +69,7 @@
       </nav>
     </section>
 
-    <section class="content-panel">
+    <section class="content-panel" aria-busy="true">
       <div class="panel-heading">
         <div>
           <p class="eyebrow" id="view-kicker">TODAY</p>
@@ -86,6 +87,9 @@
         <div>
           <h4 id="empty-title">暫未有資料</h4>
           <p id="empty-copy">稍後再檢查排程。</p>
+          <div class="empty-actions" id="empty-actions" hidden>
+            <button type="button" class="retry-button" id="retry-view-button">重新載入</button>
+          </div>
         </div>
       </div>
     </section>
@@ -126,5 +130,6 @@
   <script type="module" src="/phase5b-ui.js"></script>
   <script type="module" src="/phase5c-ui.js"></script>
   <script type="module" src="/phase5d-ui.js"></script>
+  <script type="module" src="/phase5e-ui.js"></script>
 </body>
 </html>
