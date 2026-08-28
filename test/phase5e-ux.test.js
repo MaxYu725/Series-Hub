@@ -10,9 +10,11 @@ const pushSettings = fs.readFileSync(new URL("../public/phase5d-ui.js", import.m
 const ux = fs.readFileSync(new URL("../public/phase5e-ui.js", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../public/phase5e.css", import.meta.url), "utf8");
 const plan = fs.readFileSync(new URL("../docs/PHASE5E_D_PLAN.md", import.meta.url), "utf8");
+const acceptance = fs.readFileSync(new URL("../docs/PHASE5E_D_ACCEPTANCE.md", import.meta.url), "utf8");
+const phase6 = fs.readFileSync(new URL("../docs/PHASE6_DETAILS.md", import.meta.url), "utf8");
 
-test("Phase 5E-D visible product baseline is current", () => {
-  assert.match(html, /Phase 5E-D/);
+test("accepted Phase 5E-D visible product baseline remains loaded under Phase 6A", () => {
+  assert.match(html, /Phase 6A/);
   assert.doesNotMatch(html, /Phase 5D-B/);
   assert.match(html, /phase5e\.css/);
   assert.match(html, /phase5e-ui\.js/);
@@ -75,9 +77,10 @@ test("content-first mobile catalog tools keep the horizontal filter strip inside
   assert.match(css, /@media \(max-width: 600px\)[\s\S]*?\.filters \{[\s\S]*?margin-inline:\s*0[\s\S]*?padding-inline:\s*0/);
 });
 
-test("Phase 6 remains blocked on explicit real-device UI UX acceptance", () => {
-  assert.match(plan, /Non-US expansion remains blocked/);
-  assert.match(plan, /360–430 px/);
-  assert.match(plan, /notification deep-link/);
-  assert.match(plan, /Phase 5E-D4 is explicitly accepted/);
+test("Phase 5E-D4 acceptance is preserved while Phase 6 is redefined around show details", () => {
+  assert.match(plan, /Accepted on 2026-08-28/);
+  assert.match(acceptance, /Accepted for production/);
+  assert.match(acceptance, /Phase 5E US-series maturity closeout is complete/);
+  assert.match(phase6, /Phase 6 is no longer the non-US geographic-expansion phase/);
+  assert.match(phase6, /dedicated `\/show\.html\?id=<show_id>` page/);
 });

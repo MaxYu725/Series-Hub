@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="description" content="Series Hub 劇集詳情、圖片、預告片、季與播映資料。">
+  <title>劇集詳情 · Series Hub</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/phase3.css">
+  <link rel="stylesheet" href="/phase4.css">
+  <link rel="stylesheet" href="/phase5.css">
+  <link rel="stylesheet" href="/phase5c.css">
+  <link rel="stylesheet" href="/phase5d.css">
+  <link rel="stylesheet" href="/phase5e.css">
+  <link rel="stylesheet" href="/phase6.css">
+</head>
+<body class="show-detail-page">
+  <header class="site-header detail-site-header">
+    <a class="brand-wrap detail-brand-link" href="/" aria-label="返回 Series Hub 首頁">
+      <div class="brand-mark" aria-hidden="true">SH</div>
+      <div>
+        <p class="eyebrow">US SERIES TRACKER</p>
+        <h1>Series Hub</h1>
+      </div>
+    </a>
+    <div class="detail-header-actions">
+      <label class="detail-region-control">
+        <span>譯名</span>
+        <select id="detail-region-select" aria-label="中文譯名地區">
+          <option value="HK">香港</option>
+          <option value="TW">台灣</option>
+          <option value="CN">中國大陸</option>
+        </select>
+      </label>
+      <span class="phase-chip">Phase 6A</span>
+    </div>
+  </header>
+
+  <main class="show-detail-main">
+    <a class="detail-back-link" href="/">← 返回劇集列表</a>
+
+    <section id="detail-loading" class="detail-loading" aria-live="polite">
+      <div class="detail-loading-backdrop"></div>
+      <div class="detail-loading-grid">
+        <div class="detail-loading-poster"></div>
+        <div class="detail-loading-copy">
+          <div class="detail-loading-line wide"></div>
+          <div class="detail-loading-line medium"></div>
+          <div class="detail-loading-line"></div>
+          <div class="detail-loading-line short"></div>
+        </div>
+      </div>
+      <p>正在載入劇集詳情…</p>
+    </section>
+
+    <section id="detail-error" class="detail-error" hidden>
+      <p class="eyebrow">DETAIL UNAVAILABLE</p>
+      <h2>暫時無法載入劇集詳情</h2>
+      <p id="detail-error-copy">請返回列表後再試。</p>
+      <div class="detail-error-actions">
+        <button id="detail-retry" type="button">重新載入</button>
+        <a href="/">返回列表</a>
+      </div>
+    </section>
+
+    <article id="detail-content" hidden>
+      <section id="detail-hero" class="detail-hero">
+        <div class="detail-hero-shade"></div>
+        <div class="detail-hero-content">
+          <div id="detail-poster-slot" class="detail-poster-slot"></div>
+          <div class="detail-hero-copy">
+            <p class="eyebrow" id="detail-kicker">SERIES DETAIL</p>
+            <h2 id="detail-title">—</h2>
+            <p id="detail-english-title" class="detail-english-title"></p>
+            <p id="detail-tagline" class="detail-tagline" hidden></p>
+            <div id="detail-meta-chips" class="detail-meta-chips"></div>
+            <p id="detail-overview" class="detail-overview"></p>
+          </div>
+        </div>
+      </section>
+
+      <div class="detail-section-grid">
+        <section class="detail-panel" aria-labelledby="facts-title">
+          <div class="detail-section-heading">
+            <p class="eyebrow">SERIES INFO</p>
+            <h3 id="facts-title">劇集資料</h3>
+          </div>
+          <dl id="detail-facts" class="detail-facts"></dl>
+        </section>
+
+        <section class="detail-panel" aria-labelledby="schedule-title">
+          <div class="detail-section-heading">
+            <p class="eyebrow">EPISODE STATUS</p>
+            <h3 id="schedule-title">近期集數</h3>
+          </div>
+          <div id="detail-episodes" class="detail-episodes"></div>
+        </section>
+      </div>
+
+      <section id="detail-trailer-section" class="detail-panel detail-wide-panel" hidden aria-labelledby="trailer-title">
+        <div class="detail-section-heading detail-heading-row">
+          <div>
+            <p class="eyebrow">VIDEO</p>
+            <h3 id="trailer-title">預告片</h3>
+          </div>
+          <a id="detail-trailer-youtube" class="detail-external-link" target="_blank" rel="noreferrer" hidden>在 YouTube 開啟</a>
+        </div>
+        <div id="detail-trailer" class="detail-trailer"></div>
+        <div id="detail-trailer-list" class="detail-trailer-list"></div>
+      </section>
+
+      <section id="detail-images-section" class="detail-panel detail-wide-panel" hidden aria-labelledby="images-title">
+        <div class="detail-section-heading detail-heading-row">
+          <div>
+            <p class="eyebrow">IMAGES</p>
+            <h3 id="images-title">劇照與圖片</h3>
+          </div>
+          <span id="detail-image-count" class="detail-section-count"></span>
+        </div>
+        <div id="detail-image-gallery" class="detail-image-gallery"></div>
+      </section>
+
+      <section class="detail-panel detail-wide-panel" aria-labelledby="seasons-title">
+        <div class="detail-section-heading detail-heading-row">
+          <div>
+            <p class="eyebrow">SEASONS</p>
+            <h3 id="seasons-title">季度</h3>
+          </div>
+          <span id="detail-season-count" class="detail-section-count"></span>
+        </div>
+        <div id="detail-seasons" class="detail-seasons"></div>
+      </section>
+
+      <section id="detail-lifecycle-section" class="detail-panel detail-wide-panel" hidden aria-labelledby="lifecycle-title">
+        <div class="detail-section-heading">
+          <p class="eyebrow">OFFICIAL STATUS EVIDENCE</p>
+          <h3 id="lifecycle-title">官方續訂／製作資訊</h3>
+        </div>
+        <div id="detail-lifecycle" class="detail-lifecycle"></div>
+      </section>
+    </article>
+
+    <section class="credits detail-credits" aria-labelledby="detail-credits-title">
+      <div>
+        <p class="eyebrow">DATA CREDITS</p>
+        <h3 id="detail-credits-title">資料來源</h3>
+      </div>
+      <div class="credit-stack">
+        <div class="tmdb-credit">
+          <a href="https://www.themoviedb.org" target="_blank" rel="noreferrer" aria-label="The Movie Database">
+            <img class="tmdb-logo" src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aaebeb75dc7ae79426ddd9be3b2be1e342510f8202baf6bffa71d7f5c4.svg" alt="TMDB" loading="lazy">
+          </a>
+          <p>劇集 metadata、圖片與影片索引來自 TMDB；本產品不獲 TMDB 認證或背書。</p>
+        </div>
+        <div class="tvmaze-credit">
+          <a href="https://www.tvmaze.com" target="_blank" rel="noreferrer">TVmaze</a>
+          <p>逐集日期、時間與集數資料由 TVmaze 補充。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Series Hub · Phase 6A</span>
+    <span>Details → TMDB + D1 + TVmaze</span>
+  </footer>
+
+  <script type="module" src="/show-details.js"></script>
+</body>
+</html>
