@@ -11,7 +11,7 @@ const JSON_HEADERS = {
 const PHASE = "3-regional-titles";
 const PUBLIC_STATUSES = new Set(["airing", "upcoming", "planned", "completed", "unknown"]);
 const SYNC_SOURCES = new Set(["tmdb", "tvmaze"]);
-const SYNC_KEY_CONTEXT = "series-hub:tmdb-sync:v1:";
+const SYNC_KEY_CONTEXT = "series-hub:tmdb-sync:v2:";
 const TMDB_CRON = "17 */6 * * *";
 const TVMAZE_CRON = "47 */6 * * *";
 
