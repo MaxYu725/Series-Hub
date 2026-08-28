@@ -1,0 +1,159 @@
+name: Audit Phase 5E-C production acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  WRANGLER_VERSION: "4.125.0"
+  PRODUCTION_DB_NAME: "series-hub-db"
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read Phase 5E-C production metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+
+          METRICS_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "
+          SELECT
+            COUNT(*) AS active_shows,
+            SUM(CASE WHEN tvmaze_id IS NOT NULL THEN 1 ELSE 0 END) AS mapped_shows,
+            SUM(CASE WHEN tvmaze_synced_at IS NULL THEN 1 ELSE 0 END) AS never_synced,
+            ROUND(MAX(CASE WHEN tvmaze_synced_at IS NOT NULL THEN (julianday('now') - julianday(tvmaze_synced_at)) * 24 END), 2) AS max_tvmaze_age_hours,
+            ROUND(AVG(CASE WHEN tvmaze_synced_at IS NOT NULL THEN (julianday('now') - julianday(tvmaze_synced_at)) * 24 END), 2) AS avg_tvmaze_age_hours,
+            SUM(CASE WHEN tvmaze_synced_at IS NOT NULL AND (julianday('now') - julianday(tvmaze_synced_at)) * 24 <= 8 THEN 1 ELSE 0 END) AS fresh_within_8h
+          FROM shows
+          WHERE status IN ('airing','upcoming','planned');
+
+          SELECT
+            COUNT(*) AS numbered_episodes,
+            SUM(CASE WHEN e.air_timestamp IS NOT NULL THEN 1 ELSE 0 END) AS timestamped_episodes
+          FROM episodes e
+          JOIN seasons se ON se.id = e.season_id
+          JOIN shows s ON s.id = se.show_id
+          WHERE s.status IN ('airing','upcoming','planned')
+            AND se.season_number > 0
+            AND e.episode_number > 0;
+
+          SELECT
+            COUNT(*) AS delivery_rows,
+            SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent_deliveries,
+            SUM(CASE WHEN status = 'failed_transient' THEN 1 ELSE 0 END) AS transient_failures,
+            SUM(CASE WHEN status = 'failed_terminal' THEN 1 ELSE 0 END) AS terminal_failures,
+            SUM(CASE WHEN status = 'sending' THEN 1 ELSE 0 END) AS stuck_sending,
+            SUM(CASE WHEN status IN ('failed_transient','failed_terminal') AND julianday(updated_at) >= julianday('now','-24 hours') THEN 1 ELSE 0 END) AS failures_last_24h
+          FROM notification_deliveries;
+
+          SELECT
+            COUNT(*) AS tvmaze_runs_last_9h,
+            SUM(CASE WHEN sr.status IN ('success','success_with_warnings') THEN 1 ELSE 0 END) AS successful_tvmaze_runs_last_9h,
+            MIN(sr.started_at) AS first_tvmaze_run_last_9h,
+            MAX(sr.started_at) AS latest_tvmaze_run
+          FROM sync_runs sr
+          JOIN sources src ON src.id = sr.source_id
+          WHERE src.source_key = 'tvmaze'
+            AND julianday(sr.started_at) >= julianday('now','-9 hours');
+          ")"
+
+          METRICS_JSON="${METRICS_JSON}" node - <<'NODE'
+          const payload = JSON.parse(process.env.METRICS_JSON);
+          const rows = [];
+          const walk = value => {
+            if (Array.isArray(value)) return value.forEach(walk);
+            if (!value || typeof value !== 'object') return;
+            if (Array.isArray(value.results)) rows.push(...value.results);
+            Object.values(value).forEach(walk);
+          };
+          walk(payload);
+          const catalog = rows.find(r => 'active_shows' in r) || {};
+          const episodes = rows.find(r => 'numbered_episodes' in r) || {};
+          const delivery = rows.find(r => 'delivery_rows' in r) || {};
+          const runs = rows.find(r => 'tvmaze_runs_last_9h' in r) || {};
+
+          const active = Number(catalog.active_shows || 0);
+          const mapped = Number(catalog.mapped_shows || 0);
+          const never = Number(catalog.never_synced || 0);
+          const maxAge = Number(catalog.max_tvmaze_age_hours);
+          const avgAge = Number(catalog.avg_tvmaze_age_hours);
+          const fresh8 = Number(catalog.fresh_within_8h || 0);
+          const numbered = Number(episodes.numbered_episodes || 0);
+          const timestamped = Number(episodes.timestamped_episodes || 0);
+          const transient = Number(delivery.transient_failures || 0);
+          const terminal = Number(delivery.terminal_failures || 0);
+          const stuck = Number(delivery.stuck_sending || 0);
+          const failures24 = Number(delivery.failures_last_24h || 0);
+          const runs9 = Number(runs.tvmaze_runs_last_9h || 0);
+          const success9 = Number(runs.successful_tvmaze_runs_last_9h || 0);
+          const cycleTarget = Math.max(8, Math.ceil(active / 10) + 1);
+
+          console.log(`active=${active}; mapped=${mapped}; neverSynced=${never}; maxAgeHours=${maxAge}; avgAgeHours=${avgAge}; freshWithin8h=${fresh8}`);
+          console.log(`numberedEpisodes=${numbered}; timestampedEpisodes=${timestamped}`);
+          console.log(`deliveries=${Number(delivery.delivery_rows || 0)}; sent=${Number(delivery.sent_deliveries || 0)}; transient=${transient}; terminal=${terminal}; stuck=${stuck}; failures24h=${failures24}`);
+          console.log(`tvmazeRunsLast9h=${runs9}; successfulRunsLast9h=${success9}; first=${runs.first_tvmaze_run_last_9h || '-'}; latest=${runs.latest_tvmaze_run || '-'}`);
+          console.log(`dynamicConvergenceTargetHours=${cycleTarget}`);
+
+          const checks = {
+            mapping100: active > 0 && mapped === active && never === 0,
+            ageHealthy: Number.isFinite(maxAge) && maxAge <= cycleTarget,
+            target8h: Number.isFinite(maxAge) && maxAge <= 8,
+            timestamps100: numbered > 0 && timestamped === numbered,
+            notificationsClean: transient === 0 && terminal === 0 && stuck === 0 && failures24 === 0,
+            hourlyCadenceObserved: runs9 >= 7 && success9 === runs9
+          };
+          console.log('checks=' + JSON.stringify(checks));
+
+          const summary = process.env.GITHUB_STEP_SUMMARY;
+          const fs = require('fs');
+          fs.appendFileSync(summary, [
+            '## Phase 5E-C production acceptance audit',
+            '',
+            `- Active catalog: ${active}`,
+            `- TVmaze mapping: ${mapped}/${active}`,
+            `- Never synced: ${never}`,
+            `- Max TVmaze data age: ${maxAge}h`,
+            `- Average TVmaze data age: ${avgAge}h`,
+            `- Shows fresh within 8h: ${fresh8}/${active}`,
+            `- Numbered episodes with precise timestamp: ${timestamped}/${numbered}`,
+            `- Notification failures: transient ${transient}, terminal ${terminal}, stuck ${stuck}, last 24h ${failures24}`,
+            `- TVmaze runs in last 9h: ${runs9} (${success9} successful)`,
+            `- Dynamic convergence ceiling for current catalog: ${cycleTarget}h`,
+            `- Acceptance checks: ${JSON.stringify(checks)}`,
+            ''
+          ].join('\n'));
+
+          if (!checks.mapping100 || !checks.ageHealthy || !checks.timestamps100 || !checks.notificationsClean || !checks.hourlyCadenceObserved) {
+            process.exit(1);
+          }
+          NODE
+
+      - name: Verify live production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEALTH="$(curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 "${PRODUCTION_URL}/health")"
+          HEALTH="${HEALTH}" node - <<'NODE'
+          const h = JSON.parse(process.env.HEALTH);
+          if (h.ok !== true || h.databaseConfigured !== true || h.databaseReachable !== true || h.tvmazeEnabled !== true || h.tmdbConfigured !== true) {
+            console.error(h);
+            process.exit(1);
+          }
+          console.log(`health ok; phase=${h.phase}`);
+          NODE
