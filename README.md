@@ -6,7 +6,7 @@ The core model is **series → seasons → episodes**. Season is first-class bec
 
 ## Current status
 
-**Phase 5D-C — targeted background episode reminders: COMPLETE and production-accepted.**
+**Phase 5E-C — US-series maturity hardening: COMPLETE and production-accepted.**
 
 Completed:
 
@@ -22,11 +22,14 @@ Completed:
 - Phase 5C — browser-local per-show viewing states: **追看中 / 等下一季 / 已看完 / 暫停**;
 - Phase 5D-A — isolated Web Push feasibility proof with a real native browser notification;
 - Phase 5D-B — accountless Push subscription persistence, explicit opt-in and full revoke/delete;
-- Phase 5D-C — hourly targeted `episode_24h` Web Push reminders with deduplication, stale-subscription cleanup and real production-device acceptance.
+- Phase 5D-C — hourly targeted `episode_24h` Web Push reminders with deduplication, stale-subscription cleanup and real production-device acceptance;
+- Phase 5E-A — production maturity baseline across catalog, mapping, episodes, regional titles and Push health;
+- Phase 5E-B — rotating TMDB discovery slices so the fixed 48-request budget reaches substantially more eligible US-series candidates;
+- Phase 5E-C — hourly bounded TVmaze convergence, scaled production smoke validation and regional-title fallback acceptance.
 
-**Next recommended phase: Phase 5E — US-series maturity / hardening checkpoint.**
+**Next recommended phase: Phase 5E-D — lifecycle consistency, mobile UX and observability closeout.**
 
-Do not immediately broaden notification types or introduce accounts. First harden catalog/schedule coverage, regional-title quality, lifecycle consistency, mobile UX and notification observability. Phase 6 geographic expansion should follow only after the US-series baseline is judged mature.
+Do not broaden notification types, introduce accounts or begin non-US expansion yet. Phase 5E-D should close the remaining US-series maturity items—official lifecycle consistency across the enlarged catalog, mobile interaction/loading resilience and operational observability—before deciding whether the Phase 5 maturity gate is complete enough for Phase 6 geographic expansion.
 
 ## Product views
 
@@ -213,7 +216,23 @@ Production acceptance proved:
 - final read-only audit recorded 1 successful `episode_24h` delivery, 0 pending transient failures and 0 terminal failures;
 - the active accountless subscription and show mappings remained healthy after delivery.
 
-Production-network audits remain separate from the default unit-test suite. Audit-only PR code is closed without merge.
+### Phase 5E-A–5E-C
+
+Production maturity hardening proved:
+
+- Phase 5E-A established the production baseline and identified catalog breadth, not episode timestamp quality or Push delivery, as the first systemic bottleneck;
+- Phase 5E-B kept the fixed TMDB request ceiling while rotating page-one candidate slices, expanding the active US-series catalog from 34 to 67 and later 71 shows;
+- Phase 5E-C changed the bounded 10-show TVmaze enrichment pass from every six hours to every hour without changing the 10-show per-invocation cap;
+- final acceptance measured **71/71 active shows with exact TVmaze mapping**, zero unsynced active shows, oldest TVmaze sync age **7.49h** and average age **3.55h**;
+- all **279/279 retained numbered TVmaze episodes** had precise `air_timestamp` values;
+- the last eight hours contained **8 TVmaze sync runs**, with **0 failed** and **0 warning** runs, and the latest run was approximately **0.49h** old;
+- notification delivery remained healthy after the hardening change: **1 sent**, **0 transient failures**, **0 terminal failures**, **0 stuck sending** records since the Phase 5E-C deployment boundary;
+- regional title display remained complete for active shows: HK-specific **67/71**, with fallback available for all remaining 4 and **0 active shows without any Chinese preferred title**;
+- production/PR smoke validation was changed to use temporary files for large API payloads so catalog growth no longer hits the process environment-size limit.
+
+See [`docs/PHASE5E_HARDENING.md`](docs/PHASE5E_HARDENING.md) for the Phase 5E baseline, implementation decisions and final acceptance gate.
+
+Production-network audits remain separate from the default unit-test suite. Audit-only code is not merged into `main`.
 
 ## Architecture
 
@@ -228,7 +247,7 @@ GitHub main ─ Actions ─► Cloudflare Worker ◄──── TVmaze
                          │       ├── Static assets
                          │       ├── Public API
                          │       ├── Lifecycle evidence projection
-                         │       ├── Catalog/schedule sync
+                         │       ├── Catalog sync + hourly TVmaze convergence
                          │       └── Hourly episode reminder runner
                          ▼
                   D1: series-hub-db
@@ -265,7 +284,7 @@ series-hub-db
 Production sync cadence:
 
 - TMDB: minute 17 every six hours;
-- TVmaze: minute 47 every six hours;
+- TVmaze: minute 47 every hour;
 - `episode_24h` reminders: minute 7 every hour.
 
 The TMDB and TVmaze source pipelines retain separate `sync_runs`; the notification runner is operationally isolated from both.
@@ -301,7 +320,8 @@ Series-Hub/
 ├── README.md
 ├── docs/
 │   ├── PHASE4_LIFECYCLE.md
-│   └── PHASE5D_NOTIFICATIONS.md
+│   ├── PHASE5D_NOTIFICATIONS.md
+│   └── PHASE5E_HARDENING.md
 ├── package.json
 ├── wrangler.jsonc
 ├── .github/workflows/
@@ -313,6 +333,7 @@ Series-Hub/
 ├── src/
 │   ├── index.js
 │   ├── phase4-worker.js
+│   ├── phase5e-worker.js
 │   ├── lifecycle.js
 │   ├── lifecycle-admin.js
 │   ├── tmdb.js
@@ -426,21 +447,24 @@ The reminder route defaults to dry-run; actual send requires the explicit produc
 - **Phase 5D-B — Complete:** accountless Push subscription persistence and revoke/delete.
 - **Phase 5D-C — Complete:** production `episode_24h` reminders with real-device acceptance.
 - **Phase 5D-D — Deferred/optional:** renewal/final-season Push alerts, per-show notification-type controls or queue/batching if later justified.
-- **Phase 5E — Recommended next:** US-series maturity/hardening audit before geographic expansion.
-- **Phase 6 — Later:** expansion beyond US series after the maturity gate passes.
+- **Phase 5E-A — Complete:** production maturity baseline and bottleneck identification.
+- **Phase 5E-B — Complete:** rotating TMDB discovery slices within the existing request budget; production catalog breadth acceptance passed.
+- **Phase 5E-C — Complete:** hourly bounded TVmaze convergence, regional-title fallback audit, CI/runtime smoke scaling and production acceptance.
+- **Phase 5E-D — Recommended next:** lifecycle consistency, mobile UX and observability closeout for the enlarged US catalog.
+- **Phase 6 — Later:** expansion beyond US series only after the full Phase 5 maturity gate is closed.
 
 ## Handoff checkpoint
 
-As of the Phase 5D-C production acceptance, **do not rebuild Phase 4, replace local tracking/viewing states with accounts, rotate VAPID keys casually, or broaden notification types by default**.
+As of the Phase 5E-C production acceptance, **do not rebuild Phase 4, replace local tracking/viewing states with accounts, rotate VAPID keys casually, broaden notification types by default, or undo the fixed-budget catalog/convergence controls without new measurements**.
 
 The accepted production baseline is:
 
 - US scripted catalog via TMDB;
-- exact TVmaze episode/schedule linkage;
+- exact TVmaze episode/schedule linkage with bounded hourly convergence;
 - HK/TW/CN regional title handling;
 - attributed official lifecycle evidence;
 - local My Shows + viewing states;
 - optional accountless Web Push subscription;
 - hourly deduplicated `episode_24h` reminders that have been proven on a real production device.
 
-The safest next step is **Phase 5E: measure and harden the current US-series product**—especially catalog/schedule completeness, title/lifecycle quality, mobile stability and notification reliability—before adding broader alerts, accounts or non-US catalog scope.
+The safest next step is **Phase 5E-D: close the remaining US-series maturity items**—official lifecycle consistency across the enlarged catalog, mobile stability/interaction resilience and production observability—before deciding whether Phase 6 non-US expansion is justified.
