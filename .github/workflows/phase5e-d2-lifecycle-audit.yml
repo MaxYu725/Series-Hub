@@ -1,0 +1,138 @@
+name: Phase 5E-D2 lifecycle consistency audit
+
+on:
+  push:
+    branches:
+      - audit-phase5e-d2-lifecycle-consistency
+    paths:
+      - .github/workflows/phase5e-d2-lifecycle-audit.yml
+
+permissions:
+  contents: read
+
+env:
+  WRANGLER_VERSION: "4.125.0"
+  PRODUCTION_DB_NAME: "series-hub-db"
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate production health and lifecycle endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          curl --fail --silent --show-error --retry 3 "${PRODUCTION_URL}/health" | jq -e '.ok == true and .databaseReachable == true' >/dev/null
+          curl --fail --silent --show-error --retry 3 "${PRODUCTION_URL}/api/lifecycle" >/tmp/lifecycle.json
+          jq -e '.ok == true and (.data | type == "array")' /tmp/lifecycle.json >/dev/null
+          echo "Lifecycle API projected shows: $(jq '.data | length' /tmp/lifecycle.json)"
+
+      - name: Audit lifecycle storage integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          SQL="SELECT
+            (SELECT COUNT(*) FROM lifecycle_events) AS total_events,
+            (SELECT COUNT(*) FROM lifecycle_events WHERE is_retracted=0) AS active_events,
+            (SELECT COUNT(*) FROM lifecycle_events le JOIN sources so ON so.id=le.source_id WHERE le.is_retracted=0 AND le.confidence='official' AND so.trust_level='official' AND so.enabled=1) AS active_official_events,
+            (SELECT COUNT(DISTINCT show_id) FROM lifecycle_events WHERE is_retracted=0) AS shows_with_evidence,
+            (SELECT COUNT(*) FROM lifecycle_events le LEFT JOIN seasons se ON se.id=le.season_id WHERE le.season_id IS NOT NULL AND (se.id IS NULL OR se.show_id<>le.show_id OR (le.season_number IS NOT NULL AND se.season_number<>le.season_number))) AS bad_season_links,
+            (SELECT COUNT(*) FROM lifecycle_events le JOIN sources so ON so.id=le.source_id WHERE le.is_retracted=0 AND le.confidence='official' AND (so.trust_level<>'official' OR so.enabled<>1)) AS bad_official_source_claims,
+            (SELECT COUNT(*) FROM lifecycle_events WHERE source_url NOT LIKE 'https://%') AS insecure_urls,
+            (SELECT COUNT(*) FROM lifecycle_events le JOIN sources so ON so.id=le.source_id WHERE le.is_retracted=0 AND so.enabled<>1) AS active_events_on_disabled_sources;"
+          JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "${SQL}")"
+          JSON="${JSON}" node - <<'NODE'
+          const data = JSON.parse(process.env.JSON);
+          let row = null;
+          const walk = value => {
+            if (Array.isArray(value)) return value.forEach(walk);
+            if (!value || typeof value !== 'object') return;
+            if ('total_events' in value) row = value;
+            Object.values(value).forEach(walk);
+          };
+          walk(data);
+          if (!row) throw new Error('audit row not found');
+          const metrics = Object.fromEntries(Object.entries(row).map(([k,v]) => [k, Number(v || 0)]));
+          console.log(Object.entries(metrics).map(([k,v]) => `${k}=${v}`).join('; '));
+          if (metrics.total_events < 1 || metrics.active_events < 1 || metrics.active_official_events < 1) throw new Error('accepted lifecycle evidence unexpectedly missing');
+          for (const key of ['bad_season_links','bad_official_source_claims','insecure_urls','active_events_on_disabled_sources']) {
+            if (metrics[key] !== 0) throw new Error(`${key}=${metrics[key]}`);
+          }
+          NODE
+
+      - name: Audit latest decision and production projection for deterministic ties
+        shell: bash
+        run: |
+          set -euo pipefail
+          SQL="WITH ranked AS (
+            SELECT le.show_id, COALESCE(le.season_number,-1) AS season_key, le.event_type, le.source_published_at,
+              CASE le.event_type
+                WHEN 'ended' THEN 'decision'
+                WHEN 'cancelled' THEN 'decision'
+                WHEN 'final_season' THEN 'decision'
+                WHEN 'renewed' THEN 'decision'
+                WHEN 'ordered' THEN 'decision'
+                WHEN 'production_paused' THEN 'production'
+                WHEN 'post_production' THEN 'production'
+                WHEN 'wrapped' THEN 'production'
+                WHEN 'filming' THEN 'production'
+                WHEN 'pre_production' THEN 'production'
+                ELSE NULL END AS dimension
+            FROM lifecycle_events le
+            WHERE le.is_retracted=0
+          ), ties AS (
+            SELECT show_id, season_key, dimension, source_published_at, COUNT(*) AS c
+            FROM ranked
+            WHERE dimension IS NOT NULL AND source_published_at IS NOT NULL
+            GROUP BY show_id, season_key, dimension, source_published_at
+            HAVING COUNT(*) > 1
+          )
+          SELECT COUNT(*) AS same_timestamp_dimension_ties FROM ties;"
+          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "${SQL}" >/tmp/ties.json
+          JSON="$(cat /tmp/ties.json)" node - <<'NODE'
+          const data=JSON.parse(process.env.JSON); let row;
+          const walk=v=>{if(Array.isArray(v))return v.forEach(walk); if(!v||typeof v!=='object')return; if('same_timestamp_dimension_ties' in v)row=v; Object.values(v).forEach(walk);}; walk(data);
+          console.log(`same_timestamp_dimension_ties=${Number(row?.same_timestamp_dimension_ties||0)}`);
+          NODE
+          echo "Ties are informational because runtime semantic precedence is regression-tested; this audit only surfaces unexpected growth."
+
+      - name: Audit evidence coverage against enlarged active catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          SQL="SELECT
+            COUNT(*) AS active_catalog,
+            SUM(CASE WHEN EXISTS (SELECT 1 FROM lifecycle_events le WHERE le.show_id=s.id AND le.is_retracted=0) THEN 1 ELSE 0 END) AS active_with_evidence,
+            SUM(CASE WHEN EXISTS (SELECT 1 FROM lifecycle_events le JOIN sources so ON so.id=le.source_id WHERE le.show_id=s.id AND le.is_retracted=0 AND le.confidence='official' AND so.trust_level='official') THEN 1 ELSE 0 END) AS active_with_official_evidence
+          FROM shows s WHERE s.status IN ('airing','upcoming','planned');"
+          JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "${SQL}")"
+          JSON="${JSON}" node - <<'NODE'
+          const data=JSON.parse(process.env.JSON); let row;
+          const walk=v=>{if(Array.isArray(v))return v.forEach(walk); if(!v||typeof v!=='object')return; if('active_catalog' in v)row=v; Object.values(v).forEach(walk);}; walk(data);
+          console.log(`active_catalog=${Number(row?.active_catalog||0)}; active_with_evidence=${Number(row?.active_with_evidence||0)}; active_with_official_evidence=${Number(row?.active_with_official_evidence||0)}`);
+          NODE
+          echo "Coverage is informational: Phase 4 evidence is curated and absence of an official event must not be treated as negative lifecycle evidence."
+
+      - name: Publish Phase 5E-D2 audit result
+        shell: bash
+        run: |
+          {
+            echo "## Phase 5E-D2 lifecycle consistency audit"
+            echo
+            echo "- Production health and lifecycle projection: healthy"
+            echo "- Lifecycle storage foreign-key/season linkage anomalies: 0 required"
+            echo "- Official-confidence/source-trust inconsistencies: 0 required"
+            echo "- Insecure source URLs: 0 required"
+            echo "- Active evidence on disabled sources: 0 required"
+            echo "- Official evidence coverage remains curated, not a completeness requirement for all active catalog shows"
+          } >> "${GITHUB_STEP_SUMMARY}"
