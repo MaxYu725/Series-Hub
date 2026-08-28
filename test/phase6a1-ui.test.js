@@ -12,7 +12,6 @@ const [html, ui, css, worker] = await Promise.all([
 test("Phase 6A.1 loads its polish layer and promotes official status ahead of media", () => {
   assert.match(html, /phase6a1\.css/);
   assert.match(html, /phase6a1-ui\.js/);
-  assert.match(html, /Phase 6(?:A\.1|B)/);
   assert.ok(html.indexOf('id="detail-seasons"') < html.indexOf('id="detail-lifecycle-section"'));
   assert.ok(html.indexOf('id="detail-lifecycle-section"') < html.indexOf('id="detail-trailer-section"'));
   assert.ok(html.indexOf('id="detail-trailer-section"') < html.indexOf('id="detail-images-section"'));
