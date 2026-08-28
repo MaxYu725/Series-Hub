@@ -1,4 +1,4 @@
-name: Apply Phase 5E-D3 internal key rotation
+name: Apply Phase 5E-D3 source key rotation
 
 on:
   push:
@@ -18,47 +18,26 @@ jobs:
         with:
           ref: phase-5e-d3-internal-key-rotation
 
-      - name: Rotate derivation context and mask derived keys
+      - name: Rotate backend derivation context
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          paths = [Path('src/index.js'), Path('.github/workflows/phase0-cloudflare-bootstrap.yml'), Path('.github/workflows/lifecycle-evidence.yml'), Path('.github/workflows/title-alias-override.yml'), Path('.github/workflows/phase5d-reminder-production-check.yml')]
-          for path in paths:
-              text = path.read_text()
-              if 'series-hub:tmdb-sync:v1:' not in text:
-                  raise SystemExit(f'missing v1 context in {path}')
-              path.write_text(text.replace('series-hub:tmdb-sync:v1:', 'series-hub:tmdb-sync:v2:'))
-          path = Path('.github/workflows/phase0-cloudflare-bootstrap.yml')
+          path = Path('src/index.js')
           text = path.read_text()
-          anchor = '          echo "key=${SYNC_KEY}" >> "${GITHUB_OUTPUT}"'
-          if anchor not in text:
-              raise SystemExit('missing phase0 key output anchor')
-          path.write_text(text.replace(anchor, '          echo "::add-mask::${SYNC_KEY}"\n' + anchor, 1))
-          for name in ['lifecycle-evidence.yml', 'title-alias-override.yml']:
-              path = Path('.github/workflows') / name
-              text = path.read_text()
-              anchor = '          echo "key=${KEY}" >> "${GITHUB_OUTPUT}"'
-              if anchor not in text:
-                  raise SystemExit(f'missing auth output anchor in {name}')
-              path.write_text(text.replace(anchor, '          echo "::add-mask::${KEY}"\n' + anchor, 1))
-          path = Path('.github/workflows/phase5d-reminder-production-check.yml')
-          text = path.read_text()
-          anchor = '          DRY_RUN="$(curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 -X POST -H "x-series-hub-sync-key: ${SYNC_KEY}" "${PRODUCTION_URL}/api/internal/episode-reminders")"'
-          if anchor not in text:
-              raise SystemExit('missing reminder dry-run anchor')
-          path.write_text(text.replace(anchor, '          echo "::add-mask::${SYNC_KEY}"\n' + anchor, 1))
-          Path('.github/workflows/phase5e-d3-key-rotation-writer.yml').unlink()
+          if 'series-hub:tmdb-sync:v1:' not in text:
+              raise SystemExit('missing v1 derivation context')
+          path.write_text(text.replace('series-hub:tmdb-sync:v1:', 'series-hub:tmdb-sync:v2:', 1))
           PY
 
-      - name: Commit security rotation
+      - name: Commit backend key rotation
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/index.js .github/workflows/phase0-cloudflare-bootstrap.yml .github/workflows/lifecycle-evidence.yml .github/workflows/title-alias-override.yml .github/workflows/phase5d-reminder-production-check.yml .github/workflows/phase5e-d3-key-rotation-writer.yml
+          git add src/index.js
           git diff --cached --check
-          git commit -m "Phase 5E-D3: rotate and mask internal auth key"
+          git commit -m "Phase 5E-D3: rotate backend internal auth key"
           git push origin HEAD:phase-5e-d3-internal-key-rotation
