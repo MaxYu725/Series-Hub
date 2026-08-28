@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/phase5d.css">
   <link rel="stylesheet" href="/phase5e.css">
   <link rel="stylesheet" href="/phase6.css">
+  <link rel="stylesheet" href="/phase6a1.css">
 </head>
 <body class="show-detail-page">
   <header class="site-header detail-site-header">
@@ -34,7 +35,7 @@
           <option value="CN">中國大陸</option>
         </select>
       </label>
-      <span class="phase-chip">Phase 6A</span>
+      <span class="phase-chip">Phase 6A.1</span>
     </div>
   </header>
 
@@ -99,6 +100,25 @@
         </section>
       </div>
 
+      <section class="detail-panel detail-wide-panel" aria-labelledby="seasons-title">
+        <div class="detail-section-heading detail-heading-row">
+          <div>
+            <p class="eyebrow">SEASONS</p>
+            <h3 id="seasons-title">季度</h3>
+          </div>
+          <span id="detail-season-count" class="detail-section-count"></span>
+        </div>
+        <div id="detail-seasons" class="detail-seasons"></div>
+      </section>
+
+      <section id="detail-lifecycle-section" class="detail-panel detail-wide-panel" hidden aria-labelledby="lifecycle-title">
+        <div class="detail-section-heading">
+          <p class="eyebrow">OFFICIAL STATUS EVIDENCE</p>
+          <h3 id="lifecycle-title">官方續訂／製作資訊</h3>
+        </div>
+        <div id="detail-lifecycle" class="detail-lifecycle"></div>
+      </section>
+
       <section id="detail-trailer-section" class="detail-panel detail-wide-panel" hidden aria-labelledby="trailer-title">
         <div class="detail-section-heading detail-heading-row">
           <div>
@@ -120,25 +140,6 @@
           <span id="detail-image-count" class="detail-section-count"></span>
         </div>
         <div id="detail-image-gallery" class="detail-image-gallery"></div>
-      </section>
-
-      <section class="detail-panel detail-wide-panel" aria-labelledby="seasons-title">
-        <div class="detail-section-heading detail-heading-row">
-          <div>
-            <p class="eyebrow">SEASONS</p>
-            <h3 id="seasons-title">季度</h3>
-          </div>
-          <span id="detail-season-count" class="detail-section-count"></span>
-        </div>
-        <div id="detail-seasons" class="detail-seasons"></div>
-      </section>
-
-      <section id="detail-lifecycle-section" class="detail-panel detail-wide-panel" hidden aria-labelledby="lifecycle-title">
-        <div class="detail-section-heading">
-          <p class="eyebrow">OFFICIAL STATUS EVIDENCE</p>
-          <h3 id="lifecycle-title">官方續訂／製作資訊</h3>
-        </div>
-        <div id="detail-lifecycle" class="detail-lifecycle"></div>
       </section>
     </article>
 
@@ -163,10 +164,11 @@
   </main>
 
   <footer>
-    <span>Series Hub · Phase 6A</span>
+    <span>Series Hub · Phase 6A.1</span>
     <span>Details → TMDB + D1 + TVmaze</span>
   </footer>
 
   <script type="module" src="/show-details.js"></script>
+  <script type="module" src="/phase6a1-ui.js"></script>
 </body>
 </html>

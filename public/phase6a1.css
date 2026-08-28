@@ -1,0 +1,71 @@
+/* Phase 6A.1: compact, content-first detail-page polish. */
+
+.detail-panel { margin-bottom: 14px; }
+
+.detail-episode-group + .detail-episode-group {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.detail-episode-group h4 {
+  margin: 0;
+  padding: 0 0 6px;
+  color: #c9cfdb;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.detail-episode-group.is-upcoming h4 { color: #e5e8ef; }
+
+.detail-season-card.is-condensed {
+  padding: 13px 14px;
+}
+.detail-season-card.is-condensed > p {
+  margin-top: 6px;
+}
+.detail-season-card.is-condensed .detail-season-overview {
+  display: none;
+}
+
+.detail-trailer-subheading {
+  margin: 14px 0 7px;
+  color: #c9cfdb;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.detail-trailer-subheading[hidden] { display: none; }
+
+.detail-image-gallery .detail-gallery-item:first-child {
+  grid-column: span 2;
+  aspect-ratio: 16 / 9;
+}
+.detail-gallery-item[hidden] { display: none; }
+.detail-image-toggle {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: #dce0ea;
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+.detail-image-toggle:hover { border-color: rgba(255, 255, 255, 0.22); }
+.detail-image-toggle:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.72);
+  outline-offset: 3px;
+}
+
+@media (max-width: 600px) {
+  .detail-panel { margin-bottom: 12px; }
+  .detail-seasons { gap: 8px; }
+  .detail-season-card.is-condensed { padding: 12px 13px; }
+  .detail-image-gallery { gap: 8px; }
+  .detail-image-gallery .detail-gallery-item:first-child {
+    grid-column: 1 / -1;
+    min-height: 0;
+  }
+  .detail-trailer-list { grid-template-columns: 1fr; }
+}
