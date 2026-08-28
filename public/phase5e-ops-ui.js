@@ -25,8 +25,9 @@ function makePill(name, source, detail) {
 }
 
 function syncDetail(source) {
-  if (!source?.finishedAt) return "未有同步紀錄";
-  return ageLabel(source.ageMinutes);
+  if (!source?.finishedAt) return source?.inProgress ? "同步中" : "未有同步紀錄";
+  const age = ageLabel(source.ageMinutes);
+  return source.inProgress ? `同步中 · 上次完成 ${age}` : age;
 }
 
 function pushDetail(source) {
