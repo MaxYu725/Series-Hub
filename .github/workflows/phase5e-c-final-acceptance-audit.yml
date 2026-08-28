@@ -1,0 +1,137 @@
+name: Phase 5E-C final acceptance audit
+
+on:
+  push:
+    branches:
+      - audit-phase5e-c-final-acceptance
+
+permissions:
+  contents: read
+
+env:
+  WRANGLER_VERSION: "4.125.0"
+  PRODUCTION_DB_NAME: "series-hub-db"
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+
+      - name: Validate Phase 5E-C cron contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const cfg = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          const crons = cfg.triggers?.crons || [];
+          for (const cron of ['7 * * * *', '17 */6 * * *', '47 * * * *']) {
+            if (!crons.includes(cron)) throw new Error(`missing cron: ${cron}`);
+          }
+          console.log(`crons=${crons.join(', ')}`);
+          NODE
+
+      - name: Verify production runtime health
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEALTH="$(curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 "${PRODUCTION_URL}/health")"
+          TVMAZE="$(curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 "${PRODUCTION_URL}/api/sync-status?source=tvmaze")"
+          HEALTH="${HEALTH}" TVMAZE="${TVMAZE}" node - <<'NODE'
+          const health = JSON.parse(process.env.HEALTH);
+          const sync = JSON.parse(process.env.TVMAZE);
+          if (health.ok !== true || health.databaseConfigured !== true || health.databaseReachable !== true || health.tvmazeEnabled !== true) throw new Error('production health failed');
+          if (!sync.data || !['success','success_with_warnings'].includes(sync.data.status)) throw new Error('latest TVmaze sync is not successful');
+          console.log(`health=ok; latest_tvmaze_status=${sync.data.status}; records_changed=${Number(sync.data.records_changed || 0)}`);
+          NODE
+
+      - name: Audit active catalog convergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT COUNT(*) AS active, SUM(CASE WHEN tvmaze_id IS NOT NULL THEN 1 ELSE 0 END) AS mapped, SUM(CASE WHEN tvmaze_synced_at IS NULL THEN 1 ELSE 0 END) AS unsynced, ROUND(MAX((julianday('now') - julianday(tvmaze_synced_at)) * 24), 2) AS oldest_hours, ROUND(AVG((julianday('now') - julianday(tvmaze_synced_at)) * 24), 2) AS average_hours FROM shows WHERE status IN ('airing','upcoming','planned');")"
+          JSON="${JSON}" node - <<'NODE'
+          const data = JSON.parse(process.env.JSON); let row;
+          const walk=v=>{if(Array.isArray(v))return v.forEach(walk); if(!v||typeof v!=='object')return; if('active' in v) row=v; Object.values(v).forEach(walk);}; walk(data);
+          const active=Number(row?.active||0), mapped=Number(row?.mapped||0), unsynced=Number(row?.unsynced||0), oldest=Number(row?.oldest_hours), avg=Number(row?.average_hours);
+          console.log(`active=${active}; mapped=${mapped}; unsynced=${unsynced}; oldest_hours=${oldest}; average_hours=${avg}`);
+          if (active < 67) throw new Error(`active catalog regressed: ${active}`);
+          if (mapped !== active) throw new Error(`TVmaze mapping incomplete: ${mapped}/${active}`);
+          if (unsynced !== 0) throw new Error(`unsynced active shows: ${unsynced}`);
+          if (!Number.isFinite(oldest) || oldest > 8.25) throw new Error(`oldest TVmaze sync age exceeds acceptance target: ${oldest}h`);
+          NODE
+
+      - name: Audit episode timestamp coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT COUNT(*) AS numbered_tvmaze_episodes, SUM(CASE WHEN e.air_timestamp IS NOT NULL AND e.air_timestamp <> '' THEN 1 ELSE 0 END) AS timestamped FROM episodes e JOIN seasons se ON se.id=e.season_id JOIN shows s ON s.id=se.show_id WHERE s.status IN ('airing','upcoming','planned') AND se.season_number > 0 AND e.episode_number > 0 AND e.tvmaze_id IS NOT NULL;")"
+          JSON="${JSON}" node - <<'NODE'
+          const data=JSON.parse(process.env.JSON); let row; const walk=v=>{if(Array.isArray(v))return v.forEach(walk); if(!v||typeof v!=='object')return; if('numbered_tvmaze_episodes' in v) row=v; Object.values(v).forEach(walk);}; walk(data);
+          const total=Number(row?.numbered_tvmaze_episodes||0), stamped=Number(row?.timestamped||0);
+          console.log(`numbered_tvmaze_episodes=${total}; timestamped=${stamped}; coverage=${total ? (100*stamped/total).toFixed(2) : '0.00'}%`);
+          if (total < 1 || stamped !== total) throw new Error(`episode timestamp coverage incomplete: ${stamped}/${total}`);
+          NODE
+
+      - name: Audit hourly TVmaze run continuity
+        shell: bash
+        run: |
+          set -euo pipefail
+          JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT COUNT(*) AS runs_8h, SUM(CASE WHEN sr.status='failed' THEN 1 ELSE 0 END) AS failed_8h, SUM(CASE WHEN sr.status='success_with_warnings' THEN 1 ELSE 0 END) AS warning_runs_8h, ROUND((julianday('now') - julianday(MAX(COALESCE(sr.finished_at,sr.started_at)))) * 24, 2) AS latest_age_hours FROM sync_runs sr JOIN sources so ON so.id=sr.source_id WHERE so.source_key='tvmaze' AND julianday(sr.started_at) >= julianday('now','-8 hours');")"
+          JSON="${JSON}" node - <<'NODE'
+          const data=JSON.parse(process.env.JSON); let row; const walk=v=>{if(Array.isArray(v))return v.forEach(walk); if(!v||typeof v!=='object')return; if('runs_8h' in v) row=v; Object.values(v).forEach(walk);}; walk(data);
+          const runs=Number(row?.runs_8h||0), failed=Number(row?.failed_8h||0), warnings=Number(row?.warning_runs_8h||0), age=Number(row?.latest_age_hours);
+          console.log(`tvmaze_runs_last_8h=${runs}; failed=${failed}; warning_runs=${warnings}; latest_age_hours=${age}`);
+          if (runs < 7) throw new Error(`hourly TVmaze cadence not observed: only ${runs} runs in 8h`);
+          if (failed !== 0) throw new Error(`TVmaze failures observed in last 8h: ${failed}`);
+          if (!Number.isFinite(age) || age > 1.5) throw new Error(`latest TVmaze run is too old: ${age}h`);
+          NODE
+
+      - name: Audit notification delivery health since Phase 5E-C deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT COUNT(*) AS deliveries_since, SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END) AS sent_since, SUM(CASE WHEN status='failed_transient' THEN 1 ELSE 0 END) AS transient_failures, SUM(CASE WHEN status='failed_terminal' THEN 1 ELSE 0 END) AS terminal_failures, SUM(CASE WHEN status='sending' THEN 1 ELSE 0 END) AS sending_now FROM notification_deliveries WHERE julianday(updated_at) >= julianday('2026-08-27 01:20:00');")"
+          JSON="${JSON}" node - <<'NODE'
+          const data=JSON.parse(process.env.JSON); let row; const walk=v=>{if(Array.isArray(v))return v.forEach(walk); if(!v||typeof v!=='object')return; if('deliveries_since' in v) row=v; Object.values(v).forEach(walk);}; walk(data);
+          const total=Number(row?.deliveries_since||0), sent=Number(row?.sent_since||0), transient=Number(row?.transient_failures||0), terminal=Number(row?.terminal_failures||0), sending=Number(row?.sending_now||0);
+          console.log(`deliveries_since_phase5e_c=${total}; sent=${sent}; transient_failures=${transient}; terminal_failures=${terminal}; sending=${sending}`);
+          if (transient !== 0 || terminal !== 0) throw new Error(`new notification delivery failures exist: transient=${transient}, terminal=${terminal}`);
+          if (sending !== 0) throw new Error(`notification delivery stuck in sending: ${sending}`);
+          NODE
+
+      - name: Audit regional-title fallback safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command "SELECT COUNT(*) AS active, SUM(CASE WHEN p.title_zh_hk IS NOT NULL AND p.title_zh_hk<>'' THEN 1 ELSE 0 END) AS hk, SUM(CASE WHEN p.title_zh_tw IS NOT NULL AND p.title_zh_tw<>'' THEN 1 ELSE 0 END) AS tw, SUM(CASE WHEN p.title_zh_cn IS NOT NULL AND p.title_zh_cn<>'' THEN 1 ELSE 0 END) AS cn, SUM(CASE WHEN (p.title_zh_hk IS NULL OR p.title_zh_hk='') AND ((p.title_zh_tw IS NOT NULL AND p.title_zh_tw<>'') OR (p.title_zh_cn IS NOT NULL AND p.title_zh_cn<>'')) THEN 1 ELSE 0 END) AS hk_fallback_available, SUM(CASE WHEN (p.title_zh_hk IS NULL OR p.title_zh_hk='') AND (p.title_zh_tw IS NULL OR p.title_zh_tw='') AND (p.title_zh_cn IS NULL OR p.title_zh_cn='') THEN 1 ELSE 0 END) AS no_chinese FROM shows s LEFT JOIN preferred_show_titles p ON p.show_id=s.id WHERE s.status IN ('airing','upcoming','planned');")"
+          JSON="${JSON}" node - <<'NODE'
+          const data=JSON.parse(process.env.JSON); let row; const walk=v=>{if(Array.isArray(v))return v.forEach(walk); if(!v||typeof v!=='object')return; if('hk_fallback_available' in v) row=v; Object.values(v).forEach(walk);}; walk(data);
+          const active=Number(row?.active||0), hk=Number(row?.hk||0), tw=Number(row?.tw||0), cn=Number(row?.cn||0), fallback=Number(row?.hk_fallback_available||0), none=Number(row?.no_chinese||0);
+          console.log(`active=${active}; HK=${hk}; TW=${tw}; CN=${cn}; HK_fallback_available=${fallback}; no_chinese=${none}`);
+          if (none !== 0) throw new Error(`active shows with no Chinese preferred title: ${none}`);
+          if (hk + fallback !== active) throw new Error(`HK display fallback incomplete: direct=${hk}, fallback=${fallback}, active=${active}`);
+          NODE
+
+      - name: Publish acceptance summary
+        shell: bash
+        run: |
+          {
+            echo "## Phase 5E-C production acceptance"
+            echo
+            echo "All acceptance gates passed."
+            echo "- Active catalog TVmaze mapping: 100%"
+            echo "- Oldest active TVmaze sync age: <= 8.25h"
+            echo "- Numbered TVmaze episode timestamp coverage: 100%"
+            echo "- Hourly TVmaze cadence: observed, no failures in last 8h"
+            echo "- Notification delivery failures since Phase 5E-C deploy: 0"
+            echo "- Regional Chinese-title display fallback: complete"
+          } >> "${GITHUB_STEP_SUMMARY}"
