@@ -1,0 +1,65 @@
+name: Phase 5E-D4 production browser preflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - phase-5e-d4-browser-preflight
+    paths:
+      - scripts/phase5e-d4-browser-audit.mjs
+      - .github/workflows/phase5e-d4-browser-preflight.yml
+
+permissions:
+  contents: read
+
+env:
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+jobs:
+  browser-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install isolated Playwright runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Run phone and desktop product preflight
+        env:
+          SCREENSHOT_DIR: d4-screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/phase5e-d4-browser-audit.mjs
+
+      - name: Upload D4 visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5e-d4-browser-screenshots
+          path: d4-screenshots
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish preflight result
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## Phase 5E-D4 production browser preflight"
+            echo
+            echo "- 390×844 phone flow: passed"
+            echo "- 1440×900 desktop flow: passed"
+            echo "- Today / Week / Airing / Upcoming / Planned: passed"
+            echo "- Tracking / My Shows / four viewing states: passed"
+            echo "- Search / regional title switching / tracked schedule: passed"
+            echo "- My Shows deep-link / browser history / rapid navigation: passed"
+            echo "- Horizontal overflow / core touch target checks: passed"
+            echo "- Push settings checked for settled UI only; CI does not grant notification permission or mutate a Push subscription"
+            echo "- Final D4 acceptance still requires real-device visual and notification interaction confirmation"
+          } >> "${GITHUB_STEP_SUMMARY}"
