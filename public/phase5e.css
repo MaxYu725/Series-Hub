@@ -306,15 +306,24 @@ a:focus-visible {
   }
 
   .content-panel > .catalog-tools {
+    align-items: stretch;
     padding-bottom: 24px;
+  }
+
+  .content-panel > .catalog-tools .filters {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 }
 
 @media (max-width: 600px) {
   .filters {
-    margin-inline: -14px;
-    padding-inline: 14px;
-    scroll-padding-inline: 14px;
+    width: 100%;
+    max-width: 100%;
+    margin-inline: 0;
+    padding-inline: 0;
+    scroll-padding-inline: 0;
   }
 
   .filter,
