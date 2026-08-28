@@ -25,8 +25,10 @@ test("Phase 5E-C keeps each TVmaze invocation capped at ten shows", () => {
   );
 });
 
-test("Phase 5E-C delegates all non-TVmaze cron and fetch behavior to the accepted Phase 4/5 stack", () => {
-  assert.match(phase5eWorker, /return phase4Worker\.fetch\(request, env, ctx\);/);
+test("Phase 5E-C still delegates core fetch and non-TVmaze cron behavior after D4 catalog enrichment", () => {
+  assert.match(phase5eWorker, /const response = await phase4Worker\.fetch\(request, env, ctx\);/);
+  assert.match(phase5eWorker, /url\.pathname !== "\/api\/shows"/);
+  assert.match(phase5eWorker, /return enrichCatalogNextEpisodes\(request, response, env\);/);
   assert.match(phase5eWorker, /return phase4Worker\.scheduled\(controller, env, ctx\);/);
   assert.doesNotMatch(phase5eWorker, /syncTmdbCatalog/);
   assert.doesNotMatch(phase5eWorker, /runEpisodeReminderDelivery/);
