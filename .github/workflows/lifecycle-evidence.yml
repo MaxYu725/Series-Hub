@@ -127,8 +127,9 @@ jobs:
           set -euo pipefail
           KEY="$(node -e '
             const crypto = require("crypto");
-            process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v1:" + process.env.TMDB_API_TOKEN).digest("hex"));
+            process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v2:" + process.env.TMDB_API_TOKEN).digest("hex"));
           ')"
+          echo "::add-mask::${KEY}"
           echo "key=${KEY}" >> "${GITHUB_OUTPUT}"
 
       - name: Build validated request body
