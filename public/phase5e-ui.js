@@ -21,7 +21,8 @@ function revealActiveFilter() {
   const selected = document.querySelector(".filter.active[data-view], #my-shows-filter.active");
   if (!selected || typeof selected.scrollIntoView !== "function") return;
   try {
-    selected.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+    selected.scrollIntoView({ block: "nearest", inline: "center", behavior: reduceMotion ? "auto" : "smooth" });
   } catch {
     // Older browsers can safely keep the current scroll position.
   }
@@ -43,16 +44,22 @@ function afterBaseLoad(callback) {
     return;
   }
 
-  const observer = new MutationObserver(() => {
-    if (count.textContent === "載入中…") return;
-    observer.disconnect();
+  let finished = false;
+  let observer = null;
+  let timer = null;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    observer?.disconnect();
+    if (timer !== null) window.clearTimeout(timer);
     callback();
+  };
+
+  observer = new MutationObserver(() => {
+    if (count.textContent !== "載入中…") finish();
   });
   observer.observe(count, { childList: true, characterData: true, subtree: true });
-  window.setTimeout(() => {
-    observer.disconnect();
-    callback();
-  }, 15000);
+  timer = window.setTimeout(finish, 15000);
 }
 
 function activateView(view) {
