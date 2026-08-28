@@ -1,6 +1,7 @@
 import coreWorker, { deriveTmdbSyncKey } from "./index.js";
 import { applyLifecycleEvidence } from "./lifecycle-admin.js";
 import { summarizeLifecycleEvents } from "./lifecycle.js";
+import { buildOperationalStatus } from "./ops-status.js";
 import { handlePushRequest } from "./push-subscriptions.js";
 import {
   EPISODE_REMINDER_CRON,
@@ -141,6 +142,19 @@ async function lifecycleIndex(env) {
   }
 }
 
+async function operationalStatus(env) {
+  try {
+    const result = await buildOperationalStatus(env);
+    return json(result, { status: result.ok ? 200 : 503 });
+  } catch (error) {
+    return json({
+      ok: false,
+      error: "operational_status_failed",
+      detail: error instanceof Error ? error.message : String(error)
+    }, { status: 503 });
+  }
+}
+
 async function lifecycleEvidenceWrite(request, env) {
   if (!env.TMDB_API_TOKEN) return json({ ok: false, error: "lifecycle_admin_not_configured" }, { status: 503 });
   if (!(await authorizeEditorialWrite(request, env))) return json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -185,6 +199,7 @@ export default {
 
     if (url.pathname.startsWith("/api/push/")) return handlePushRequest(request, env);
     if (request.method === "GET" && url.pathname === "/api/lifecycle") return lifecycleIndex(env);
+    if (request.method === "GET" && url.pathname === "/api/ops-status") return operationalStatus(env);
 
     const lifecycleMatch = request.method === "GET" && url.pathname.match(/^\/api\/shows\/(\d+)\/lifecycle$/);
     if (lifecycleMatch) return showLifecycle(env, Number(lifecycleMatch[1]));

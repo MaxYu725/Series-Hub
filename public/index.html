@@ -38,6 +38,11 @@
         <span id="health-text">正在檢查 API…</span>
       </div>
       <p class="sync-text" id="sync-text">正在讀取同步狀態…</p>
+      <div class="ops-status" id="ops-status" aria-live="polite" aria-label="資料來源運作狀態">
+        <span class="ops-source ops-unknown">TMDB · 檢查中</span>
+        <span class="ops-source ops-unknown">TVmaze · 檢查中</span>
+        <span class="ops-source ops-unknown">Push · 檢查中</span>
+      </div>
     </section>
 
     <section class="catalog-tools" aria-label="排程、劇集搜尋、譯名地區與狀態篩選">
@@ -131,5 +136,6 @@
   <script type="module" src="/phase5c-ui.js"></script>
   <script type="module" src="/phase5d-ui.js"></script>
   <script type="module" src="/phase5e-ui.js"></script>
+  <script type="module" src="/phase5e-ops-ui.js"></script>
 </body>
 </html>
