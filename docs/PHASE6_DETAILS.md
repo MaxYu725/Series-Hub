@@ -17,9 +17,9 @@ The Phase 6 detail model keeps the existing source responsibilities:
 
 TMDB credentials remain server-side. The browser never receives `TMDB_API_TOKEN`.
 
-## Phase 6A — Detail core
+## Phase 6A — Detail core ✅ production accepted
 
-Phase 6A introduces:
+Phase 6A introduced:
 
 1. a dedicated `/show.html?id=<show_id>` page using the stable Series Hub `show_id`;
 2. navigation from catalog cards and grouped Today / This Week show cards;
@@ -32,9 +32,11 @@ Phase 6A introduces:
 9. click-to-load trailer iframes so opening a detail page does not immediately load YouTube;
 10. graceful degradation: if live TMDB media is unavailable, the D1-backed detail page still renders.
 
-### 6A non-goals
+Phase 6A.1 completed the real-device UI polish gate on 2026-08-28: localized detail text, grouped upcoming/recent episodes, condensed season cards, promoted official lifecycle evidence, trailer deduplication and a curated six-image first view were accepted on a narrow Android phone viewport.
 
-Phase 6A deliberately does **not**:
+### 6A non-goals retained
+
+Phase 6A deliberately did **not**:
 
 - add a new D1 migration;
 - persist fetched image/video lists to D1;
@@ -45,18 +47,41 @@ Phase 6A deliberately does **not**:
 - expand the catalog outside US series;
 - introduce accounts or server-side viewing-state profiles.
 
-## Phase 6B — Media browser
+## Phase 6B — Media browser 🚧
 
-After 6A production acceptance, Phase 6B should improve media consumption without changing source semantics:
+After 6A production acceptance, Phase 6B improves media consumption without changing source semantics.
+
+The Phase 6B core implementation adds:
 
 - full-screen image viewer / lightbox;
-- swipe and keyboard navigation;
-- poster versus backdrop grouping;
-- higher-resolution loading on demand;
-- image count / position and resilient mobile gestures;
-- optional richer video selection when multiple official trailers/teasers exist.
+- swipe navigation on touch/pen input;
+- keyboard navigation with Left/Right, Home/End and Escape;
+- `全部 / 劇照 / 海報` gallery filtering with per-group counts;
+- original-resolution TMDB image loading only after the viewer opens;
+- preview-first rendering so the existing gallery remains lightweight;
+- adjacent preview preloading for smoother navigation without preloading every original image;
+- image category plus current position / total count;
+- horizontal thumbnail navigation inside the viewer;
+- mobile safe-area handling and focus restoration when the viewer closes;
+- modifier-click preservation so users can still open the original image directly in a new tab.
 
-This should remain on-demand and should not turn TMDB image/video data into a new scheduled synchronization workload unless production measurements justify caching.
+Phase 6B remains frontend-only. It does not add a scheduled media-sync workload or alter TMDB / TVmaze / lifecycle / Push semantics.
+
+### 6B production acceptance boundary
+
+Phase 6B is ready for production acceptance when all of the following are true:
+
+- selecting a gallery image opens the correct full-screen item without navigating away from the detail page;
+- Left/Right keyboard navigation and mobile horizontal swipe both change images reliably;
+- closing the viewer returns focus to the image that opened it;
+- filtering between all images, backdrops and posters updates counts and navigation scope correctly;
+- detail-page initial load still uses preview-sized images only;
+- original-resolution images are requested only after explicit viewer interaction;
+- opening, browsing and closing the viewer does not create horizontal page overflow or leave body scrolling locked;
+- changing HK/TW/CN title region and rerendering detail media rebuilds the gallery browser correctly;
+- existing Phase 5 and Phase 6A regression tests, Worker build, preview runtime and production smoke remain green.
+
+Custom pinch-to-zoom is intentionally deferred until the core 6B viewer passes real-device acceptance. This avoids reintroducing the historical mobile zoom flicker / rebound class of issues before the base viewer is stable.
 
 ## Phase 6C — Season and episode detail
 
@@ -68,9 +93,9 @@ After the media experience is stable, Phase 6C should turn `series → seasons �
 - clear distinction between past episodes, next confirmed episodes and unknown future schedules;
 - reuse of My Shows / viewing-state behavior without introducing accounts.
 
-## Acceptance boundary for Phase 6A
+## Phase 6A accepted boundary
 
-Phase 6A is ready for production acceptance when all of the following are true:
+Phase 6A production acceptance confirmed that:
 
 - catalog and Today / This Week cards open the correct show by stable `show_id`;
 - the page works on desktop and a narrow phone viewport without horizontal overflow;
