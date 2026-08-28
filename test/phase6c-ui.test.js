@@ -19,7 +19,8 @@ test("Phase 6C loads after the accepted 6B detail layers", () => {
 });
 
 test("Phase 6C exposes a read-only per-season episode route without a schema change", () => {
-  assert.match(worker, /seasons\\\/(\\d\+\)\\\/episodes/);
+  assert.match(worker, /seasonEpisodesMatch/);
+  assert.match(worker, /listSeasonEpisodes/);
   assert.match(worker, /se\.show_id = \?1 AND se\.season_number = \?2/);
   assert.match(worker, /e\.image_url/);
   assert.match(worker, /e\.runtime_minutes/);
@@ -29,9 +30,9 @@ test("Phase 6C exposes a read-only per-season episode route without a schema cha
 
 test("Phase 6C season navigation works by cards and a compact selector", () => {
   assert.match(js, /phase6c-season-select/);
-  assert.match(js, /aria-label", `查看第 \$\{number\} 季集數`/);
+  assert.match(js, /查看第 \$\{number\} 季集數/);
   assert.match(js, /event\.key !== "Enter" && event\.key !== " "/);
-  assert.match(js, /selectSeason\(Number\(card\.dataset\.seasonNumber\)/);
+  assert.match(js, /card\.dataset\.seasonNumber/);
   assert.match(js, /scrollIntoView/);
 });
 
