@@ -3,16 +3,19 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const wrangler = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
+const phase6Worker = fs.readFileSync("src/phase6-worker.js", "utf8");
 const phase5eWorker = fs.readFileSync("src/phase5e-worker.js", "utf8");
 const tvmazeSource = fs.readFileSync("src/tvmaze.js", "utf8");
 
-test("Phase 5E-C runs bounded TVmaze convergence hourly without changing TMDB or reminder cadence", () => {
-  assert.equal(wrangler.main, "./src/phase5e-worker.js");
+test("Phase 5E-C bounded TVmaze convergence survives the Phase 6 wrapper without cadence changes", () => {
+  assert.equal(wrangler.main, "./src/phase6-worker.js");
   assert.deepEqual(wrangler.triggers?.crons, [
     "7 * * * *",
     "17 */6 * * *",
     "47 * * * *"
   ]);
+  assert.match(phase6Worker, /import phase5eWorker from "\.\/phase5e-worker\.js"/);
+  assert.match(phase6Worker, /return phase5eWorker\.scheduled\(controller, env, ctx\);/);
   assert.match(phase5eWorker, /TVMAZE_CONVERGENCE_CRON = "47 \* \* \* \*"/);
   assert.match(phase5eWorker, /syncTvmazeEpisodes\(env\)/);
 });
