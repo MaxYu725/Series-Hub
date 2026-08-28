@@ -9,12 +9,17 @@ const root = join(here, "..");
 const html = readFileSync(join(root, "public", "show.html"), "utf8");
 const js = readFileSync(join(root, "public", "phase6c-ui.js"), "utf8");
 const css = readFileSync(join(root, "public", "phase6c.css"), "utf8");
+const stateJs = readFileSync(join(root, "public", "phase6c-state.js"), "utf8");
+const stateCss = readFileSync(join(root, "public", "phase6c-state.css"), "utf8");
 const worker = readFileSync(join(root, "src", "phase6-worker.js"), "utf8");
 
 test("Phase 6C loads after the accepted 6B detail layers", () => {
   assert.match(html, /phase6c\.css/);
+  assert.match(html, /phase6c-state\.css/);
   assert.match(html, /phase6c-ui\.js/);
+  assert.match(html, /phase6c-state\.js/);
   assert.ok(html.indexOf("phase6b-ui.js") < html.indexOf("phase6c-ui.js"));
+  assert.ok(html.indexOf("phase6c-ui.js") < html.indexOf("phase6c-state.js"));
   assert.match(html, /Phase 6C/);
 });
 
@@ -47,10 +52,21 @@ test("Phase 6C episode cards surface image, overview, runtime and schedule state
   assert.match(js, /\/api\/shows\/\$\{showId\}\/seasons\/\$\{number\}\/episodes/);
 });
 
+test("Phase 6C reuses existing local My Shows and viewing-state modules", () => {
+  assert.match(stateJs, /from "\.\/tracking\.js"/);
+  assert.match(stateJs, /from "\.\/viewing-state\.js"/);
+  assert.match(stateJs, /saveTrackedShowIds\(toggleTrackedShowId/);
+  assert.match(stateJs, /saveViewingStates\(setViewingState/);
+  assert.match(stateJs, /series-hub-tracking-changed/);
+  assert.match(stateCss, /phase6c-tracking-button/);
+  assert.match(stateCss, /phase6c-viewing-control/);
+});
+
 test("Phase 6C remains usable on narrow mobile detail pages", () => {
   assert.match(css, /@media \(max-width: 720px\)/);
   assert.match(css, /grid-template-columns: 1fr/);
   assert.match(css, /phase6c-season-control/);
   assert.match(css, /phase6c-episode-card/);
   assert.match(css, /phase6c-episode-placeholder/);
+  assert.match(stateCss, /@media \(max-width: 540px\)/);
 });
