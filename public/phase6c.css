@@ -1,0 +1,266 @@
+/* Phase 6C: season navigation and episode detail. */
+
+.phase6c-season-selectable {
+  position: relative;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+.phase6c-season-selectable:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: var(--surface-2);
+}
+.phase6c-season-selectable:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.72);
+  outline-offset: 3px;
+}
+.phase6c-season-selectable.is-phase6c-selected {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: var(--surface-2);
+}
+.phase6c-season-open {
+  display: inline-block;
+  margin-top: 8px;
+  color: #b9bfce;
+  font-size: 0.7rem;
+}
+.is-phase6c-selected .phase6c-season-open { color: #eef1f7; }
+
+.phase6c-explorer { scroll-margin-top: 18px; }
+.phase6c-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+}
+.phase6c-season-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.phase6c-season-control select {
+  min-height: 40px;
+  min-width: 112px;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+.phase6c-season-control select:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.72);
+  outline-offset: 3px;
+}
+
+.phase6c-season-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin: -4px 0 12px;
+  padding: 0 2px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.phase6c-season-summary strong { font-size: 1rem; }
+.phase6c-season-summary span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  text-align: right;
+}
+.phase6c-state-summary {
+  min-height: 20px;
+  margin-bottom: 12px;
+  color: #c9cfdb;
+  font-size: 0.74rem;
+}
+
+.phase6c-episode-list { display: grid; gap: 10px; }
+.phase6c-episode-card {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #0d1016;
+}
+.phase6c-episode-card.is-upcoming,
+.phase6c-episode-card.is-today { border-color: rgba(255, 255, 255, 0.2); }
+.phase6c-episode-media {
+  min-height: 138px;
+  background: var(--surface-2);
+}
+.phase6c-episode-media img,
+.phase6c-episode-placeholder {
+  width: 100%;
+  height: 100%;
+  min-height: 138px;
+  aspect-ratio: 16 / 9;
+}
+.phase6c-episode-media img {
+  display: block;
+  object-fit: cover;
+}
+.phase6c-episode-placeholder {
+  display: grid;
+  place-items: center;
+  color: #8f96a7;
+  background:
+    radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.06), transparent 35%),
+    #141821;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+}
+.phase6c-episode-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 14px 16px;
+}
+.phase6c-episode-topline {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+.phase6c-episode-code {
+  color: #aeb5c5;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.phase6c-episode-state {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: #aeb5c5;
+  font-size: 0.64rem;
+}
+.phase6c-episode-state.is-upcoming,
+.phase6c-episode-state.is-today {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #eef1f7;
+  background: rgba(255, 255, 255, 0.06);
+}
+.phase6c-episode-body h4 {
+  margin: 0;
+  color: #eef1f7;
+  font-size: 0.94rem;
+  line-height: 1.35;
+}
+.phase6c-episode-meta {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+.phase6c-episode-overview {
+  display: -webkit-box;
+  margin: 10px 0 0;
+  overflow: hidden;
+  color: #cdd2dd;
+  font-size: 0.76rem;
+  line-height: 1.6;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.phase6c-episode-overview.is-expanded {
+  display: block;
+  overflow: visible;
+}
+.phase6c-overview-toggle {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #aeb5c5;
+  font: inherit;
+  font-size: 0.68rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.phase6c-episode-source {
+  margin-top: auto;
+  padding-top: 10px;
+  color: #aeb5c5;
+  font-size: 0.68rem;
+  text-underline-offset: 3px;
+}
+
+.phase6c-episode-skeleton {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  min-height: 138px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #0d1016;
+}
+.phase6c-episode-skeleton > span,
+.phase6c-episode-skeleton i {
+  display: block;
+  background: linear-gradient(100deg, #151923 20%, #202633 40%, #151923 60%);
+  background-size: 200% 100%;
+  animation: detail-shimmer 1.6s linear infinite;
+}
+.phase6c-episode-skeleton > span { min-height: 138px; }
+.phase6c-episode-skeleton > div { padding: 18px; }
+.phase6c-episode-skeleton i {
+  width: 88%;
+  height: 11px;
+  margin-bottom: 12px;
+  border-radius: 999px;
+}
+.phase6c-episode-skeleton i:first-child { width: 52%; height: 15px; }
+.phase6c-episode-skeleton i:last-child { width: 70%; }
+.phase6c-empty { padding: 12px 2px 4px; }
+.phase6c-retry {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.phase6c-retry:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.72);
+  outline-offset: 3px;
+}
+
+@media (max-width: 720px) {
+  .phase6c-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .phase6c-season-control { justify-content: space-between; }
+  .phase6c-season-control select { min-width: 132px; }
+  .phase6c-season-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .phase6c-season-summary span { text-align: left; }
+  .phase6c-episode-card,
+  .phase6c-episode-skeleton { grid-template-columns: 1fr; }
+  .phase6c-episode-media,
+  .phase6c-episode-media img,
+  .phase6c-episode-placeholder,
+  .phase6c-episode-skeleton > span { min-height: 0; }
+  .phase6c-episode-media img,
+  .phase6c-episode-placeholder { aspect-ratio: 16 / 9; }
+  .phase6c-episode-body { padding: 13px 14px 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase6c-season-selectable { transition: none; }
+  .phase6c-episode-skeleton > span,
+  .phase6c-episode-skeleton i { animation: none; }
+}

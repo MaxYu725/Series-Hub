@@ -1,0 +1,56 @@
+/* Phase 6C: reuse Phase 5 local My Shows and viewing-state controls. */
+
+.phase6c-personal-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -2px 0 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.phase6c-tracking-button,
+.phase6c-viewing-control select {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.74rem;
+}
+.phase6c-tracking-button {
+  padding: 0 13px;
+  cursor: pointer;
+}
+.phase6c-tracking-button.is-tracked {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.08);
+}
+.phase6c-viewing-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.phase6c-viewing-control select {
+  min-width: 118px;
+  padding: 0 28px 0 10px;
+}
+.phase6c-tracking-button:focus-visible,
+.phase6c-viewing-control select:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.72);
+  outline-offset: 3px;
+}
+
+@media (max-width: 540px) {
+  .phase6c-personal-tools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .phase6c-tracking-button { width: 100%; }
+  .phase6c-viewing-control { justify-content: space-between; }
+  .phase6c-viewing-control select { min-width: 132px; }
+}
