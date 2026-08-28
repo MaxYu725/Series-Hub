@@ -83,6 +83,19 @@ function formatDate(date) {
   }).format(parsed);
 }
 
+function formatLocalDateTime(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat("zh-HK", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(parsed);
+}
+
 function formatScheduleDate(dateKey) {
   const parsed = new Date(`${dateKey}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime())) return dateKey;
@@ -153,17 +166,60 @@ function appendTitleSourceNote(container, item) {
   container.append(note);
 }
 
+function showEpisodeCode(show) {
+  const season = Number(show.tvmaze_next_episode_season_number);
+  const episode = Number(show.tvmaze_next_episode_number);
+  if (!Number.isInteger(season) || season < 1 || !Number.isInteger(episode) || episode < 1) return null;
+  return `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
+}
+
 function statusLine(show) {
-  const scheduleDate = show.tvmaze_next_episode_date || show.next_air_date;
+  const tvmazeDate = show.tvmaze_next_episode_date || null;
+  const tmdbDate = show.next_air_date || null;
+  const exact = formatLocalDateTime(show.tvmaze_next_episode_timestamp);
 
   if (show.status === "airing") {
-    return scheduleDate ? `下集 ${formatDate(scheduleDate)}` : "播映中";
+    if (exact) return `下集 ${exact}`;
+    if (tvmazeDate) {
+      return show.tvmaze_next_episode_air_time
+        ? `下集 ${formatDate(tvmazeDate)} · 原播 ${show.tvmaze_next_episode_air_time}`
+        : `下集 ${formatDate(tvmazeDate)} · 時間待定`;
+    }
+    if (tmdbDate) return `下集 ${formatDate(tmdbDate)} · 時間待確認`;
+    if (show.tvmaze_last_episode_date) return `最近一集 ${formatDate(show.tvmaze_last_episode_date)} · 下集待確認`;
+    return "播映中 · 下集待確認";
   }
   if (show.status === "upcoming") {
+    if (exact) return `首播 ${exact}`;
+    const scheduleDate = tvmazeDate || tmdbDate;
     return scheduleDate ? `首播 ${formatDate(scheduleDate)}` : "已公布播映日期";
   }
   if (show.status === "planned") return "已續訂／製作中 · 日期待定";
   return show.tmdb_status || show.status || "狀態待確認";
+}
+
+function scheduleNote(show) {
+  const code = showEpisodeCode(show);
+  const name = show.tvmaze_next_episode_name || null;
+  if (show.tvmaze_next_episode_timestamp) {
+    return {
+      text: [code, name, "TVmaze 已確認逐集時間"].filter(Boolean).join(" · "),
+      confirmed: true
+    };
+  }
+  if (show.tvmaze_next_episode_date) {
+    return {
+      text: [code, name, "逐集日期已確認，時間待定"].filter(Boolean).join(" · "),
+      confirmed: false
+    };
+  }
+  if (show.status === "airing") {
+    return {
+      text: "TVmaze 暫未有下一集排程；不會推測或補造播映時間。",
+      confirmed: false
+    };
+  }
+  return null;
 }
 
 function metaParts(show) {
@@ -216,6 +272,13 @@ function createShowCard(show) {
   meta.className = "show-meta";
   meta.textContent = metaParts(show).join(" · ") || "平台資料待補";
 
+  const timing = scheduleNote(show);
+  const timingNote = timing ? document.createElement("p") : null;
+  if (timingNote) {
+    timingNote.className = timing.confirmed ? "show-schedule-note is-confirmed" : "show-schedule-note";
+    timingNote.textContent = timing.text;
+  }
+
   const footer = document.createElement("div");
   footer.className = "show-card-footer";
   if (Number(show.vote_average) > 0) {
@@ -229,15 +292,14 @@ function createShowCard(show) {
     footer.append(genre);
   }
 
-  body.append(title, zhTitle, meta, footer);
+  body.append(title, zhTitle, meta);
+  if (timingNote) body.append(timingNote);
+  body.append(footer);
   card.append(imageWrap, body);
   return card;
 }
 
-function createScheduleRow(episode) {
-  const row = document.createElement("article");
-  row.className = "schedule-row";
-
+function createSchedulePoster(episode) {
   const posterWrap = document.createElement("div");
   posterWrap.className = "schedule-poster-wrap";
   if (episode.poster_url) {
@@ -254,26 +316,38 @@ function createScheduleRow(episode) {
     placeholder.textContent = "SH";
     posterWrap.append(placeholder);
   }
+  return posterWrap;
+}
 
-  const body = document.createElement("div");
-  body.className = "schedule-body";
+function scheduleBatchLabel(episodes) {
+  if (episodes.length <= 1) return null;
+  const timingKeys = episodes
+    .map((episode) => episode.air_timestamp || (episode.air_date && episode.air_time ? `${episode.air_date}T${episode.air_time}` : null))
+    .filter(Boolean);
+  const sameTime = timingKeys.length === episodes.length && new Set(timingKeys).size === 1;
+  return sameTime ? `一次上架 ${episodes.length} 集` : `同日播映 ${episodes.length} 集`;
+}
+
+function createScheduleShowHeader(episodes) {
+  const episode = episodes[0];
+  const header = document.createElement("div");
+  header.className = "schedule-show-header";
+  header.append(createSchedulePoster(episode));
+
+  const copy = document.createElement("div");
+  copy.className = "schedule-show-copy";
   const zh = chineseTitle(episode);
   const title = document.createElement("h4");
   title.textContent = zh || episode.english_title || episode.original_title;
+  copy.append(title);
 
   if (zh && episode.english_title) {
     const english = document.createElement("p");
     english.className = "schedule-english";
     english.textContent = episode.english_title;
     appendTitleSourceNote(english, episode);
-    body.append(title, english);
-  } else {
-    body.append(title);
+    copy.append(english);
   }
-
-  const episodeLine = document.createElement("p");
-  episodeLine.className = "episode-line";
-  episodeLine.textContent = [episodeCode(episode), episode.episode_name].filter(Boolean).join(" · ") || "集數資料待補";
 
   const meta = document.createElement("div");
   meta.className = "schedule-meta";
@@ -282,12 +356,40 @@ function createScheduleRow(episode) {
     network.textContent = episode.networks;
     meta.append(network);
   }
+  copy.append(meta);
+
+  const batchLabel = scheduleBatchLabel(episodes);
+  if (batchLabel) {
+    const batch = document.createElement("span");
+    batch.className = "schedule-batch-label";
+    batch.textContent = batchLabel;
+    copy.append(batch);
+  }
+
+  header.append(copy);
+  return header;
+}
+
+function createScheduleRow(episode) {
+  const row = document.createElement("div");
+  row.className = "schedule-row";
+  row.dataset.showId = String(episode.show_id || "");
+
+  const body = document.createElement("div");
+  body.className = "schedule-body";
+  const episodeLine = document.createElement("p");
+  episodeLine.className = "episode-line";
+  episodeLine.textContent = [episodeCode(episode), episode.episode_name].filter(Boolean).join(" · ") || "集數資料待補";
+  body.append(episodeLine);
+
   if (Number(episode.runtime_minutes) > 0) {
+    const meta = document.createElement("div");
+    meta.className = "schedule-meta";
     const runtime = document.createElement("span");
     runtime.textContent = `${Number(episode.runtime_minutes)} 分鐘`;
     meta.append(runtime);
+    body.append(meta);
   }
-  body.append(episodeLine, meta);
 
   const side = document.createElement("div");
   side.className = "schedule-side";
@@ -299,7 +401,7 @@ function createScheduleRow(episode) {
 
   const timeNote = document.createElement("span");
   timeNote.className = "schedule-time-note";
-  timeNote.textContent = time.exactLocal ? "本地時間" : "TVmaze 來源日期";
+  timeNote.textContent = time.exactLocal ? "本地時間" : "TVmaze 來源時間";
   side.append(timeNote);
 
   if (episode.source_url) {
@@ -312,8 +414,21 @@ function createScheduleRow(episode) {
     side.append(source);
   }
 
-  row.append(posterWrap, body, side);
+  row.append(body, side);
   return row;
+}
+
+function createScheduleShowGroup(episodes) {
+  const group = document.createElement("article");
+  group.className = "schedule-show-group";
+  group.dataset.showId = String(episodes[0]?.show_id || "");
+  group.append(createScheduleShowHeader(episodes));
+
+  const episodeList = document.createElement("div");
+  episodeList.className = "schedule-episode-list";
+  for (const episode of episodes) episodeList.append(createScheduleRow(episode));
+  group.append(episodeList);
+  return group;
 }
 
 function matchesScheduleQuery(episode, query) {
@@ -333,14 +448,14 @@ function matchesScheduleQuery(episode, query) {
 
 function renderSchedule() {
   scheduleList.replaceChildren();
-  const groups = new Map();
+  const dateGroups = new Map();
   for (const episode of state.episodes) {
     const dateKey = episodeLocalDateKey(episode, browserTimeZone) || episode.air_date || "unknown";
-    if (!groups.has(dateKey)) groups.set(dateKey, []);
-    groups.get(dateKey).push(episode);
+    if (!dateGroups.has(dateKey)) dateGroups.set(dateKey, []);
+    dateGroups.get(dateKey).push(episode);
   }
 
-  for (const [dateKey, episodes] of groups) {
+  for (const [dateKey, episodes] of dateGroups) {
     const day = document.createElement("section");
     day.className = "schedule-day";
     const heading = document.createElement("div");
@@ -353,7 +468,16 @@ function renderSchedule() {
 
     const rows = document.createElement("div");
     rows.className = "schedule-rows";
-    for (const episode of episodes) rows.append(createScheduleRow(episode));
+    const showGroups = new Map();
+    for (const episode of episodes) {
+      const key = Number.isSafeInteger(Number(episode.show_id))
+        ? `show:${Number(episode.show_id)}`
+        : `title:${episode.english_title || episode.original_title || "unknown"}`;
+      if (!showGroups.has(key)) showGroups.set(key, []);
+      showGroups.get(key).push(episode);
+    }
+    for (const groupedEpisodes of showGroups.values()) rows.append(createScheduleShowGroup(groupedEpisodes));
+
     day.append(heading, rows);
     scheduleList.append(day);
   }
@@ -414,8 +538,8 @@ function render() {
   viewTitle.textContent = view.title;
   viewKicker.textContent = view.kicker;
   viewContext.textContent = isSchedule
-    ? `中文名優先使用${regionLabel}譯名；時間有精確 timestamp 時按 ${browserTimeZone} 顯示。`
-    : `中文名優先使用${regionLabel}譯名；缺少時才跨區 fallback。基礎分類由 TMDB 主資料正規化；如有官方 lifecycle evidence 會另行標示。`;
+    ? `中文名優先使用${regionLabel}譯名；同日多集會合併為一張劇集卡，精確時間按 ${browserTimeZone} 顯示。`
+    : `中文名優先使用${regionLabel}譯名；播映中劇集會直接顯示下一集已確認時間，未有逐集資料時明確標示待確認。`;
 
   contentPanel?.setAttribute("aria-busy", String(state.loading));
   emptyState.removeAttribute("data-state");

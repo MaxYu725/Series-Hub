@@ -6,6 +6,7 @@ const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "
 const app = fs.readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 const myShows = fs.readFileSync(new URL("../public/phase5-ui.js", import.meta.url), "utf8");
 const trackedSchedule = fs.readFileSync(new URL("../public/phase5b-ui.js", import.meta.url), "utf8");
+const pushSettings = fs.readFileSync(new URL("../public/phase5d-ui.js", import.meta.url), "utf8");
 const ux = fs.readFileSync(new URL("../public/phase5e-ui.js", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../public/phase5e.css", import.meta.url), "utf8");
 const plan = fs.readFileSync(new URL("../docs/PHASE5E_D_PLAN.md", import.meta.url), "utf8");
@@ -15,7 +16,9 @@ test("Phase 5E-D visible product baseline is current", () => {
   assert.doesNotMatch(html, /Phase 5D-B/);
   assert.match(html, /phase5e\.css/);
   assert.match(html, /phase5e-ui\.js/);
-  assert.match(html, /約 24 小時前提醒/);
+  assert.doesNotMatch(html, /<section class="hero">/);
+  assert.ok(html.indexOf('id="view-title">今日播映') < html.indexOf('class="service-status"'));
+  assert.match(pushSettings, /約 24 小時前/);
 });
 
 test("base views expose bounded loading, explicit error and retry behavior", () => {
