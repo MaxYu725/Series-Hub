@@ -1,5 +1,6 @@
 name: Phase 5E-D3 production acceptance audit
 
+# Re-run after the in-progress sync observability fix is live.
 on:
   push:
     branches:
@@ -64,7 +65,7 @@ jobs:
             }
           };
           walk(payload);
-          console.log(`TMDB=${tmdb.state} age=${tmdb.ageMinutes}m; TVmaze=${tvmaze.state} age=${tvmaze.ageMinutes}m; Push=${push.state}; overall=${overall}`);
+          console.log(`TMDB=${tmdb.state} age=${tmdb.ageMinutes}m inProgress=${tmdb.inProgress}; TVmaze=${tvmaze.state} age=${tvmaze.ageMinutes}m inProgress=${tvmaze.inProgress}; Push=${push.state}; overall=${overall}`);
           NODE
 
           curl --fail --silent --show-error "${PRODUCTION_URL}/" -o /tmp/index.html
@@ -94,7 +95,7 @@ jobs:
           {
             echo "## Phase 5E-D3 production acceptance"
             echo
-            echo "- TMDB freshness: observable and non-error"
+            echo "- TMDB freshness: observable and non-error, including normal in-progress syncs"
             echo "- TVmaze freshness: observable and non-error"
             echo "- Push readiness: observable without subscription credentials"
             echo "- Homepage source indicators: live"
