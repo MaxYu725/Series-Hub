@@ -21,7 +21,7 @@ async function enrichCatalogNextEpisodes(request, response, env) {
 
   let payload;
   try {
-    payload = await response.json();
+    payload = await response.clone().json();
   } catch {
     return response;
   }
@@ -50,7 +50,6 @@ async function enrichCatalogNextEpisodes(request, response, env) {
        )
      ORDER BY
        se.show_id ASC,
-       CASE WHEN e.air_timestamp IS NULL THEN 1 ELSE 0 END ASC,
        COALESCE(e.air_timestamp, e.air_date || 'T23:59:59Z') ASC,
        se.season_number ASC,
        e.episode_number ASC`
