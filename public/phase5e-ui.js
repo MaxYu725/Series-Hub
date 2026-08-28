@@ -88,6 +88,17 @@ function boot() {
 
   let applyingHistory = false;
 
+  const myShowsButton = document.querySelector("#my-shows-filter");
+  if (myShowsButton) {
+    const myShowsObserver = new MutationObserver(() => {
+      if (!myShowsButton.classList.contains("active")) return;
+      syncPressedState();
+      revealActiveFilter();
+      if (!applyingHistory) writeViewToUrl(MY_SHOWS_VIEW);
+    });
+    myShowsObserver.observe(myShowsButton, { attributes: true, attributeFilter: ["class"] });
+  }
+
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     const regular = target?.closest(".filter[data-view]");
