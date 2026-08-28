@@ -47,11 +47,9 @@ Phase 6A deliberately did **not**:
 - expand the catalog outside US series;
 - introduce accounts or server-side viewing-state profiles.
 
-## Phase 6B — Media browser 🚧
+## Phase 6B — Media browser ✅ production accepted
 
-After 6A production acceptance, Phase 6B improves media consumption without changing source semantics.
-
-The Phase 6B core implementation adds:
+Phase 6B added:
 
 - full-screen image viewer / lightbox;
 - swipe navigation on touch/pen input;
@@ -65,33 +63,53 @@ The Phase 6B core implementation adds:
 - mobile safe-area handling and focus restoration when the viewer closes;
 - modifier-click preservation so users can still open the original image directly in a new tab.
 
-Phase 6B remains frontend-only. It does not add a scheduled media-sync workload or alter TMDB / TVmaze / lifecycle / Push semantics.
+Phase 6B remained frontend-only and did not alter D1 schema, scheduled media sync, TMDB catalog-sync cadence, TVmaze convergence, lifecycle semantics or Push behavior.
 
-### 6B production acceptance boundary
+Production checkpoint `2a5ba97e3596daa36bea46d5162e1665df670ddf` passed the full deployment workflow on 2026-08-28. Real-device acceptance subsequently confirmed the media browser behaved normally. Custom pinch-to-zoom remains intentionally deferred because the stable browser already covers the core media use case and custom mobile zoom has a higher regression risk.
 
-Phase 6B is ready for production acceptance when all of the following are true:
+## Phase 6C — Season and episode detail 🚧
 
-- selecting a gallery image opens the correct full-screen item without navigating away from the detail page;
-- Left/Right keyboard navigation and mobile horizontal swipe both change images reliably;
-- closing the viewer returns focus to the image that opened it;
-- filtering between all images, backdrops and posters updates counts and navigation scope correctly;
-- detail-page initial load still uses preview-sized images only;
-- original-resolution images are requested only after explicit viewer interaction;
-- opening, browsing and closing the viewer does not create horizontal page overflow or leave body scrolling locked;
-- changing HK/TW/CN title region and rerendering detail media rebuilds the gallery browser correctly;
-- existing Phase 5 and Phase 6A regression tests, Worker build, preview runtime and production smoke remain green.
+Phase 6C turns `series → seasons → episodes` into visible navigation while continuing to reuse the existing D1 and TVmaze data model.
 
-Custom pinch-to-zoom is intentionally deferred until the core 6B viewer passes real-device acceptance. This avoids reintroducing the historical mobile zoom flicker / rebound class of issues before the base viewer is stable.
+The Phase 6C core implementation adds:
 
-## Phase 6C — Season and episode detail
+- selectable season cards plus a compact season selector;
+- an on-demand, read-only `/api/shows/<show_id>/seasons/<season_number>/episodes` route so older seasons are not hidden by the existing 100-episode recent-history cap;
+- per-season episode lists ordered by episode number;
+- episode image, title, overview, runtime and TVmaze source link where available;
+- local presentation of precise `air_timestamp` values with timezone information;
+- explicit `已播出 / 今日播出 / 即將播出 / 時間待定` states;
+- graceful empty/loading/error states for seasons without TVmaze episode rows;
+- reuse of the existing local **My Shows** tracking module;
+- reuse of the existing local viewing states (`追看中 / 等下一季 / 已看完 / 暫停`) without introducing accounts or server-side profiles;
+- responsive mobile layout with season navigation and episode cards collapsing to one column.
 
-After the media experience is stable, Phase 6C should turn `series → seasons → episodes` into visible navigation:
+### 6C boundaries
 
-- season selector and season summaries;
-- episode list grouped by season;
-- episode image, overview, runtime and local schedule presentation where TVmaze provides precise timestamps;
-- clear distinction between past episodes, next confirmed episodes and unknown future schedules;
-- reuse of My Shows / viewing-state behavior without introducing accounts.
+Phase 6C does **not**:
+
+- add a D1 migration;
+- change TMDB or TVmaze scheduled sync cadence;
+- fetch a second TMDB detail payload for the episode explorer;
+- introduce episode-level watched/unwatched persistence;
+- introduce accounts, login, cloud profile sync or cross-device viewing history;
+- change Push subscription or delivery semantics;
+- change official lifecycle evidence semantics.
+
+### 6C production acceptance boundary
+
+Phase 6C is ready for production acceptance when:
+
+- selecting any visible season opens the matching season episode list;
+- long-running shows can load older seasons independently of the existing recent-100-episodes endpoint;
+- episode image, overview and runtime appear when TVmaze supplies them;
+- precise episode timestamps render as local time and date-only rows remain clearly labelled rather than falsely converted;
+- past, today, upcoming and unknown-time episodes are visibly distinguishable;
+- a season with no TVmaze rows fails gracefully without breaking the detail page;
+- My Shows and viewing-state changes made on the detail page continue to use the existing local storage keys and behavior;
+- changing HK/TW/CN title region does not lose the selected show or break the season explorer;
+- desktop and narrow phone layouts do not create horizontal overflow;
+- existing Phase 5, Phase 6A and Phase 6B regression tests, Worker build, preview runtime and production smoke remain green.
 
 ## Phase 6A accepted boundary
 
