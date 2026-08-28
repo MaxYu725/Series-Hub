@@ -82,6 +82,7 @@ function boot() {
 
   function restoreBaseSchedule() {
     for (const row of scheduleList.querySelectorAll(".schedule-row")) row.hidden = false;
+    for (const group of scheduleList.querySelectorAll(".schedule-show-group")) group.hidden = false;
     for (const day of scheduleList.querySelectorAll(".schedule-day")) {
       day.hidden = false;
       const rows = day.querySelectorAll(".schedule-row");
@@ -144,6 +145,11 @@ function boot() {
       row.hidden = !tracked.has(showId);
       if (!row.hidden) visibleTotal += 1;
     });
+
+    for (const group of scheduleList.querySelectorAll(".schedule-show-group")) {
+      const groupRows = [...group.querySelectorAll(".schedule-row")];
+      group.hidden = groupRows.length > 0 && groupRows.every((row) => row.hidden);
+    }
 
     for (const day of scheduleList.querySelectorAll(".schedule-day")) {
       const dayRows = [...day.querySelectorAll(".schedule-row")];
