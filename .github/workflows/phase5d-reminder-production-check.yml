@@ -79,7 +79,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SYNC_KEY="$(node -e 'const crypto=require("crypto"); process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v1:" + process.env.TMDB_API_TOKEN).digest("hex"));')"
+          SYNC_KEY="$(node -e 'const crypto=require("crypto"); process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v2:" + process.env.TMDB_API_TOKEN).digest("hex"));')"
+          echo "::add-mask::${SYNC_KEY}"
           DRY_RUN="$(curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 -X POST -H "x-series-hub-sync-key: ${SYNC_KEY}" "${PRODUCTION_URL}/api/internal/episode-reminders")"
           printf '%s\n' "${DRY_RUN}" | jq '{ok,enabled,dryRun,candidates,staleSubscriptions,purgedStale,attempted,sent,transientFailures,terminalFailures,purgedPermanent}'
           CANDIDATES="$(printf '%s' "${DRY_RUN}" | jq -r '.candidates // 0')"
