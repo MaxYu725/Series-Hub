@@ -16,6 +16,9 @@ export function classifySyncSource(row, now = Date.now()) {
     return {
       state: "unknown",
       status: null,
+      currentStatus: null,
+      currentStartedAt: null,
+      inProgress: false,
       finishedAt: null,
       ageMinutes: null,
       recordsSeen: 0,
@@ -23,19 +26,26 @@ export function classifySyncSource(row, now = Date.now()) {
     };
   }
 
+  const currentStatus = row.current_status || row.status || null;
+  const currentStartedAt = row.current_started_at || null;
+  const inProgress = currentStatus === "running";
   const finishedAt = row.finished_at || null;
   const finishedMs = parseUtcTimestamp(finishedAt);
   const ageMinutes = finishedMs == null ? null : Math.max(0, Math.round((now - finishedMs) / 60000));
   const status = row.status || null;
   let state = "ok";
 
-  if (!SUCCESS_STATUSES.has(status)) state = "error";
+  if (!finishedAt && inProgress) state = "warn";
+  else if (!SUCCESS_STATUSES.has(status)) state = "error";
   else if (ageMinutes == null || ageMinutes > SYNC_ERROR_MINUTES) state = "error";
   else if (status === "success_with_warnings" || ageMinutes > SYNC_WARN_MINUTES) state = "warn";
 
   return {
     state,
     status,
+    currentStatus,
+    currentStartedAt,
+    inProgress,
     finishedAt,
     ageMinutes,
     recordsSeen: Number(row.records_seen || 0),
@@ -97,20 +107,29 @@ export async function buildOperationalStatus(env, now = Date.now()) {
 
   const [syncRows, pushMetrics] = await Promise.all([
     env.DB.prepare(
-      `WITH latest AS (
+      `WITH latest_any AS (
          SELECT source_id, MAX(id) AS run_id
          FROM sync_runs
+         GROUP BY source_id
+       ), latest_finished AS (
+         SELECT source_id, MAX(id) AS run_id
+         FROM sync_runs
+         WHERE finished_at IS NOT NULL
          GROUP BY source_id
        )
        SELECT
          s.source_key,
-         sr.status,
-         sr.finished_at,
-         sr.records_seen,
-         sr.records_changed
+         current_run.status AS current_status,
+         current_run.started_at AS current_started_at,
+         finished_run.status,
+         finished_run.finished_at,
+         finished_run.records_seen,
+         finished_run.records_changed
        FROM sources s
-       LEFT JOIN latest l ON l.source_id = s.id
-       LEFT JOIN sync_runs sr ON sr.id = l.run_id
+       LEFT JOIN latest_any la ON la.source_id = s.id
+       LEFT JOIN sync_runs current_run ON current_run.id = la.run_id
+       LEFT JOIN latest_finished lf ON lf.source_id = s.id
+       LEFT JOIN sync_runs finished_run ON finished_run.id = lf.run_id
        WHERE s.source_key IN ('tmdb', 'tvmaze')`
     ).all(),
     env.DB.prepare(
