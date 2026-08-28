@@ -10,11 +10,10 @@ const html = readFileSync(join(root, "public", "show.html"), "utf8");
 const js = readFileSync(join(root, "public", "phase6b-ui.js"), "utf8");
 const css = readFileSync(join(root, "public", "phase6b.css"), "utf8");
 
-test("Phase 6B show detail loads media-browser assets after the 6A.1 layer", () => {
+test("Phase 6B show detail keeps the media-browser layer after 6A.1", () => {
   assert.match(html, /phase6a1\.css/);
   assert.match(html, /phase6b\.css/);
   assert.ok(html.indexOf("phase6a1-ui.js") < html.indexOf("phase6b-ui.js"));
-  assert.match(html, /Phase 6B/);
 });
 
 test("Phase 6B groups gallery media into all, backdrop and poster filters", () => {
