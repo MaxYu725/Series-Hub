@@ -145,17 +145,18 @@ function polishTrailers() {
 function arrangeImages() {
   const gallery = document.querySelector("#detail-image-gallery");
   const count = document.querySelector("#detail-image-count");
-  if (!gallery || gallery.dataset.phase6a1Arranged === "1") return;
+  if (!gallery) return;
 
   const all = [...gallery.querySelectorAll(".detail-gallery-item")];
-  if (!all.length) return;
+  if (!all.length || all[0].dataset.phase6a1Arranged === "1") return;
+  if (gallery.nextElementSibling?.classList.contains("detail-image-toggle")) gallery.nextElementSibling.remove();
   const backdrops = all.filter((item) => item.classList.contains("is-backdrop"));
   const posters = all.filter((item) => item.classList.contains("is-poster"));
   const featured = [...backdrops.slice(0, 4), ...posters.slice(0, 2)];
   const featuredSet = new Set(featured);
   const ordered = [...featured, ...all.filter((item) => !featuredSet.has(item))];
+  ordered.forEach((item) => { item.dataset.phase6a1Arranged = "1"; });
   gallery.replaceChildren(...ordered);
-  gallery.dataset.phase6a1Arranged = "1";
 
   const total = ordered.length;
   if (count) count.textContent = `共 ${total} 張`;
