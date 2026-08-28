@@ -1,0 +1,63 @@
+name: Phase 5E-D4 schedule UX production audit
+
+on:
+  push:
+    branches:
+      - audit-phase5e-d4-schedule-ux-production
+    paths:
+      - scripts/phase5e-d4-schedule-ux-audit.mjs
+      - .github/workflows/phase5e-d4-schedule-ux-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+jobs:
+  browser-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install isolated Playwright runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Run production phone and desktop schedule UX audit
+        env:
+          SCREENSHOT_DIR: d4-schedule-ux-screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/phase5e-d4-schedule-ux-audit.mjs
+
+      - name: Upload visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5e-d4-schedule-ux-screenshots
+          path: d4-schedule-ux-screenshots
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish audit result
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## Phase 5E-D4 schedule UX production audit"
+            echo
+            echo "- content-first landing flow: passed"
+            echo "- same-show daily episode grouping: passed"
+            echo "- multi-episode batch labeling: passed"
+            echo "- Airing next-schedule visibility: passed"
+            echo "- missing future TVmaze schedule is explicitly marked instead of fabricated: passed"
+            echo "- 390×844 phone overflow/runtime checks: passed"
+            echo "- 1440×900 desktop flow: passed"
+          } >> "${GITHUB_STEP_SUMMARY}"
