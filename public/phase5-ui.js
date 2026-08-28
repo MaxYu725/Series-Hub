@@ -11,6 +11,7 @@ const TITLE_REGION_LABELS = Object.freeze({ HK: "香港", TW: "台灣", CN: "中
 function boot() {
   const myButton = document.querySelector("#my-shows-filter");
   const showGrid = document.querySelector("#show-grid");
+  const contentPanel = document.querySelector(".content-panel");
   const scheduleList = document.querySelector("#schedule-list");
   const viewTitle = document.querySelector("#view-title");
   const viewKicker = document.querySelector("#view-kicker");
@@ -19,6 +20,8 @@ function boot() {
   const emptyState = document.querySelector("#empty-state");
   const emptyTitle = document.querySelector("#empty-title");
   const emptyCopy = document.querySelector("#empty-copy");
+  const emptyActions = document.querySelector("#empty-actions");
+  const retryViewButton = document.querySelector("#retry-view-button");
   const searchInput = document.querySelector("#search-input");
   const regionSelect = document.querySelector("#title-region-select");
   if (!myButton || !showGrid || !scheduleList || !viewTitle || !searchInput || !regionSelect) return;
@@ -137,12 +140,28 @@ function boot() {
     emptyCopy.textContent = "到播映中、即將播映或計劃播出，按「+ 追蹤」即可加入我的劇集。";
   }
 
+  async function fetchMyShows(params, timeoutMs = 12000) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`/api/shows?${params}`, { cache: "no-store", signal: controller.signal });
+      if (!response.ok) throw new Error(`Shows ${response.status}`);
+      return await response.json();
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
   async function loadMyShows() {
     const activeRequest = ++requestId;
     showGrid.hidden = false;
     scheduleList.hidden = true;
+    contentPanel?.setAttribute("aria-busy", "true");
     showGrid.replaceChildren();
     emptyState.hidden = true;
+    emptyState.removeAttribute("data-state");
+    if (emptyActions) emptyActions.hidden = true;
+    if (retryViewButton) retryViewButton.hidden = true;
     showCount.textContent = "載入中…";
     viewKicker.textContent = "MY SHOWS";
     viewTitle.textContent = "我的劇集";
@@ -150,20 +169,18 @@ function boot() {
 
     if (trackedIds.length === 0) {
       showCount.textContent = "0 套";
+      contentPanel?.setAttribute("aria-busy", "false");
       renderEmpty();
       return;
     }
 
     try {
-      const responses = await Promise.all(STATUS_ORDER.map((status) => {
+      const payloads = await Promise.all(STATUS_ORDER.map((status) => {
         const params = new URLSearchParams({ status, limit: "100", region: titleRegion() });
         const query = searchInput.value.trim();
         if (query) params.set("q", query);
-        return fetch(`/api/shows?${params}`, { cache: "no-store" });
+        return fetchMyShows(params);
       }));
-      if (activeRequest !== requestId || !myActive) return;
-      for (const response of responses) if (!response.ok) throw new Error(`Shows ${response.status}`);
-      const payloads = await Promise.all(responses.map((response) => response.json()));
       if (activeRequest !== requestId || !myActive) return;
 
       const tracked = new Set(trackedIds);
@@ -193,8 +210,15 @@ function boot() {
       console.error(error);
       showCount.textContent = "讀取失敗";
       emptyState.hidden = false;
+      emptyState.dataset.state = "error";
       emptyTitle.textContent = "我的劇集暫時無法讀取";
-      emptyCopy.textContent = "追蹤清單仍保留在這個瀏覽器，稍後重新開啟即可。";
+      emptyCopy.textContent = error?.name === "AbortError"
+        ? "連線等候超過 12 秒。追蹤清單仍保留在這個瀏覽器，可立即重新載入。"
+        : "追蹤清單仍保留在這個瀏覽器，可立即重新載入。";
+      if (emptyActions) emptyActions.hidden = false;
+      if (retryViewButton) retryViewButton.hidden = false;
+    } finally {
+      if (activeRequest === requestId && myActive) contentPanel?.setAttribute("aria-busy", "false");
     }
   }
 
@@ -240,6 +264,10 @@ function boot() {
     window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(loadMyShows, 250);
   }, true);
+
+  window.addEventListener("series-hub:retry", (event) => {
+    if (event?.detail?.view === "my-shows" && myActive) loadMyShows();
+  });
 
   const observer = new MutationObserver(() => {
     if (!myActive) decorateTrackingButtons();

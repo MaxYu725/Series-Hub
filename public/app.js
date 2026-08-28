@@ -42,12 +42,14 @@ const state = {
   query: "",
   titleRegion: storedTitleRegion(),
   loading: false,
+  error: null,
   requestId: 0
 };
 
 const healthText = document.querySelector("#health-text");
 const syncText = document.querySelector("#sync-text");
 const statusDot = document.querySelector("#status-dot");
+const contentPanel = document.querySelector(".content-panel");
 const viewTitle = document.querySelector("#view-title");
 const viewKicker = document.querySelector("#view-kicker");
 const viewContext = document.querySelector("#view-context");
@@ -57,6 +59,8 @@ const scheduleList = document.querySelector("#schedule-list");
 const emptyState = document.querySelector("#empty-state");
 const emptyTitle = document.querySelector("#empty-title");
 const emptyCopy = document.querySelector("#empty-copy");
+const emptyActions = document.querySelector("#empty-actions");
+const retryViewButton = document.querySelector("#retry-view-button");
 const searchInput = document.querySelector("#search-input");
 const titleRegionSelect = document.querySelector("#title-region-select");
 
@@ -355,6 +359,54 @@ function renderSchedule() {
   }
 }
 
+function createCatalogSkeleton() {
+  const card = document.createElement("article");
+  card.className = "loading-skeleton-card";
+  card.setAttribute("aria-hidden", "true");
+  const poster = document.createElement("div");
+  poster.className = "loading-skeleton-poster";
+  const lines = document.createElement("div");
+  lines.className = "loading-skeleton-lines";
+  for (const className of ["loading-skeleton-line", "loading-skeleton-line short", "loading-skeleton-line tiny"]) {
+    const line = document.createElement("div");
+    line.className = className;
+    lines.append(line);
+  }
+  card.append(poster, lines);
+  return card;
+}
+
+function createScheduleSkeletonRow() {
+  const row = document.createElement("div");
+  row.className = "loading-skeleton-row";
+  row.setAttribute("aria-hidden", "true");
+  const thumb = document.createElement("div");
+  thumb.className = "loading-skeleton-thumb";
+  const lines = document.createElement("div");
+  lines.className = "loading-skeleton-lines";
+  for (const className of ["loading-skeleton-line", "loading-skeleton-line short", "loading-skeleton-line tiny"]) {
+    const line = document.createElement("div");
+    line.className = className;
+    lines.append(line);
+  }
+  const time = document.createElement("div");
+  time.className = "loading-skeleton-time";
+  row.append(thumb, lines, time);
+  return row;
+}
+
+function renderLoadingPlaceholders(isSchedule) {
+  if (!state.loading) return;
+  if (isSchedule && state.episodes.length === 0) {
+    const shell = document.createElement("div");
+    shell.className = "loading-skeleton-list";
+    for (let index = 0; index < 4; index += 1) shell.append(createScheduleSkeletonRow());
+    scheduleList.replaceChildren(shell);
+  } else if (!isSchedule && state.shows.length === 0) {
+    showGrid.replaceChildren(...Array.from({ length: 6 }, createCatalogSkeleton));
+  }
+}
+
 function render() {
   const view = views[state.view];
   const isSchedule = view.type === "schedule";
@@ -365,15 +417,37 @@ function render() {
     ? `中文名優先使用${regionLabel}譯名；時間有精確 timestamp 時按 ${browserTimeZone} 顯示。`
     : `中文名優先使用${regionLabel}譯名；缺少時才跨區 fallback。基礎分類由 TMDB 主資料正規化；如有官方 lifecycle evidence 會另行標示。`;
 
+  contentPanel?.setAttribute("aria-busy", String(state.loading));
+  emptyState.removeAttribute("data-state");
+  emptyActions.hidden = true;
+  retryViewButton.hidden = true;
   showGrid.hidden = isSchedule;
   scheduleList.hidden = !isSchedule;
   showGrid.replaceChildren();
   if (isSchedule) renderSchedule();
   else for (const show of state.shows) showGrid.append(createShowCard(show));
+  renderLoadingPlaceholders(isSchedule);
 
   const count = isSchedule ? state.episodes.length : state.shows.length;
   showCount.textContent = state.loading ? "載入中…" : isSchedule ? `${count} 集` : `${count} 套`;
-  const isEmpty = !state.loading && count === 0;
+  if (state.loading) {
+    emptyState.hidden = true;
+    return;
+  }
+
+  if (state.error) {
+    emptyState.hidden = false;
+    emptyState.dataset.state = "error";
+    emptyTitle.textContent = isSchedule ? "排程暫時無法載入" : "劇集暫時無法載入";
+    emptyCopy.textContent = state.error === "timeout"
+      ? "連線等候超過 12 秒。可立即重試；追蹤及追劇狀態不受影響。"
+      : "網絡或 API 暫時無法回應。可立即重試；本機追蹤資料不會被清除。";
+    emptyActions.hidden = false;
+    retryViewButton.hidden = false;
+    return;
+  }
+
+  const isEmpty = count === 0;
   emptyState.hidden = !isEmpty;
 
   if (!isEmpty) return;
@@ -389,12 +463,22 @@ function render() {
   }
 }
 
+async function fetchJson(url, label, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+    if (!response.ok) throw new Error(`${label} ${response.status}`);
+    return await response.json();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 async function loadCatalog(view, requestId) {
   const params = new URLSearchParams({ status: view.status, limit: "60", region: state.titleRegion });
   if (state.query) params.set("q", state.query);
-  const response = await fetch(`/api/shows?${params}`, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Shows ${response.status}`);
-  const payload = await response.json();
+  const payload = await fetchJson(`/api/shows?${params}`, "Shows");
   if (requestId !== state.requestId) return;
   state.shows = Array.isArray(payload.data) ? payload.data : [];
   state.episodes = [];
@@ -405,9 +489,7 @@ async function loadSchedule(view, requestId) {
   const from = addDateKeyDays(today, -1);
   const apiDays = Math.min(view.days + 2, 14);
   const params = new URLSearchParams({ from, days: String(apiDays), region: state.titleRegion });
-  const response = await fetch(`/api/schedule?${params}`, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Schedule ${response.status}`);
-  const payload = await response.json();
+  const payload = await fetchJson(`/api/schedule?${params}`, "Schedule");
   if (requestId !== state.requestId) return;
   const windowEpisodes = scheduleWindow(payload.data, today, view.days, browserTimeZone);
   state.episodes = windowEpisodes.filter((episode) => matchesScheduleQuery(episode, state.query));
@@ -418,6 +500,7 @@ async function loadCurrentView() {
   const requestId = ++state.requestId;
   const view = views[state.view];
   state.loading = true;
+  state.error = null;
   render();
 
   try {
@@ -428,11 +511,13 @@ async function loadCurrentView() {
     console.error(error);
     state.shows = [];
     state.episodes = [];
+    state.error = error?.name === "AbortError" ? "timeout" : "request";
     setHealth("error", view.type === "schedule" ? "排程 API 暫時無法讀取" : "劇集 API 暫時無法讀取");
   } finally {
     if (requestId === state.requestId) {
       state.loading = false;
       render();
+      if (!state.error && statusDot.classList.contains("error")) loadSystemStatus();
     }
   }
 }
@@ -485,6 +570,13 @@ titleRegionSelect.addEventListener("change", () => {
   if (!Object.hasOwn(TITLE_REGION_LABELS, region) || region === state.titleRegion) return;
   state.titleRegion = region;
   saveTitleRegion(region);
+  state.shows = [];
+  state.episodes = [];
+  loadCurrentView();
+});
+
+window.addEventListener("series-hub:retry", (event) => {
+  if (event?.detail?.view === "my-shows") return;
   state.shows = [];
   state.episodes = [];
   loadCurrentView();
