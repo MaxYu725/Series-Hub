@@ -48,7 +48,7 @@ test("Phase 7C normalizes HK and US JustWatch provider groups without inventing 
   });
 
   assert.equal(normalized.regions.HK.available, true);
-  assert.equal(normalized.regions.HK.flatrate.length, undefined);
+  assert.equal(normalized.regions.HK.groups.flatrate.length, 2);
   assert.deepEqual(normalized.regions.HK.groups.flatrate.map((provider) => provider.provider_id), [350, 8]);
   assert.equal(normalized.regions.HK.groups.rent[0].name, "Apple TV");
   assert.match(normalized.regions.HK.groups.flatrate[0].logo_url, /image\.tmdb\.org\/t\/p\/w92\/apple\.jpg$/);
