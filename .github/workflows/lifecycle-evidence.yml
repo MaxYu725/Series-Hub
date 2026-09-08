@@ -49,6 +49,10 @@ on:
           - netflix_media_center
           - netflix_tudum
           - fox_flash
+          - paramount_press_express
+          - nbcuniversal_newsroom
+          - disney_newsroom
+          - amc_networks_press
       source_url:
         description: "Exact official evidence URL"
         required: false
