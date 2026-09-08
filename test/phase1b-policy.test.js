@@ -7,6 +7,7 @@ import {
   candidateRotationOffset,
   isIncludedUsScriptedSeries,
   isTargetNetworkSeries,
+  networkDiscoveryPage,
   networkDiscoveryParams,
   normalizeLifecycle,
   selectNetworkSeedsForSync,
@@ -141,6 +142,40 @@ test("network discovery rotation is deterministic and wraps without duplicates i
 
   assert.deepEqual(first, second);
   assert.equal(new Set(first.map((seed) => seed.name)).size, first.length);
+});
+
+test("Phase 7A.1 rotates each network through TMDB pages one to three without adding requests", () => {
+  const seed = CORE_NETWORK_SEEDS.find((item) => item.name === "Paramount+");
+  assert.ok(seed);
+
+  const pages = [0, 6, 12].map((hours) =>
+    networkDiscoveryPage(seed, new Date(NOW.getTime() + hours * 60 * 60 * 1000))
+  );
+
+  assert.deepEqual([...new Set(pages)].sort((a, b) => a - b), [1, 2, 3]);
+  assert.equal(TMDB_SYNC_BUDGET.networkDiscoveryRequests, 6);
+  assert.equal(TMDB_SYNC_BUDGET.totalExternalRequests, 48);
+});
+
+test("Phase 7A.1 active seed rotation covers every dedicated network on all three pages within 21 slots", () => {
+  const coverage = new Map(CORE_NETWORK_SEEDS.map((seed) => [seed.name, new Set()]));
+
+  for (let slot = 0; slot < 21; slot += 1) {
+    const now = new Date(NOW.getTime() + slot * 6 * 60 * 60 * 1000);
+    const active = selectNetworkSeedsForSync(
+      CORE_NETWORK_SEEDS,
+      TMDB_SYNC_BUDGET.networkDiscoveryRequests,
+      now
+    );
+
+    for (const seed of active) {
+      coverage.get(seed.name).add(networkDiscoveryPage(seed, now));
+    }
+  }
+
+  for (const seed of CORE_NETWORK_SEEDS) {
+    assert.deepEqual([...coverage.get(seed.name)].sort((a, b) => a - b), [1, 2, 3], seed.name);
+  }
 });
 
 test("FOX discovery uses a rolling three-year first-air window without changing request count", () => {
