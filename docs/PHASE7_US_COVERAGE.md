@@ -62,9 +62,9 @@ TMDB-derived catalog lifecycle remains independent from attributed official evid
 
 ## Phase 7B.1 — Real-source evidence validation
 
-**Status:** implementation validation.
+**Status:** production-accepted on 2026-09-08.
 
-Phase 7B.1 validates each Phase 7B publisher against a real show already present in production. The selected cases are intentionally identity-first and fixed to both the Series Hub show ID and TMDB ID:
+Phase 7B.1 validated each Phase 7B publisher against a real show already present in production. The selected cases are intentionally identity-first and fixed to both the Series Hub show ID and TMDB ID:
 
 | Publisher | Production show | Evidence | Normalized event |
 | --- | --- | --- | --- |
@@ -75,11 +75,54 @@ Phase 7B.1 validates each Phase 7B publisher against a real show already present
 
 The Shōgun item is deliberately **not** represented as filming evidence: Disney's announcement said production timing was not yet locked. The normalized `ordered` event records the future-season commitment without asserting a production state that the source did not establish.
 
-The AMC validation uses the archival `amcnetworks.com/press-releases/` URL because that is the currently registered source identity. The URL now redirects to AMC Global Media after AMC's 2026 corporate-domain transition, but the original official URL remains a valid archival source and preserves the Phase 7B whitelist contract.
+The AMC 7B.1 validation keeps the archival `amcnetworks.com/press-releases/` identity for pre-transition evidence.
 
-### Phase 7B.2 follow-up — AMC Global Media
+## Phase 7B.2 — AMC Global Media current press surface
 
-Current AMC corporate press releases are now published on `amcglobalmedia.com`. Phase 7B.2 should register that new official publishing surface non-destructively while retaining the archival `amc_networks_press` source for older evidence. The whitelist must not be silently widened inside 7B.1.
+**Status:** implementation and production migration completed on 2026-09-08; final workflow/CI acceptance follows this change set.
+
+AMC's current corporate entertainment press releases are now published on `amcglobalmedia.com`, with exact release permalinks following a dated path such as:
+
+```text
+https://www.amcglobalmedia.com/2026/05/15/...
+```
+
+Phase 7B.2 therefore adds a separate source identity:
+
+```text
+amc_global_media_press
+```
+
+Registered prefix:
+
+```text
+https://www.amcglobalmedia.com/20
+```
+
+The `/20` path prefix is intentional. It accepts dated release permalinks for current years while avoiding a broad whitelist of the entire AMC Global Media website. The existing `amc_networks_press` row is retained unchanged for archival evidence.
+
+### Real-source validation
+
+The first current-domain evidence item is:
+
+| Publisher | Production show | Evidence | Normalized event |
+| --- | --- | --- | --- |
+| AMC Global Media Press | The Walking Dead: Dead City (`show_id=1980`, `tmdb_id=194583`) | Season 3 dated for July 26, 2026 | `premiere_dated`, season 3 |
+
+The evidence migration is fixed to both production `show_id` and TMDB ID and therefore fails closed if catalog identity drifts. It does not synthesize a show or season identity.
+
+### Editorial workflow
+
+The browser-operated lifecycle workflow exposes both AMC source identities:
+
+- `amc_networks_press` — archival AMC Networks releases;
+- `amc_global_media_press` — current dated AMC Global Media releases.
+
+No automatic AMC scraper is introduced in 7B.2.
+
+### Migration numbering note
+
+`0017_phase7b2_amc_global_media.sql` was committed as an accidental no-op containing only `PRAGMA foreign_keys = ON;`. Because production migrations are immutable once applied, it is retained as a harmless reserved migration number. The actual Phase 7B.2 source/evidence change is `0018_phase7b2_amc_global_media.sql`.
 
 ## Deferred from Phase 7A/7B
 
