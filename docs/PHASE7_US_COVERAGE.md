@@ -79,7 +79,7 @@ The AMC 7B.1 validation keeps the archival `amcnetworks.com/press-releases/` ide
 
 ## Phase 7B.2 — AMC Global Media current press surface
 
-**Status:** implementation and production migration completed on 2026-09-08; final workflow/CI acceptance follows this change set.
+**Status:** production-accepted on 2026-09-08.
 
 AMC's current corporate entertainment press releases are now published on `amcglobalmedia.com`, with exact release permalinks following a dated path such as:
 
@@ -110,6 +110,8 @@ The first current-domain evidence item is:
 | AMC Global Media Press | The Walking Dead: Dead City (`show_id=1980`, `tmdb_id=194583`) | Season 3 dated for July 26, 2026 | `premiere_dated`, season 3 |
 
 The evidence migration is fixed to both production `show_id` and TMDB ID and therefore fails closed if catalog identity drifts. It does not synthesize a show or season identity.
+
+Production acceptance independently queried `/api/shows/1980/lifecycle` and confirmed the exact evidence fingerprint `b0fea84fd2ac38eb59cd7bfe66be2a2bda3ff880b5db9a9085de470a5c2656f2` with `season_number=3`, `event_type=premiere_dated`, `source_key=amc_global_media_press`, `confidence=official` and `is_retracted=0`. The temporary diagnostic suite passed 192/192 and was closed without merge.
 
 ### Editorial workflow
 
