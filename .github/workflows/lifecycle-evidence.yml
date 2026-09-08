@@ -53,6 +53,7 @@ on:
           - nbcuniversal_newsroom
           - disney_newsroom
           - amc_networks_press
+          - amc_global_media_press
       source_url:
         description: "Exact official evidence URL"
         required: false
