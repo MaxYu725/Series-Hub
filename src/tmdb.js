@@ -6,6 +6,7 @@ const ACTIVE_CATALOG_STATUSES = new Set(["airing", "upcoming", "planned"]);
 const EXCLUDED_GENRE_IDS = new Set([16, 99, 10762, 10763, 10764, 10767]);
 const EXCLUDED_DISCOVER_GENRES = [...EXCLUDED_GENRE_IDS].join("|");
 const NETWORK_DISCOVERY_REQUEST_LIMIT = 6;
+const NETWORK_DISCOVERY_PAGE_COUNT = 3;
 
 export const CORE_NETWORK_SEEDS = Object.freeze([
   { name: "Apple TV", tmdbNetworkId: 2552 },
@@ -96,6 +97,15 @@ export function networkDiscoveryParams(seed, now = new Date()) {
   }
 
   return params;
+}
+
+export function networkDiscoveryPage(seed, now = new Date()) {
+  const timestamp = now instanceof Date && Number.isFinite(now.getTime())
+    ? now.getTime()
+    : Date.now();
+  const sixHourSlot = Math.floor(timestamp / (6 * 60 * 60 * 1000));
+  const networkOffset = Math.abs(Math.trunc(Number(seed?.tmdbNetworkId) || 0)) % NETWORK_DISCOVERY_PAGE_COUNT;
+  return 1 + ((sixHourSlot + networkOffset) % NETWORK_DISCOVERY_PAGE_COUNT);
 }
 
 export function selectNetworkSeedsForSync(
@@ -698,9 +708,13 @@ export async function syncTmdbCatalog(env, options = {}) {
       TMDB_SYNC_BUDGET.networkDiscoveryRequests,
       now
     );
+    const networkDiscoveries = activeNetworkSeeds.map((seed) => ({
+      seed,
+      page: networkDiscoveryPage(seed, now)
+    }));
     const networkFeeds = [];
-    for (const seed of activeNetworkSeeds) {
-      const networkResult = await discoverCandidates(env, 1, networkDiscoveryParams(seed, now));
+    for (const { seed, page } of networkDiscoveries) {
+      const networkResult = await discoverCandidates(env, page, networkDiscoveryParams(seed, now));
       networkFeeds.push(networkResult.results || []);
     }
 
@@ -767,6 +781,7 @@ export async function syncTmdbCatalog(env, options = {}) {
       recordsChanged,
       discoveryRequests: candidateFeeds.length,
       networkSeeds: activeNetworkSeeds.map((seed) => seed.name),
+      networkPages: networkDiscoveries.map(({ seed, page }) => ({ name: seed.name, page })),
       externalRequestBudget: candidateFeeds.length + selectedCandidates.length,
       warnings: warnings.length
     };
