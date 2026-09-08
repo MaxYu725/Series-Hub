@@ -12,5 +12,9 @@ test("Phase 4F keeps genre persistence wired to genre_id", () => {
 test("Phase 4F applies the recent first-air window only through network discovery params", () => {
   assert.match(source, /networkDiscoveryParams\(seed, now\)/);
   assert.match(source, /recentFirstAirYears: 3/);
-  assert.match(source, /totalExternalRequests: 2 \+ CORE_NETWORK_SEEDS\.length \+ 40/);
+  assert.match(source, /NETWORK_DISCOVERY_REQUEST_LIMIT = 6/);
+  assert.match(
+    source,
+    /2 \+ Math\.min\(NETWORK_DISCOVERY_REQUEST_LIMIT, CORE_NETWORK_SEEDS\.length\) \+ 40/
+  );
 });

@@ -5,6 +5,7 @@ const INCLUDED_TYPES = new Set(["Scripted", "Miniseries"]);
 const ACTIVE_CATALOG_STATUSES = new Set(["airing", "upcoming", "planned"]);
 const EXCLUDED_GENRE_IDS = new Set([16, 99, 10762, 10763, 10764, 10767]);
 const EXCLUDED_DISCOVER_GENRES = [...EXCLUDED_GENRE_IDS].join("|");
+const NETWORK_DISCOVERY_REQUEST_LIMIT = 6;
 
 export const CORE_NETWORK_SEEDS = Object.freeze([
   { name: "Apple TV", tmdbNetworkId: 2552 },
@@ -12,15 +13,24 @@ export const CORE_NETWORK_SEEDS = Object.freeze([
   { name: "Prime Video", tmdbNetworkId: 1024 },
   { name: "FOX", tmdbNetworkId: 19, recentFirstAirYears: 3 },
   { name: "FX", tmdbNetworkId: 88 },
-  { name: "Netflix", tmdbNetworkId: 213 }
+  { name: "Netflix", tmdbNetworkId: 213 },
+  { name: "Paramount+", tmdbNetworkId: 4330 },
+  { name: "CBS", tmdbNetworkId: 16 },
+  { name: "NBC", tmdbNetworkId: 6 },
+  { name: "Peacock", tmdbNetworkId: 3353 },
+  { name: "Disney+", tmdbNetworkId: 2739 },
+  { name: "Hulu", tmdbNetworkId: 453 },
+  { name: "AMC", tmdbNetworkId: 174 },
+  { name: "AMC+", tmdbNetworkId: 4661 }
 ]);
 
 export const TMDB_SYNC_BUDGET = Object.freeze({
   broadDiscoveryRequests: 1,
   scheduleDiscoveryRequests: 1,
-  networkDiscoveryRequests: CORE_NETWORK_SEEDS.length,
+  networkDiscoveryRequests: Math.min(NETWORK_DISCOVERY_REQUEST_LIMIT, CORE_NETWORK_SEEDS.length),
   detailRequests: 40,
-  totalExternalRequests: 2 + CORE_NETWORK_SEEDS.length + 40
+  totalExternalRequests:
+    2 + Math.min(NETWORK_DISCOVERY_REQUEST_LIMIT, CORE_NETWORK_SEEDS.length) + 40
 });
 
 const TARGET_NETWORK_NAMES = new Set(
@@ -86,6 +96,33 @@ export function networkDiscoveryParams(seed, now = new Date()) {
   }
 
   return params;
+}
+
+export function selectNetworkSeedsForSync(
+  seeds = CORE_NETWORK_SEEDS,
+  limit = TMDB_SYNC_BUDGET.networkDiscoveryRequests,
+  now = new Date()
+) {
+  const source = Array.isArray(seeds) ? seeds.filter(Boolean) : [];
+  if (source.length === 0) return [];
+
+  const safeLimit = Math.min(
+    source.length,
+    Math.max(0, Math.trunc(Number(limit) || 0))
+  );
+  if (safeLimit === 0) return [];
+  if (safeLimit >= source.length) return [...source];
+
+  const timestamp = now instanceof Date && Number.isFinite(now.getTime())
+    ? now.getTime()
+    : Date.now();
+  const sixHourSlot = Math.floor(timestamp / (6 * 60 * 60 * 1000));
+  const start = (sixHourSlot * safeLimit) % source.length;
+
+  return Array.from(
+    { length: safeLimit },
+    (_, index) => source[(start + index) % source.length]
+  );
 }
 
 export function tmdbImageUrl(path, size = "w500") {
@@ -656,8 +693,13 @@ export async function syncTmdbCatalog(env, options = {}) {
 
   try {
     const now = new Date();
+    const activeNetworkSeeds = selectNetworkSeedsForSync(
+      CORE_NETWORK_SEEDS,
+      TMDB_SYNC_BUDGET.networkDiscoveryRequests,
+      now
+    );
     const networkFeeds = [];
-    for (const seed of CORE_NETWORK_SEEDS) {
+    for (const seed of activeNetworkSeeds) {
       const networkResult = await discoverCandidates(env, 1, networkDiscoveryParams(seed, now));
       networkFeeds.push(networkResult.results || []);
     }
@@ -724,6 +766,7 @@ export async function syncTmdbCatalog(env, options = {}) {
       candidateOffset,
       recordsChanged,
       discoveryRequests: candidateFeeds.length,
+      networkSeeds: activeNetworkSeeds.map((seed) => seed.name),
       externalRequestBudget: candidateFeeds.length + selectedCandidates.length,
       warnings: warnings.length
     };
