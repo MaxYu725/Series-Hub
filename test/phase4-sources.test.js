@@ -29,10 +29,30 @@ const SOURCES = [
     key: "fox_flash",
     base: "https://www.foxflash.com/",
     valid: "https://www.foxflash.com/releases/view/example-renewal"
+  },
+  {
+    key: "paramount_press_express",
+    base: "https://www.paramountpressexpress.com/",
+    valid: "https://www.paramountpressexpress.com/paramount-plus/shows/example/releases/"
+  },
+  {
+    key: "nbcuniversal_newsroom",
+    base: "https://www.nbcuniversal.com/article/",
+    valid: "https://www.nbcuniversal.com/article/peacock-renews-five-star-weekend-second-season"
+  },
+  {
+    key: "disney_newsroom",
+    base: "https://thewaltdisneycompany.com/news/",
+    valid: "https://thewaltdisneycompany.com/news/bear-fx-renewed-season-five/"
+  },
+  {
+    key: "amc_networks_press",
+    base: "https://www.amcnetworks.com/press-releases/",
+    valid: "https://www.amcnetworks.com/press-releases/amc-renews-example-series/"
   }
 ];
 
-test("Phase 4 official source URLs match their registered HTTPS bases", () => {
+test("Phase 4 and Phase 7 official source URLs match their registered HTTPS bases", () => {
   for (const source of SOURCES) {
     assert.equal(sourceUrlMatchesBase(source.valid, source.base), true, source.key);
   }
@@ -67,12 +87,34 @@ test("official source validation rejects lookalike hosts and out-of-scope paths"
     ),
     false
   );
+  assert.equal(
+    sourceUrlMatchesBase(
+      "https://www.nbcuniversal.com/newsroom/example",
+      "https://www.nbcuniversal.com/article/"
+    ),
+    false
+  );
+  assert.equal(
+    sourceUrlMatchesBase(
+      "https://thewaltdisneycompany.com/investor-relations/example",
+      "https://thewaltdisneycompany.com/news/"
+    ),
+    false
+  );
+  assert.equal(
+    sourceUrlMatchesBase(
+      "https://investors.amcnetworks.com/news-releases/example",
+      "https://www.amcnetworks.com/press-releases/"
+    ),
+    false
+  );
 });
 
 test("source migrations and browser editorial workflow expose the same official source keys", () => {
   const phase4c = fs.readFileSync(new URL("../migrations/0009_phase4c_official_sources.sql", import.meta.url), "utf8");
   const phase4e = fs.readFileSync(new URL("../migrations/0011_phase4e_netflix_tudum_source.sql", import.meta.url), "utf8");
-  const migrations = `${phase4c}\n${phase4e}`;
+  const phase7b = fs.readFileSync(new URL("../migrations/0015_phase7b_official_sources.sql", import.meta.url), "utf8");
+  const migrations = `${phase4c}\n${phase4e}\n${phase7b}`;
   const workflow = fs.readFileSync(new URL("../.github/workflows/lifecycle-evidence.yml", import.meta.url), "utf8");
 
   for (const source of SOURCES) {
