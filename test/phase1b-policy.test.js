@@ -9,6 +9,7 @@ import {
   isTargetNetworkSeries,
   networkDiscoveryParams,
   normalizeLifecycle,
+  selectNetworkSeedsForSync,
   selectRoundRobinCandidates
 } from "../src/tmdb.js";
 
@@ -85,16 +86,61 @@ test("non-scripted genres are excluded even when TMDB type says Scripted", () =>
   assert.equal(isIncludedUsScriptedSeries(series()), true);
 });
 
-test("core network seeds include FX and remain within the Worker subrequest budget", () => {
-  const names = CORE_NETWORK_SEEDS.map((seed) => seed.name);
-  for (const required of ["Apple TV", "HBO", "Prime Video", "FOX", "FX", "Netflix"]) {
-    assert.ok(names.includes(required), required);
+test("dedicated discovery covers major US groups while preserving the Worker request budget", () => {
+  const seeds = new Map(CORE_NETWORK_SEEDS.map((seed) => [seed.name, seed.tmdbNetworkId]));
+  const expected = new Map([
+    ["Apple TV", 2552],
+    ["HBO", 49],
+    ["Prime Video", 1024],
+    ["FOX", 19],
+    ["FX", 88],
+    ["Netflix", 213],
+    ["Paramount+", 4330],
+    ["CBS", 16],
+    ["NBC", 6],
+    ["Peacock", 3353],
+    ["Disney+", 2739],
+    ["Hulu", 453],
+    ["AMC", 174],
+    ["AMC+", 4661]
+  ]);
+
+  for (const [name, id] of expected) {
+    assert.equal(seeds.get(name), id, name);
   }
 
+  assert.equal(CORE_NETWORK_SEEDS.length, 14);
   assert.equal(TMDB_SYNC_BUDGET.networkDiscoveryRequests, 6);
   assert.equal(TMDB_SYNC_BUDGET.detailRequests, 40);
   assert.equal(TMDB_SYNC_BUDGET.totalExternalRequests, 48);
   assert.ok(TMDB_SYNC_BUDGET.totalExternalRequests <= 50);
+});
+
+test("rotating network discovery reaches every dedicated seed within three sync slots", () => {
+  const slots = [0, 6, 12].map((hour) =>
+    selectNetworkSeedsForSync(
+      CORE_NETWORK_SEEDS,
+      TMDB_SYNC_BUDGET.networkDiscoveryRequests,
+      new Date(`2026-08-24T${String(hour).padStart(2, "0")}:00:00Z`)
+    )
+  );
+
+  for (const slot of slots) {
+    assert.equal(slot.length, 6);
+  }
+
+  const covered = new Set(slots.flat().map((seed) => seed.name));
+  for (const seed of CORE_NETWORK_SEEDS) {
+    assert.ok(covered.has(seed.name), seed.name);
+  }
+});
+
+test("network discovery rotation is deterministic and wraps without duplicates inside one slot", () => {
+  const first = selectNetworkSeedsForSync(CORE_NETWORK_SEEDS, 6, NOW);
+  const second = selectNetworkSeedsForSync(CORE_NETWORK_SEEDS, 6, NOW);
+
+  assert.deepEqual(first, second);
+  assert.equal(new Set(first.map((seed) => seed.name)).size, first.length);
 });
 
 test("FOX discovery uses a rolling three-year first-air window without changing request count", () => {
@@ -105,7 +151,7 @@ test("FOX discovery uses a rolling three-year first-air window without changing 
     with_networks: 19,
     "first_air_date.gte": "2023-01-01"
   });
-  assert.equal(TMDB_SYNC_BUDGET.networkDiscoveryRequests, CORE_NETWORK_SEEDS.length);
+  assert.equal(TMDB_SYNC_BUDGET.networkDiscoveryRequests, 6);
   assert.equal(TMDB_SYNC_BUDGET.totalExternalRequests, 48);
 });
 
@@ -145,7 +191,6 @@ test("round-robin candidate selection de-duplicates IDs without starving later f
     [1, 3, 4, 2]
   );
 });
-
 
 test("candidate rotation advances page-one slices across six-hour sync slots", () => {
   const feeds = Array.from({ length: 8 }, (_, feedIndex) =>
