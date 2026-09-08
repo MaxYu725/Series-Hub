@@ -13,14 +13,15 @@ const stateJs = readFileSync(join(root, "public", "phase6c-state.js"), "utf8");
 const stateCss = readFileSync(join(root, "public", "phase6c-state.css"), "utf8");
 const worker = readFileSync(join(root, "src", "phase6-worker.js"), "utf8");
 
-test("Phase 6C loads after the accepted 6B detail layers", () => {
+test("Phase 6C remains loaded after 6B and beneath later Phase 7 detail layers", () => {
   assert.match(html, /phase6c\.css/);
   assert.match(html, /phase6c-state\.css/);
   assert.match(html, /phase6c-ui\.js/);
   assert.match(html, /phase6c-state\.js/);
   assert.ok(html.indexOf("phase6b-ui.js") < html.indexOf("phase6c-ui.js"));
   assert.ok(html.indexOf("phase6c-ui.js") < html.indexOf("phase6c-state.js"));
-  assert.match(html, /Phase 6C/);
+  assert.ok(html.indexOf("phase6c-state.js") < html.indexOf("phase7c-ui.js"));
+  assert.match(html, /Phase 7C/);
 });
 
 test("Phase 6C exposes a read-only per-season episode route without a schema change", () => {
