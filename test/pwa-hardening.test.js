@@ -80,7 +80,11 @@ test("PWA client exposes explicit install and user-controlled update lifecycle",
   assert.match(pwa, /updatefound/);
   assert.match(pwa, /SKIP_WAITING/);
   assert.match(pwa, /controllerchange/);
-  assert.doesNotMatch(sw, /addEventListener\("install"[\s\S]*?self\.skipWaiting\(\)/);
+
+  const installStart = sw.indexOf('self.addEventListener("install"');
+  const activateStart = sw.indexOf('self.addEventListener("activate"', installStart);
+  const installBlock = sw.slice(installStart, activateStart);
+  assert.doesNotMatch(installBlock, /skipWaiting/);
 });
 
 test("standalone UI accounts for mobile safe areas and minimum action target", () => {
