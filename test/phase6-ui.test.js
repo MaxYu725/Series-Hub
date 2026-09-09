@@ -2,13 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [html, script, navigation, css, worker, phase7Worker, details, wrangler] = await Promise.all([
+const [html, script, navigation, css, worker, phase7Worker, phase8Worker, details, wrangler] = await Promise.all([
   readFile(new URL("../public/show.html", import.meta.url), "utf8"),
   readFile(new URL("../public/show-details.js", import.meta.url), "utf8"),
   readFile(new URL("../public/phase6-ui.js", import.meta.url), "utf8"),
   readFile(new URL("../public/phase6.css", import.meta.url), "utf8"),
   readFile(new URL("../src/phase6-worker.js", import.meta.url), "utf8"),
   readFile(new URL("../src/phase7-worker.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/phase8-worker.js", import.meta.url), "utf8"),
   readFile(new URL("../src/phase6-details.js", import.meta.url), "utf8"),
   readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8")
 ]);
@@ -39,11 +40,13 @@ test("Phase 6A catalog navigation uses stable show ids without mutating card con
   assert.doesNotMatch(navigation, /innerHTML\s*=/);
 });
 
-test("Phase 6A mobile detail layout and worker route remain present under the Phase 7 wrapper", () => {
+test("Phase 6A mobile detail layout and worker route remain present under later Phase wrappers", () => {
   assert.match(css, /@media \(max-width: 600px\)/);
   assert.match(css, /detail-image-gallery/);
   assert.match(worker, /\/details\$/);
-  assert.match(wrangler, /phase7-worker\.js/);
+  assert.match(wrangler, /phase8-worker\.js/);
+  assert.match(phase8Worker, /import phase7Worker from "\.\/phase7-worker\.js"/);
+  assert.match(phase8Worker, /return phase7Worker\.fetch\(request, env, ctx\);/);
   assert.match(phase7Worker, /import phase6Worker from "\.\/phase6-worker\.js"/);
   assert.match(phase7Worker, /return phase6Worker\.fetch\(request, env, ctx\);/);
 });

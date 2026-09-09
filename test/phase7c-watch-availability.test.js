@@ -5,11 +5,12 @@ import { readFile } from "node:fs/promises";
 import phase7Worker from "../src/phase7-worker.js";
 import { buildWatchAvailability, normalizeWatchProviders } from "../src/phase7-watch.js";
 
-const [html, ui, css, wrangler] = await Promise.all([
+const [html, ui, css, wrangler, phase8Worker] = await Promise.all([
   readFile(new URL("../public/show.html", import.meta.url), "utf8"),
   readFile(new URL("../public/phase7c-ui.js", import.meta.url), "utf8"),
   readFile(new URL("../public/phase7c.css", import.meta.url), "utf8"),
-  readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8")
+  readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
+  readFile(new URL("../src/phase8-worker.js", import.meta.url), "utf8")
 ]);
 
 function fakeDb(show = { id: 7, tmdb_id: 123, english_title: "Example", original_title: "Example" }) {
@@ -82,8 +83,10 @@ test("Phase 7C Worker route stays isolated from the accepted Phase 6 detail rout
   assert.equal(payload.meta.showId, 7);
 });
 
-test("Phase 7C detail UI keeps availability region separate and visibly attributes JustWatch", () => {
-  assert.match(wrangler, /src\/phase7-worker\.js/);
+test("Phase 7C detail UI keeps availability region separate and visibly attributes JustWatch under Phase 8", () => {
+  assert.match(wrangler, /src\/phase8-worker\.js/);
+  assert.match(phase8Worker, /import phase7Worker from "\.\/phase7-worker\.js"/);
+  assert.match(phase8Worker, /return phase7Worker\.fetch\(request, env, ctx\);/);
   assert.match(html, /phase7c\.css/);
   assert.match(html, /phase7c-ui\.js/);
   assert.match(html, /JustWatch/);
