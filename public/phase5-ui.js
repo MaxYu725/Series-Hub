@@ -4,6 +4,7 @@ import {
   saveTrackedShowIds,
   toggleTrackedShowId
 } from "./tracking.js";
+import { rememberCatalogSignals } from "./local-catalog-signals.js";
 
 const STATUS_ORDER = ["airing", "upcoming", "planned"];
 const TITLE_REGION_LABELS = Object.freeze({ HK: "香港", TW: "台灣", CN: "中國大陸" });
@@ -195,6 +196,7 @@ function boot() {
         }
       }
 
+      rememberCatalogSignals(shows);
       showGrid.replaceChildren(...shows.map(createMyCard));
       showCount.textContent = `${shows.length} 套`;
       emptyState.hidden = shows.length !== 0;
