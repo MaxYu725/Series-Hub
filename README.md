@@ -6,12 +6,12 @@ The core model is **series → seasons → episodes**. Season is first-class bec
 
 ## Current status
 
-**Phase 6 — Series detail experience: COMPLETE and production-accepted.**
+**Phase 7 — US Coverage Hardening: COMPLETE through 7D and production-accepted.**
 
-Current production checkpoint:
+Phase 7D production feature checkpoint:
 
 ```text
-da9c90a0c9fa187ddab857265b7036d881d685bc
+68414185d79222e597197923d1f2c63b901c56ef
 ```
 
 Production Worker:
@@ -20,21 +20,19 @@ Production Worker:
 https://series-hub.max-yu-jp.workers.dev
 ```
 
-Phase 5E US-series maturity closeout is also complete and production-accepted. The project is no longer blocked by the earlier Phase 5E-D acceptance gate.
+Phase 6 detail experience and the Phase 5E US-series maturity baseline remain accepted beneath Phase 7.
 
-Phase 6 was deliberately redefined from the old non-US-expansion idea into a first-class detail experience for the existing US-series catalog. It now includes:
+Phase 7 hardened the mature US-series product rather than restarting the retired international-expansion roadmap. It now includes:
 
-- dedicated detail page for every show;
-- HK / TW / CN preferred-title handling;
-- poster, backdrop, localized overview/tagline, network/platform, genres, rating and content rating;
-- recent/upcoming episode summary;
-- official lifecycle evidence;
-- trailers and media browser;
-- season selector and per-season episode explorer;
-- local My Shows and viewing-state controls;
-- horizontal rails for potentially long season, episode and secondary-video lists.
+- broader dedicated TMDB discovery across 14 major US networks/services;
+- bounded network-page and candidate-slice rotation while preserving the 48-request TMDB ceiling;
+- expanded verified official lifecycle press-source coverage;
+- current AMC Global Media support while retaining archival AMC Networks evidence;
+- HK and US watch-availability presentation through TMDB Watch Providers with required JustWatch attribution;
+- regional watch availability kept separate from original network/service identity;
+- production-proven Phase 7D catalog convergence improvements without synthetic show identities.
 
-See [`docs/PHASE6_ACCEPTANCE.md`](docs/PHASE6_ACCEPTANCE.md) and [`docs/PHASE6_DETAILS.md`](docs/PHASE6_DETAILS.md).
+See [`docs/PHASE7D_CATALOG_CONVERGENCE.md`](docs/PHASE7D_CATALOG_CONVERGENCE.md), [`docs/PHASE6_ACCEPTANCE.md`](docs/PHASE6_ACCEPTANCE.md) and [`docs/PHASE6_DETAILS.md`](docs/PHASE6_DETAILS.md).
 
 ## Completed roadmap
 
@@ -60,12 +58,16 @@ See [`docs/PHASE6_ACCEPTANCE.md`](docs/PHASE6_ACCEPTANCE.md) and [`docs/PHASE6_D
 - **Phase 6B — Complete:** full-screen media browser with touch/keyboard navigation and on-demand high-resolution images.
 - **Phase 6C — Complete:** season → episode explorer with TVmaze episode metadata and local viewing-state reuse.
 - **Phase 6C.1 — Complete:** long-list horizontal rails for seasons, selected-season episodes and secondary videos.
+- **Phase 7A / 7A.1 — Complete:** dedicated discovery expanded across major US network/service groups with bounded three-page rotation inside the existing request ceiling.
+- **Phase 7B / 7B.1 / 7B.2 — Complete:** official lifecycle source hardening, real evidence validation and current AMC Global Media permalink support.
+- **Phase 7C — Complete:** regional watch-availability layer for HK and US using TMDB Watch Providers with JustWatch attribution.
+- **Phase 7D — Complete:** per-network/per-page candidate-slice convergence repair; production acceptance recorded in `docs/PHASE7D_CATALOG_CONVERGENCE.md`.
 
 ## Next-phase rule
 
-**Do not automatically resume the old “Phase 6 = non-US expansion” plan.** That roadmap meaning was explicitly retired.
+**Do not automatically resume the old “Phase 6 = non-US expansion” plan.** That roadmap meaning was explicitly retired, and Phase 7 continued to mature the US product instead.
 
-The next product phase should be selected deliberately from the mature US-series baseline. Candidate directions may include broader discovery/search, additional product polish, stronger data coverage, new tracking capabilities or geographic expansion, but none is considered started until a new phase is explicitly chosen.
+**Phase 7 is closed through 7D.** Continued observation of bounded catalog convergence is normal operations, not an unfinished development phase. The next product phase should be selected deliberately from this mature US-series baseline. Plausible directions include deeper search/discovery, data-quality polish, additional explicitly justified notification classes, broader watch-availability markets or geographic catalog expansion.
 
 ## Product views
 
@@ -91,7 +93,7 @@ A show detail page can surface:
 - Chinese preferred title and English title;
 - poster and backdrop;
 - localized overview/tagline;
-- network/platform, genres, TMDB rating and US content rating;
+- original network/platform, genres, TMDB rating and US content rating;
 - first/last/next air information;
 - season and episode counts;
 - creators, type and official homepage;
@@ -100,6 +102,7 @@ A show detail page can surface:
 - YouTube trailers;
 - TMDB image gallery + full-screen lightbox;
 - season selector and per-season TVmaze episode cards;
+- HK / US regional watch availability where TMDB/JustWatch data exists;
 - local My Shows tracking and viewing state.
 
 Potentially unbounded repetitive card lists should prefer **horizontal scrolling**; long-form reading surfaces should remain vertical.
@@ -157,7 +160,7 @@ See [`docs/PHASE5D_NOTIFICATIONS.md`](docs/PHASE5D_NOTIFICATIONS.md).
 
 ## Data-source responsibilities
 
-### TMDB — canonical catalog metadata
+### TMDB — canonical catalog metadata + regional watch availability transport
 
 TMDB anchors:
 
@@ -170,7 +173,9 @@ TMDB anchors:
 - base catalog lifecycle classification;
 - external IDs used for exact cross-source mapping.
 
-On the detail page, live TMDB requests may additionally supply localized overview/tagline, content rating, creators, image indexes and video indexes. `TMDB_API_TOKEN` remains server-side.
+On the detail page, live TMDB requests may additionally supply localized overview/tagline, content rating, creators, image indexes, video indexes and Watch Providers data. `TMDB_API_TOKEN` remains server-side.
+
+Watch Providers are normalized only for the explicitly supported regions (currently HK and US) and retain required `JustWatch` attribution via TMDB. Provider availability does **not** overwrite the show's original network/service field.
 
 ### TVmaze — episode and schedule facts
 
@@ -189,7 +194,20 @@ TVmaze supplements:
 
 Official lifecycle evidence is event-sourced and does **not** overwrite the normal TMDB-derived catalog status.
 
-Verified publishing surfaces include Apple TV Press, Warner Bros. Discovery / HBO Pressroom, Amazon Entertainment, Netflix Media Center, Netflix Tudum and FOXFLASH.
+Verified publishing surfaces include:
+
+- Apple TV Press;
+- Warner Bros. Discovery / HBO Pressroom;
+- Amazon Entertainment;
+- Netflix Media Center and Netflix Tudum;
+- FOXFLASH;
+- Paramount Press Express;
+- NBCUniversal Newsroom;
+- The Walt Disney Company Newsroom;
+- AMC Networks Press Releases (archival evidence surface);
+- AMC Global Media Press (current dated permalink surface).
+
+Source registration alone does not imply automatic scraping. Lifecycle evidence remains source-attributed, identity-guarded and editorially controlled unless a collector is separately accepted.
 
 See [`docs/PHASE4_LIFECYCLE.md`](docs/PHASE4_LIFECYCLE.md).
 
@@ -203,6 +221,7 @@ GitHub main → Actions → Cloudflare Worker ← TVmaze
                          ├── Static assets
                          ├── Public API
                          ├── Detail/media API
+                         ├── Watch Providers availability API
                          ├── Lifecycle evidence projection
                          ├── TMDB catalog sync
                          ├── hourly TVmaze convergence
@@ -220,11 +239,11 @@ Browser
 
 Production sync cadence:
 
-- TMDB: minute 17 every six hours;
+- TMDB catalog: minute 17 every six hours;
 - TVmaze: minute 47 every hour;
 - `episode_24h` reminders: minute 7 every hour.
 
-TMDB and TVmaze retain separate sync runs. Notification delivery is operationally isolated from both.
+TMDB and TVmaze retain separate sync runs. Watch availability is requested on demand for a show detail rather than being persisted as original-network metadata. Notification delivery is operationally isolated from both catalog sources.
 
 ## Browser-only development rule
 
@@ -259,6 +278,7 @@ Normal application PRs use isolated preview Worker/D1 resources. Unmerged applic
 - `GET /api/shows/:id/episodes`
 - `GET /api/shows/:id/details?region=HK|TW|CN`
 - `GET /api/shows/:id/seasons/:season_number/episodes`
+- `GET /api/shows/:id/watch-providers`
 - `GET /api/sync-status?source=tmdb|tvmaze`
 - `GET /api/push/public-key`
 - `POST /api/push/subscriptions`
@@ -271,35 +291,41 @@ Protected internal write routes retain the existing derived authorization-key co
 
 1. Season is first-class.
 2. Original network/service and regional availability are separate concepts.
-3. Chinese titles remain separate HK/TW/CN aliases with provenance.
-4. Source-specific facts retain attribution.
-5. TMDB, TVmaze and official lifecycle evidence have separate responsibilities.
-6. Official lifecycle evidence is non-destructive and event-sourced.
-7. No secrets in source control or frontend assets.
-8. Applied D1 migrations are immutable; changes use new numbered migrations.
-9. Unmerged application PR code must not use production D1 or production application secrets.
-10. Production migrations run before the Worker version that requires them.
-11. No production TVmaze title fuzzy matching.
-12. Local-time conversion is performed only when a real timestamp exists.
-13. Deployment success alone is not acceptance; real production/device behavior matters at phase boundaries.
-14. My Shows and viewing states remain local-first.
-15. Accounts/server identity are not introduced without a demonstrated product requirement.
-16. Notification scope does not expand silently; new alert classes require explicit design and acceptance.
-17. Potentially unbounded repetitive card lists prefer horizontal rails; long-form reading content remains vertical.
+3. Regional watch availability never overwrites canonical network/service identity.
+4. Chinese titles remain separate HK/TW/CN aliases with provenance.
+5. Source-specific facts retain attribution.
+6. TMDB, TVmaze and official lifecycle evidence have separate responsibilities.
+7. Official lifecycle evidence is non-destructive and event-sourced.
+8. No secrets in source control or frontend assets.
+9. Applied D1 migrations are immutable; changes use new numbered migrations.
+10. Unmerged application PR code must not use production D1 or production application secrets.
+11. Production migrations run before the Worker version that requires them.
+12. No production TVmaze title fuzzy matching.
+13. Local-time conversion is performed only when a real timestamp exists.
+14. Deployment success alone is not acceptance; real production/device behavior matters at phase boundaries.
+15. My Shows and viewing states remain local-first.
+16. Accounts/server identity are not introduced without a demonstrated product requirement.
+17. Notification scope does not expand silently; new alert classes require explicit design and acceptance.
+18. Potentially unbounded repetitive card lists prefer horizontal rails; long-form reading content remains vertical.
+19. Catalog discovery remains bounded and rotating rather than relying on manually inserted show identities.
 
 ## Handoff checkpoint
 
-As of 2026-08-29, the accepted production baseline is:
+As of 2026-09-09, the accepted production baseline is:
 
-- mature US scripted catalog via TMDB;
+- mature US scripted catalog via TMDB with dedicated discovery across major network/service groups;
 - exact TVmaze episode/schedule linkage with bounded hourly convergence;
 - HK/TW/CN regional title handling;
-- attributed official lifecycle evidence;
+- expanded attributed official lifecycle evidence across major US publishing groups;
 - local My Shows + viewing states;
 - optional accountless `episode_24h` Push reminders;
 - first-class show detail pages;
 - full-screen media browser;
 - season → episode exploration;
-- mobile-tested horizontal handling for long repetitive lists.
+- HK / US Watch Providers availability with JustWatch attribution;
+- Phase 7D network/page-specific catalog convergence while preserving the 48-request TMDB ceiling;
+- production proof that previously absent `MobLand` and `The Five Star Weekend` converged after the Phase 7D deployment.
 
-**Phase 6 is closed.** Do not rebuild completed phases or infer that international expansion is automatically next. Start the next development conversation by reading this README plus `docs/PHASE6_ACCEPTANCE.md`, then explicitly choose the next product phase.
+`The Bear` and `Dark Winds` were still waiting for their relevant bounded Hulu/AMC network-page-slice rotation at the first post-deploy probe. This is an operational convergence observation, not a reason to insert synthetic catalog identities or reopen Phase 7D.
+
+**Phase 7 is closed through 7D.** Do not rebuild completed phases or infer that international expansion is automatically next. Start the next development conversation by reading this README plus `docs/PHASE7D_CATALOG_CONVERGENCE.md`, then deliberately select the next product phase.
