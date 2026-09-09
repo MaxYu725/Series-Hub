@@ -200,6 +200,19 @@ function leaveDiscoveryMode() {
   showGrid?.classList.remove("is-discovery");
 }
 
+function releaseGlobalSearch() {
+  if (!searchInput?.value) return;
+  const bridge = document.createElement("button");
+  bridge.type = "button";
+  bridge.hidden = true;
+  bridge.className = "filter";
+  bridge.dataset.view = "phase8-bridge";
+  document.body.append(bridge);
+  bridge.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  bridge.remove();
+  searchInput.value = "";
+}
+
 async function fetchDiscovery(region, timeoutMs = 12000) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -214,7 +227,6 @@ async function fetchDiscovery(region, timeoutMs = 12000) {
 }
 
 async function loadDiscovery() {
-  if (searchInput) searchInput.value = "";
   active = true;
   const activeRequest = ++requestId;
   const region = currentRegion();
@@ -253,13 +265,16 @@ async function loadDiscovery() {
 }
 
 if (discoverButton && regionSelect && contentPanel && showGrid && scheduleList && emptyState) {
-  discoverButton.addEventListener("click", () => loadDiscovery());
+  discoverButton.addEventListener("click", () => {
+    releaseGlobalSearch();
+    loadDiscovery();
+  });
 
-  document.addEventListener("input", (event) => {
+  window.addEventListener("input", (event) => {
     if (event.target === searchInput && active) leaveDiscoveryMode();
   }, true);
 
-  document.addEventListener("change", (event) => {
+  window.addEventListener("change", (event) => {
     if (event.target !== regionSelect || !active) return;
     event.stopImmediatePropagation();
     saveRegion(currentRegion());
