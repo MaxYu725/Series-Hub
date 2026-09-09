@@ -81,9 +81,10 @@ async function loadBrowseItems(env, titleRegion, filters, limit) {
 
 async function loadBrowseCount(env, filters) {
   const where = buildBrowseWhere(filters);
-  const row = await env.DB.prepare(`SELECT COUNT(*) AS count FROM shows s WHERE ${where.sql}`)
-    .bind(...where.bindings)
-    .first();
+  const statement = env.DB.prepare(`SELECT COUNT(*) AS count FROM shows s WHERE ${where.sql}`);
+  const row = where.bindings.length
+    ? await statement.bind(...where.bindings).first()
+    : await statement.first();
   return Number(row?.count) || 0;
 }
 
