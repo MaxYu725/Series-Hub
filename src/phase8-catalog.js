@@ -1,0 +1,28 @@
+export const PHASE8_SHOW_SELECT = `SELECT
+  s.id,
+  s.tmdb_id,
+  s.original_title,
+  s.english_title,
+  s.status,
+  s.tmdb_status,
+  s.poster_url,
+  s.first_air_date,
+  s.next_air_date,
+  s.popularity,
+  s.vote_average,
+  s.vote_count,
+  pt.title_zh_hk,
+  pt.title_zh_hk_source,
+  pt.title_zh_hk_confidence,
+  pt.title_zh_tw,
+  pt.title_zh_tw_source,
+  pt.title_zh_tw_confidence,
+  pt.title_zh_cn,
+  pt.title_zh_cn_source,
+  pt.title_zh_cn_confidence,
+  (SELECT GROUP_CONCAT(ta.title, ' | ') FROM title_aliases ta WHERE ta.show_id = s.id AND ta.season_id IS NULL AND ta.locale = 'zh') AS chinese_aliases,
+  (SELECT GROUP_CONCAT(n.canonical_name, ' · ') FROM show_networks sn JOIN networks n ON n.id = sn.network_id WHERE sn.show_id = s.id ORDER BY sn.is_primary DESC, n.canonical_name ASC) AS networks,
+  (SELECT GROUP_CONCAT(g.name, ' · ') FROM show_genres sg JOIN genres g ON g.id = sg.genre_id WHERE sg.show_id = s.id ORDER BY g.name ASC) AS genres,
+  (SELECT se.season_number FROM seasons se WHERE se.show_id = s.id ORDER BY se.season_number DESC LIMIT 1) AS latest_season_number
+FROM shows s
+LEFT JOIN preferred_show_titles pt ON pt.show_id = s.id`;

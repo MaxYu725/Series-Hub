@@ -26,7 +26,7 @@
         <h1>Series Hub</h1>
       </div>
     </div>
-    <div class="phase-chip phase-4">Phase 8A</div>
+    <div class="phase-chip phase-4">Phase 8B</div>
   </header>
 
   <main>
@@ -69,6 +69,51 @@
           <span class="filter-divider" aria-hidden="true"></span>
           <button type="button" class="phase5-filter" id="my-shows-filter">我的劇集</button>
         </nav>
+
+        <div class="phase8-explore-tools" id="phase8-explore-tools" hidden>
+          <div class="phase8-mode-switch" role="group" aria-label="探索顯示方式">
+            <button type="button" class="phase8-mode-button active" id="phase8-featured-toggle">精選</button>
+            <button type="button" class="phase8-mode-button" id="phase8-browse-toggle">全部劇集</button>
+          </div>
+
+          <div class="phase8-browse-controls" id="phase8-browse-controls" hidden>
+            <label>
+              <span>平台 / Network</span>
+              <select id="phase8-network-filter" aria-label="按原始平台或 Network 篩選">
+                <option value="">全部平台</option>
+              </select>
+            </label>
+            <label>
+              <span>類型</span>
+              <select id="phase8-genre-filter" aria-label="按劇集類型篩選">
+                <option value="">全部類型</option>
+              </select>
+            </label>
+            <label>
+              <span>狀態</span>
+              <select id="phase8-status-filter" aria-label="按劇集狀態篩選">
+                <option value="">全部狀態</option>
+              </select>
+            </label>
+            <label>
+              <span>首播年份</span>
+              <select id="phase8-year-filter" aria-label="按首播年份篩選">
+                <option value="">全部年份</option>
+              </select>
+            </label>
+            <label>
+              <span>排序</span>
+              <select id="phase8-sort-filter" aria-label="劇集排序方式">
+                <option value="popular">熱門程度</option>
+                <option value="rating">評分</option>
+                <option value="newest">最新首播</option>
+                <option value="oldest">最早首播</option>
+                <option value="title">劇名 A–Z</option>
+              </select>
+            </label>
+            <button type="button" class="phase8-reset-button" id="phase8-reset-filters">清除篩選</button>
+          </div>
+        </div>
       </section>
 
       <div id="schedule-list" class="schedule-list" aria-live="polite"></div>
