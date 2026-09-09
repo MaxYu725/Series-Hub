@@ -1,4 +1,5 @@
 const discoverButton = document.querySelector("#discover-filter");
+const searchInput = document.querySelector("#search-input");
 const regionSelect = document.querySelector("#title-region-select");
 const contentPanel = document.querySelector(".content-panel");
 const viewTitle = document.querySelector("#view-title");
@@ -213,6 +214,7 @@ async function fetchDiscovery(region, timeoutMs = 12000) {
 }
 
 async function loadDiscovery() {
+  if (searchInput) searchInput.value = "";
   active = true;
   const activeRequest = ++requestId;
   const region = currentRegion();
@@ -253,6 +255,10 @@ async function loadDiscovery() {
 if (discoverButton && regionSelect && contentPanel && showGrid && scheduleList && emptyState) {
   discoverButton.addEventListener("click", () => loadDiscovery());
 
+  document.addEventListener("input", (event) => {
+    if (event.target === searchInput && active) leaveDiscoveryMode();
+  }, true);
+
   document.addEventListener("change", (event) => {
     if (event.target !== regionSelect || !active) return;
     event.stopImmediatePropagation();
@@ -265,6 +271,4 @@ if (discoverButton && regionSelect && contentPanel && showGrid && scheduleList &
     const regularControl = target?.closest(".filter[data-view], #my-shows-filter");
     if (regularControl && active) leaveDiscoveryMode();
   }, true);
-
-  window.addEventListener("series-hub:global-search-start", leaveDiscoveryMode);
 }
