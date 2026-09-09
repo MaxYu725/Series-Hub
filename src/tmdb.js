@@ -7,6 +7,7 @@ const EXCLUDED_GENRE_IDS = new Set([16, 99, 10762, 10763, 10764, 10767]);
 const EXCLUDED_DISCOVER_GENRES = [...EXCLUDED_GENRE_IDS].join("|");
 const NETWORK_DISCOVERY_REQUEST_LIMIT = 6;
 const NETWORK_DISCOVERY_PAGE_COUNT = 3;
+const NETWORK_CANDIDATE_ROTATION_EPOCH = Date.parse("2026-09-09T00:00:00.000Z");
 
 export const CORE_NETWORK_SEEDS = Object.freeze([
   { name: "Apple TV", tmdbNetworkId: 2552 },
@@ -15,14 +16,14 @@ export const CORE_NETWORK_SEEDS = Object.freeze([
   { name: "FOX", tmdbNetworkId: 19, recentFirstAirYears: 3 },
   { name: "FX", tmdbNetworkId: 88 },
   { name: "Netflix", tmdbNetworkId: 213 },
-  { name: "Paramount+", tmdbNetworkId: 4330 },
+  { name: "Paramount+", tmdbNetworkId: 4330, recentFirstAirYears: 8 },
   { name: "CBS", tmdbNetworkId: 16 },
   { name: "NBC", tmdbNetworkId: 6 },
-  { name: "Peacock", tmdbNetworkId: 3353 },
-  { name: "Disney+", tmdbNetworkId: 2739 },
-  { name: "Hulu", tmdbNetworkId: 453 },
-  { name: "AMC", tmdbNetworkId: 174 },
-  { name: "AMC+", tmdbNetworkId: 4661 }
+  { name: "Peacock", tmdbNetworkId: 3353, recentFirstAirYears: 8 },
+  { name: "Disney+", tmdbNetworkId: 2739, recentFirstAirYears: 8 },
+  { name: "Hulu", tmdbNetworkId: 453, recentFirstAirYears: 10 },
+  { name: "AMC", tmdbNetworkId: 174, recentFirstAirYears: 8 },
+  { name: "AMC+", tmdbNetworkId: 4661, recentFirstAirYears: 8 }
 ]);
 
 export const TMDB_SYNC_BUDGET = Object.freeze({
@@ -133,6 +134,90 @@ export function selectNetworkSeedsForSync(
     { length: safeLimit },
     (_, index) => source[(start + index) % source.length]
   );
+}
+
+function positiveGcd(left, right) {
+  let a = Math.abs(Math.trunc(Number(left) || 0));
+  let b = Math.abs(Math.trunc(Number(right) || 0));
+  while (b) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a || 1;
+}
+
+function leastCommonMultiple(left, right) {
+  const a = Math.max(1, Math.abs(Math.trunc(Number(left) || 1)));
+  const b = Math.max(1, Math.abs(Math.trunc(Number(right) || 1)));
+  return Math.abs((a / positiveGcd(a, b)) * b);
+}
+
+function seedSelectedAtSlot(seedIndex, slot, seedCount, limit) {
+  if (seedIndex < 0 || seedCount <= 0 || limit <= 0) return false;
+  const start = ((slot * limit) % seedCount + seedCount) % seedCount;
+  for (let index = 0; index < limit; index += 1) {
+    if ((start + index) % seedCount === seedIndex) return true;
+  }
+  return false;
+}
+
+function networkPageAtSlot(seed, slot) {
+  const networkOffset = Math.abs(Math.trunc(Number(seed?.tmdbNetworkId) || 0)) % NETWORK_DISCOVERY_PAGE_COUNT;
+  return 1 + (((slot + networkOffset) % NETWORK_DISCOVERY_PAGE_COUNT + NETWORK_DISCOVERY_PAGE_COUNT) % NETWORK_DISCOVERY_PAGE_COUNT);
+}
+
+export function networkCandidateRotationOffset(
+  seed,
+  page,
+  feedLength,
+  stride,
+  now = new Date(),
+  seeds = CORE_NETWORK_SEEDS,
+  limit = TMDB_SYNC_BUDGET.networkDiscoveryRequests
+) {
+  const source = Array.isArray(seeds) ? seeds.filter(Boolean) : [];
+  const safeLimit = Math.min(source.length, Math.max(0, Math.trunc(Number(limit) || 0)));
+  const safeLength = Math.max(0, Math.trunc(Number(feedLength) || 0));
+  const safeStride = Math.max(1, Math.trunc(Number(stride) || 1));
+  const rotationSlots = Math.max(1, Math.ceil(safeLength / safeStride));
+  if (source.length === 0 || safeLimit === 0 || rotationSlots <= 1) return 0;
+
+  const seedIndex = source.findIndex(
+    (item) => Number(item?.tmdbNetworkId) === Number(seed?.tmdbNetworkId)
+  );
+  if (seedIndex < 0) return 0;
+
+  const timestamp = now instanceof Date && Number.isFinite(now.getTime())
+    ? now.getTime()
+    : Date.now();
+  const currentSlot = Math.floor(timestamp / (6 * 60 * 60 * 1000));
+  const epochSlot = Math.floor(NETWORK_CANDIDATE_ROTATION_EPOCH / (6 * 60 * 60 * 1000));
+  if (currentSlot <= epochSlot) return 0;
+
+  const requestedPage = Number.isInteger(Number(page))
+    ? Math.min(NETWORK_DISCOVERY_PAGE_COUNT, Math.max(1, Number(page)))
+    : networkPageAtSlot(seed, currentSlot);
+  const selectionPeriod = Math.max(1, source.length / positiveGcd(source.length, safeLimit));
+  const combinedPeriod = leastCommonMultiple(selectionPeriod, NETWORK_DISCOVERY_PAGE_COUNT);
+  const matchesAtSlot = (slot) =>
+    seedSelectedAtSlot(seedIndex, slot, source.length, safeLimit) &&
+    networkPageAtSlot(seed, slot) === requestedPage;
+
+  let matchesPerCycle = 0;
+  for (let index = 0; index < combinedPeriod; index += 1) {
+    if (matchesAtSlot(epochSlot + index)) matchesPerCycle += 1;
+  }
+
+  const elapsedSlots = currentSlot - epochSlot;
+  const fullCycles = Math.floor(elapsedSlots / combinedPeriod);
+  const remainderSlots = elapsedSlots % combinedPeriod;
+  let visitsBefore = fullCycles * matchesPerCycle;
+  for (let index = 0; index < remainderSlots; index += 1) {
+    if (matchesAtSlot(epochSlot + index)) visitsBefore += 1;
+  }
+
+  return (visitsBefore % rotationSlots) * safeStride;
 }
 
 export function tmdbImageUrl(path, size = "w500") {
@@ -638,9 +723,14 @@ export function selectRoundRobinCandidates(
   limit = TMDB_SYNC_BUDGET.detailRequests,
   offset = 0
 ) {
-  const safeOffset = Math.max(0, Math.trunc(Number(offset) || 0));
-  const sourceLists = (feeds || []).map((feed) => {
+  const offsetList = Array.isArray(offset) ? offset : null;
+  const fallbackOffset = Math.max(0, Math.trunc(Number(offset) || 0));
+  const sourceLists = (feeds || []).map((feed, sourceIndex) => {
     if (!Array.isArray(feed) || feed.length === 0) return [];
+    const requestedOffset = offsetList && offsetList[sourceIndex] !== undefined
+      ? offsetList[sourceIndex]
+      : fallbackOffset;
+    const safeOffset = Math.max(0, Math.trunc(Number(requestedOffset) || 0));
     const start = safeOffset % feed.length;
     return start === 0 ? [...feed] : [...feed.slice(start), ...feed.slice(0, start)];
   });
@@ -736,10 +826,29 @@ export async function syncTmdbCatalog(env, options = {}) {
     const candidateFeeds = [...networkFeeds, ...scheduleFeeds, ...broadFeeds];
     recordsSeen = uniqueCandidateCount(candidateFeeds);
     const candidateOffset = candidateRotationOffset(candidateFeeds, detailLimit, now);
+    const activeFeedCount = Math.max(
+      1,
+      candidateFeeds.filter((feed) => Array.isArray(feed) && feed.length > 0).length
+    );
+    const candidateStride = Math.max(1, Math.floor(detailLimit / activeFeedCount));
+    const networkCandidateOffsets = networkFeeds.map((feed, index) =>
+      networkCandidateRotationOffset(
+        networkDiscoveries[index].seed,
+        networkDiscoveries[index].page,
+        feed.length,
+        candidateStride,
+        now
+      )
+    );
+    const candidateOffsets = [
+      ...networkCandidateOffsets,
+      ...scheduleFeeds.map(() => candidateOffset),
+      ...broadFeeds.map(() => candidateOffset)
+    ];
     const selectedCandidates = selectRoundRobinCandidates(
       candidateFeeds,
       detailLimit,
-      candidateOffset
+      candidateOffsets
     );
     const detailsResults = await fetchDetailsInBatches(env, selectedCandidates);
 
@@ -782,6 +891,11 @@ export async function syncTmdbCatalog(env, options = {}) {
       discoveryRequests: candidateFeeds.length,
       networkSeeds: activeNetworkSeeds.map((seed) => seed.name),
       networkPages: networkDiscoveries.map(({ seed, page }) => ({ name: seed.name, page })),
+      networkCandidateOffsets: networkDiscoveries.map(({ seed, page }, index) => ({
+        name: seed.name,
+        page,
+        offset: networkCandidateOffsets[index]
+      })),
       externalRequestBudget: candidateFeeds.length + selectedCandidates.length,
       warnings: warnings.length
     };
