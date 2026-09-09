@@ -272,6 +272,10 @@ function leaveSearchForControl(control) {
 }
 
 if (searchInput && regionSelect && contentPanel && showGrid && scheduleList && emptyState) {
+  window.addEventListener("series-hub:leave-global-search", () => {
+    leaveSearchForControl(null);
+  });
+
   document.addEventListener("input", (event) => {
     if (event.target !== searchInput) return;
     event.stopImmediatePropagation();
