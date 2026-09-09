@@ -32,19 +32,21 @@ function exposeConnectionState() {
   window.addEventListener("offline", update);
 }
 
+function offerUpdate(registration) {
+  if (!registration?.waiting || !navigator.serviceWorker.controller) return;
+  updateRegistration = registration;
+  showAction("有新版本 · 重新載入", () => {
+    updateRegistration?.waiting?.postMessage({ type: "SKIP_WAITING" });
+  }, "update");
+}
+
 function watchForUpdate(registration) {
+  offerUpdate(registration);
   registration.addEventListener("updatefound", () => {
     const worker = registration.installing;
     if (!worker) return;
     worker.addEventListener("statechange", () => {
-      if (worker.state === "installed" && navigator.serviceWorker.controller) {
-        updateRegistration = registration;
-        showAction("有新版本 · 重新載入", () => {
-          const waiting = updateRegistration?.waiting;
-          if (waiting) waiting.postMessage({ type: "SKIP_WAITING" });
-          else window.location.reload();
-        }, "update");
-      }
+      if (worker.state === "installed") offerUpdate(registration);
     });
   });
 }
