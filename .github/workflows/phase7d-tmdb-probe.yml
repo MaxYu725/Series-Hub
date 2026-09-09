@@ -1,0 +1,75 @@
+name: Phase 7D TMDB convergence probe
+
+on:
+  push:
+    branches:
+      - phase7d-catalog-convergence
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
+    steps:
+      - name: Probe target rankings without exposing credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TMDB_API_TOKEN:-}"
+          node <<'NODE'
+          const token = process.env.TMDB_API_TOKEN;
+          const base = 'https://api.themoviedb.org/3';
+          const targets = [
+            { title: 'MobLand', network: 4330, years: 8 },
+            { title: 'The Five Star Weekend', network: 3353, years: 8 },
+            { title: 'The Bear', network: 453, years: 10 },
+            { title: 'Dark Winds', network: 174, years: 8 }
+          ];
+          const headers = { accept: 'application/json', authorization: `Bearer ${token}` };
+          const norm = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+          async function json(path, params) {
+            const url = new URL(base + path);
+            for (const [key, value] of Object.entries(params || {})) url.searchParams.set(key, String(value));
+            const response = await fetch(url, { headers });
+            if (!response.ok) throw new Error(`${response.status} ${path}`);
+            return response.json();
+          }
+          for (const target of targets) {
+            const search = await json('/search/tv', { query: target.title, language: 'en-US' });
+            const exact = (search.results || []).find((item) => norm(item.name) === norm(target.title));
+            const targetId = exact?.id ?? null;
+            const lower = `${2026 - target.years}-01-01`;
+            const modes = [
+              { key: 'popularity', sort_by: 'popularity.desc' },
+              { key: 'recent', sort_by: 'first_air_date.desc' }
+            ];
+            const result = { title: target.title, targetId, network: target.network, firstAir: exact?.first_air_date || null, modes: {} };
+            for (const mode of modes) {
+              let found = null;
+              for (let page = 1; page <= 3; page += 1) {
+                const data = await json('/discover/tv', {
+                  include_adult: false,
+                  language: 'en-US',
+                  page,
+                  sort_by: mode.sort_by,
+                  with_origin_country: 'US',
+                  with_type: '2|4',
+                  without_genres: '16|99|10762|10763|10764|10767',
+                  with_networks: target.network,
+                  'first_air_date.gte': lower
+                });
+                const index = (data.results || []).findIndex((item) => item.id === targetId);
+                if (index >= 0) {
+                  found = { page, rank: (page - 1) * 20 + index + 1, pageIndex: index + 1 };
+                  break;
+                }
+              }
+              result.modes[mode.key] = found;
+            }
+            console.log('PHASE7D_TMDB_RANK', JSON.stringify(result));
+          }
+          NODE
