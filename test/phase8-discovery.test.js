@@ -117,5 +117,5 @@ test("discovery and global search use an explicit handoff contract", () => {
   assert.match(search, /window\.addEventListener\("series-hub:leave-global-search"/);
   assert.doesNotMatch(ui, /phase8-bridge/);
   assert.match(ui, /window\.addEventListener\("input"/);
-  assert.match(ui, /showGrid\?\.classList\.remove\("is-discovery"\)/);
+  assert.match(ui, /showGrid\?\.classList\.remove\("is-discovery", "is-browse"\)/);
 });
