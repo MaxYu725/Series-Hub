@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import phase8Worker from "../src/phase8-worker.js";
 import { buildDiscovery, DISCOVERY_SECTIONS, normalizeDiscoveryLimit } from "../src/phase8-discovery.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -74,6 +75,21 @@ test("discovery resolves regional Chinese titles without external requests", asy
   assert.equal(result.body.data.sections[0].items[0].display_title_zh_region, "HK");
 });
 
+test("Phase 8 worker serves the discovery endpoint through the current wrapper", async () => {
+  const response = await phase8Worker.fetch(
+    new Request("https://example.test/api/discover?region=HK&limit=4"),
+    { DB: fakeDb(ROW) },
+    {}
+  );
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.meta.phase, "8a-discovery-home");
+  assert.equal(payload.meta.externalRequests, 0);
+  assert.equal(payload.meta.sectionCount, 4);
+  assert.equal(payload.data.sections.length, 4);
+  assert.equal(payload.data.sections[0].items[0].display_title_zh, "示例劇集");
+});
+
 test("Phase 8 worker and homepage expose discovery without replacing existing views", () => {
   const worker = readFileSync(join(root, "src", "phase8-worker.js"), "utf8");
   const wrangler = readFileSync(join(root, "wrangler.jsonc"), "utf8");
@@ -93,10 +109,13 @@ test("Phase 8 worker and homepage expose discovery without replacing existing vi
   assert.match(ui, /\/api\/discover\?\$\{params\}/);
 });
 
-test("discovery view keeps global search and normal navigation separable", () => {
+test("discovery and global search use an explicit handoff contract", () => {
   const ui = readFileSync(join(root, "public", "phase8-ui.js"), "utf8");
+  const search = readFileSync(join(root, "public", "global-search.js"), "utf8");
   assert.match(ui, /releaseGlobalSearch/);
-  assert.match(ui, /bridge\.className = "filter"/);
+  assert.match(ui, /series-hub:leave-global-search/);
+  assert.match(search, /window\.addEventListener\("series-hub:leave-global-search"/);
+  assert.doesNotMatch(ui, /phase8-bridge/);
   assert.match(ui, /window\.addEventListener\("input"/);
   assert.match(ui, /showGrid\?\.classList\.remove\("is-discovery"\)/);
 });
