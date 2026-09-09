@@ -46,7 +46,10 @@ test("Phase 8D weights active viewing states more strongly than paused history",
   const profile = buildPersonalProfile(SIGNAL_SHOWS, [1, 2], { 1: "watching", 2: "paused" });
   assert.equal(profile.personalized, true);
   assert.equal(profile.matchedTrackedShows, 2);
-  assert.equal(profile.topGenres[0].value, "Drama");
+
+  const genreScores = new Map(profile.topGenres.map((item) => [item.value, item.score]));
+  assert.equal(genreScores.get("Drama"), genreScores.get("Crime"));
+  assert.ok(genreScores.get("Drama") > genreScores.get("Comedy"));
   assert.equal(profile.topNetworks[0].value, "HBO");
 });
 
