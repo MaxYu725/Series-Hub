@@ -48,6 +48,20 @@ test("PWA and Push reuse one root-scoped service worker", () => {
   assert.match(sw, /addEventListener\("notificationclick"/);
 });
 
+test("every declared PWA precache URL resolves to a real first-party asset", () => {
+  const start = sw.indexOf("const PRECACHE_URLS");
+  const end = sw.indexOf("];", start);
+  const block = sw.slice(start, end);
+  const urls = [...block.matchAll(/"(\/[^"]*)"/g)].map((match) => match[1]);
+
+  assert.ok(urls.length > 0);
+  for (const url of urls) {
+    const relativePath = url === "/" ? "public/index.html" : `public${url}`;
+    const target = new URL(`../${relativePath}`, import.meta.url);
+    assert.equal(fs.existsSync(target), true, `Missing precache asset: ${url}`);
+  }
+});
+
 test("service worker never intercepts or caches live API and health data", () => {
   const precacheStart = sw.indexOf("const PRECACHE_URLS");
   const precacheEnd = sw.indexOf("];", precacheStart);
