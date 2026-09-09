@@ -98,5 +98,5 @@ test("discovery view keeps global search and normal navigation separable", () =>
   assert.match(ui, /releaseGlobalSearch/);
   assert.match(ui, /bridge\.className = "filter"/);
   assert.match(ui, /window\.addEventListener\("input"/);
-  assert.match(ui, /showGrid\.classList\.remove\("is-discovery"\)/);
+  assert.match(ui, /showGrid\?\.classList\.remove\("is-discovery"\)/);
 });
