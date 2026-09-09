@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0b0d12">
   <title>Series Hub</title>
-  <meta name="description" content="集中整理美劇今日與本週播映時間、播映中、即將播映、已計劃播出、官方續訂、本機追蹤、劇集詳情、圖片與預告片。">
+  <meta name="description" content="集中整理美劇探索、搜尋、今日與本週播映時間、播映中、即將播映、已計劃播出、官方續訂、本機追蹤、劇集詳情、圖片與預告片。">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/phase3.css">
   <link rel="stylesheet" href="/phase4.css">
@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/phase5d.css">
   <link rel="stylesheet" href="/phase5e.css">
   <link rel="stylesheet" href="/phase6.css">
+  <link rel="stylesheet" href="/phase8.css">
 </head>
 <body>
   <header class="site-header">
@@ -25,7 +26,7 @@
         <h1>Series Hub</h1>
       </div>
     </div>
-    <div class="phase-chip phase-4">Phase 6A</div>
+    <div class="phase-chip phase-4">Phase 8A</div>
   </header>
 
   <main>
@@ -39,7 +40,7 @@
         <span id="show-count">載入中…</span>
       </div>
 
-      <section class="catalog-tools" aria-label="排程、劇集搜尋、譯名地區與狀態篩選">
+      <section class="catalog-tools" aria-label="探索、排程、劇集搜尋、譯名地區與狀態篩選">
         <div class="catalog-inputs">
           <label class="search-box">
             <span class="search-label">搜尋</span>
@@ -57,6 +58,8 @@
         </div>
 
         <nav class="filters" aria-label="Series Hub 檢視">
+          <button type="button" class="phase8-filter" id="discover-filter">探索</button>
+          <span class="filter-divider" aria-hidden="true"></span>
           <button type="button" class="filter active" data-view="today">今日</button>
           <button type="button" class="filter" data-view="week">本週</button>
           <span class="filter-divider" aria-hidden="true"></span>
@@ -128,6 +131,7 @@
 
   <script type="module" src="/app.js"></script>
   <script type="module" src="/global-search.js"></script>
+  <script type="module" src="/phase8-ui.js"></script>
   <script type="module" src="/phase4-ui.js"></script>
   <script type="module" src="/phase5-ui.js"></script>
   <script type="module" src="/phase5b-ui.js"></script>
