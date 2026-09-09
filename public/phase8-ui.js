@@ -13,6 +13,16 @@ const emptyTitle = document.querySelector("#empty-title");
 const emptyCopy = document.querySelector("#empty-copy");
 const emptyActions = document.querySelector("#empty-actions");
 const retryViewButton = document.querySelector("#retry-view-button");
+const exploreTools = document.querySelector("#phase8-explore-tools");
+const featuredToggle = document.querySelector("#phase8-featured-toggle");
+const browseToggle = document.querySelector("#phase8-browse-toggle");
+const browseControls = document.querySelector("#phase8-browse-controls");
+const networkFilter = document.querySelector("#phase8-network-filter");
+const genreFilter = document.querySelector("#phase8-genre-filter");
+const statusFilter = document.querySelector("#phase8-status-filter");
+const yearFilter = document.querySelector("#phase8-year-filter");
+const sortFilter = document.querySelector("#phase8-sort-filter");
+const resetFilters = document.querySelector("#phase8-reset-filters");
 
 const STATUS_LABELS = Object.freeze({
   airing: "播映中",
@@ -23,6 +33,7 @@ const STATUS_LABELS = Object.freeze({
 });
 
 let active = false;
+let mode = "featured";
 let requestId = 0;
 
 function currentRegion() {
@@ -158,7 +169,7 @@ function createRail(section) {
   return wrapper;
 }
 
-function renderSkeleton() {
+function renderFeaturedSkeleton() {
   const sections = ["熱門追看", "近一年新劇", "即將開播", "高評分"].map((title) => {
     const wrapper = document.createElement("section");
     wrapper.className = "discovery-section";
@@ -176,20 +187,32 @@ function renderSkeleton() {
   showGrid.replaceChildren(...sections);
 }
 
-function setDiscoveryModeVisuals() {
+function renderBrowseSkeleton() {
+  showGrid.replaceChildren(...Array.from({ length: 12 }, createSkeletonCard));
+}
+
+function setModeVisuals(nextMode) {
+  mode = nextMode;
   document.querySelectorAll(".filter.active, #my-shows-filter.active").forEach((button) => button.classList.remove("active"));
   discoverButton?.classList.add("active");
+  featuredToggle?.classList.toggle("active", mode === "featured");
+  browseToggle?.classList.toggle("active", mode === "browse");
+  if (exploreTools) exploreTools.hidden = false;
+  if (browseControls) browseControls.hidden = mode !== "browse";
   if (regionSelect) regionSelect.disabled = false;
   showGrid.hidden = false;
-  showGrid.classList.add("is-discovery");
+  showGrid.classList.toggle("is-discovery", mode === "featured");
+  showGrid.classList.toggle("is-browse", mode === "browse");
   scheduleList.hidden = true;
   emptyState.hidden = true;
   emptyState.removeAttribute("data-state");
   if (emptyActions) emptyActions.hidden = true;
   if (retryViewButton) retryViewButton.hidden = true;
   viewKicker.textContent = "DISCOVER";
-  viewTitle.textContent = "探索劇集";
-  viewContext.textContent = "從已收錄的美劇 catalog 即時整理熱門、新劇、即將開播與高評分內容；不額外呼叫 TMDB discovery。";
+  viewTitle.textContent = mode === "browse" ? "瀏覽全部劇集" : "探索劇集";
+  viewContext.textContent = mode === "browse"
+    ? "按原始平台、類型、狀態及首播年份篩選 Series Hub catalog；地區觀看供應仍由劇集詳情頁獨立顯示。"
+    : "從已收錄的美劇 catalog 即時整理熱門、新劇、即將開播與高評分內容；不額外呼叫 TMDB discovery。";
 }
 
 function leaveDiscoveryMode() {
@@ -197,7 +220,9 @@ function leaveDiscoveryMode() {
   active = false;
   requestId += 1;
   discoverButton?.classList.remove("active");
-  showGrid?.classList.remove("is-discovery");
+  showGrid?.classList.remove("is-discovery", "is-browse");
+  if (exploreTools) exploreTools.hidden = true;
+  if (browseControls) browseControls.hidden = true;
 }
 
 function releaseGlobalSearch() {
@@ -205,7 +230,7 @@ function releaseGlobalSearch() {
   window.dispatchEvent(new CustomEvent("series-hub:leave-global-search"));
 }
 
-async function fetchDiscovery(region, timeoutMs = 12000) {
+async function fetchFeatured(region, timeoutMs = 12000) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -218,18 +243,64 @@ async function fetchDiscovery(region, timeoutMs = 12000) {
   }
 }
 
-async function loadDiscovery() {
+function browseFilterValues() {
+  return {
+    network: networkFilter?.value || "",
+    genre: genreFilter?.value || "",
+    status: statusFilter?.value || "",
+    year: yearFilter?.value || "",
+    sort: sortFilter?.value || "popular"
+  };
+}
+
+async function fetchBrowse(region, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const filters = browseFilterValues();
+    const params = new URLSearchParams({ region, mode: "browse", limit: "80", sort: filters.sort });
+    for (const key of ["network", "genre", "status", "year"]) {
+      if (filters[key]) params.set(key, filters[key]);
+    }
+    const response = await fetch(`/api/discover?${params}`, { cache: "no-store", signal: controller.signal });
+    if (!response.ok) throw new Error(`Browse ${response.status}`);
+    return await response.json();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function populateFacetSelect(select, options, firstLabel) {
+  if (!select || !Array.isArray(options)) return;
+  const selected = select.value;
+  const nodes = [new Option(firstLabel, "")];
+  for (const item of options) {
+    if (!item?.value) continue;
+    nodes.push(new Option(`${item.label || item.value} (${Number(item.count) || 0})`, item.value));
+  }
+  select.replaceChildren(...nodes);
+  if ([...select.options].some((option) => option.value === selected)) select.value = selected;
+}
+
+function populateFacets(facets) {
+  populateFacetSelect(networkFilter, facets?.networks, "全部平台");
+  populateFacetSelect(genreFilter, facets?.genres, "全部類型");
+  populateFacetSelect(statusFilter, facets?.statuses, "全部狀態");
+  populateFacetSelect(yearFilter, facets?.years, "全部年份");
+}
+
+async function loadFeatured() {
   active = true;
+  setModeVisuals("featured");
   const activeRequest = ++requestId;
   const region = currentRegion();
-  setDiscoveryModeVisuals();
   contentPanel?.setAttribute("aria-busy", "true");
   showCount.textContent = "整理中…";
-  renderSkeleton();
+  renderFeaturedSkeleton();
 
   try {
-    const payload = await fetchDiscovery(region);
-    if (!active || activeRequest !== requestId || currentRegion() !== region) return;
+    const payload = await fetchFeatured(region);
+    if (!active || mode !== "featured" || activeRequest !== requestId || currentRegion() !== region) return;
     const sections = (Array.isArray(payload?.data?.sections) ? payload.data.sections : [])
       .filter((section) => Array.isArray(section?.items) && section.items.length > 0);
 
@@ -238,10 +309,10 @@ async function loadDiscovery() {
     emptyState.hidden = sections.length !== 0;
     if (sections.length === 0) {
       emptyTitle.textContent = "暫未能整理探索內容";
-      emptyCopy.textContent = "目前 catalog 沒有足夠資料建立探索分類；原有今日、本週及劇集列表仍可正常使用。";
+      emptyCopy.textContent = "目前 catalog 沒有足夠資料建立探索分類；可切換至「全部劇集」瀏覽現有收錄。";
     }
   } catch (error) {
-    if (!active || activeRequest !== requestId) return;
+    if (!active || mode !== "featured" || activeRequest !== requestId) return;
     console.error(error);
     showGrid.replaceChildren();
     showCount.textContent = "載入失敗";
@@ -252,15 +323,76 @@ async function loadDiscovery() {
       ? "探索資料等候超過 12 秒，請稍後再試。"
       : "探索 API 暫時無法回應；其他 Series Hub 功能不受影響。";
   } finally {
-    if (active && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");
+    if (active && mode === "featured" && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");
   }
+}
+
+async function loadBrowse() {
+  active = true;
+  setModeVisuals("browse");
+  const activeRequest = ++requestId;
+  const region = currentRegion();
+  contentPanel?.setAttribute("aria-busy", "true");
+  showCount.textContent = "篩選中…";
+  renderBrowseSkeleton();
+
+  try {
+    const payload = await fetchBrowse(region);
+    if (!active || mode !== "browse" || activeRequest !== requestId || currentRegion() !== region) return;
+    const items = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+    populateFacets(payload?.data?.facets);
+    showGrid.replaceChildren(...items.map(createCard));
+
+    const total = Number(payload?.meta?.totalCount);
+    const totalCount = Number.isFinite(total) ? total : items.length;
+    showCount.textContent = payload?.meta?.truncated ? `顯示 ${items.length} / ${totalCount} 套` : `${totalCount} 套`;
+    emptyState.hidden = items.length !== 0;
+    if (items.length === 0) {
+      emptyTitle.textContent = "沒有符合條件的劇集";
+      emptyCopy.textContent = "可清除部分平台、類型、狀態或年份篩選，再查看目前 catalog。";
+    }
+  } catch (error) {
+    if (!active || mode !== "browse" || activeRequest !== requestId) return;
+    console.error(error);
+    showGrid.replaceChildren();
+    showCount.textContent = "篩選失敗";
+    emptyState.hidden = false;
+    emptyState.dataset.state = "error";
+    emptyTitle.textContent = "劇集瀏覽暫時無法使用";
+    emptyCopy.textContent = error?.name === "AbortError"
+      ? "篩選等候超過 12 秒，請稍後再試。"
+      : "Browse API 暫時無法回應；精選探索及其他 Series Hub 功能不受影響。";
+  } finally {
+    if (active && mode === "browse" && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");
+  }
+}
+
+function clearBrowseFilters() {
+  if (networkFilter) networkFilter.value = "";
+  if (genreFilter) genreFilter.value = "";
+  if (statusFilter) statusFilter.value = "";
+  if (yearFilter) yearFilter.value = "";
+  if (sortFilter) sortFilter.value = "popular";
 }
 
 if (discoverButton && regionSelect && contentPanel && showGrid && scheduleList && emptyState) {
   discoverButton.addEventListener("click", () => {
     releaseGlobalSearch();
-    loadDiscovery();
+    loadFeatured();
   });
+
+  featuredToggle?.addEventListener("click", () => loadFeatured());
+  browseToggle?.addEventListener("click", () => loadBrowse());
+  resetFilters?.addEventListener("click", () => {
+    clearBrowseFilters();
+    loadBrowse();
+  });
+
+  for (const select of [networkFilter, genreFilter, statusFilter, yearFilter, sortFilter]) {
+    select?.addEventListener("change", () => {
+      if (active && mode === "browse") loadBrowse();
+    });
+  }
 
   window.addEventListener("input", (event) => {
     if (event.target === searchInput && active) leaveDiscoveryMode();
@@ -270,7 +402,8 @@ if (discoverButton && regionSelect && contentPanel && showGrid && scheduleList &
     if (event.target !== regionSelect || !active) return;
     event.stopImmediatePropagation();
     saveRegion(currentRegion());
-    loadDiscovery();
+    if (mode === "browse") loadBrowse();
+    else loadFeatured();
   }, true);
 
   document.addEventListener("click", (event) => {
