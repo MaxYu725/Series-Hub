@@ -75,7 +75,7 @@ Production acceptance included isolated preview validation, production deploy, i
 
 ## Phase 8D — Local-first Personal Discovery
 
-Implementation slice:
+Production-accepted on 2026-09-09.
 
 - adds a third Explore mode: **為你 / For You**;
 - keeps My Shows IDs in the existing `series-hub-tracked-shows-v1` browser storage;
@@ -101,17 +101,28 @@ Implementation slice:
 - when no sufficient local taste signal exists, clearly falls back to popularity/rating instead of claiming personalization;
 - keeps the personal grid at the same responsive density as Phase 8B browse.
 
-### Phase 8A–8D data and budget boundary
+Production acceptance included 223 passing unit tests, production deployment, immediate TMDB sync, TVmaze bootstrap/convergence, final runtime smoke, VAPID readiness and preview-resource cleanup.
 
-Phase 8A/B discovery and browse use only already-synced D1 data. Phase 8C only reorders an existing search response. Phase 8D reuses one generic D1 browse request and ranks locally. None of these phases adds direct TMDB or TVmaze requests while the user discovers content.
+## Phase 8E — Acceptance and Product Polish
 
-The existing Phase 7 TMDB sync ceiling remains unchanged at 48 external requests per catalog sync. No D1 migration is required for Phase 8A–8D.
+Closeout slice:
 
-## Planned Phase 8 follow-up
+- preserves the exact originating Explore mode when entering global search and clearing the query;
+- adds explicit `aria-pressed` state to the **精選 / 為你 / 全部劇集** mode controls;
+- keeps mode controls associated with `show-grid` through `aria-controls`;
+- clears pressed state when Explore is no longer active;
+- codifies bounded loading, explicit error handling, mobile density and privacy boundaries in regression tests;
+- adds `docs/PHASE8_ACCEPTANCE.md` as the final Phase 8 closeout contract.
 
-### Phase 8E — Acceptance and Product Polish
+Phase 8E does not add a new catalog API, recommendation provider, D1 migration or upstream sync request.
 
-Validate mobile horizontal behavior, loading/error states, discovery/search transitions, personal-discovery privacy boundaries and real production usefulness before closing Phase 8.
+### Phase 8A–8E data and budget boundary
+
+Phase 8A/B discovery and browse use only already-synced D1 data. Phase 8C only reorders an existing search response. Phase 8D reuses one generic D1 browse request and ranks locally. Phase 8E only tightens product state transitions and acceptance contracts. None of these phases adds direct TMDB or TVmaze requests while the user discovers content.
+
+The existing Phase 7 TMDB sync ceiling remains unchanged at 48 external requests per catalog sync. No D1 migration is required for Phase 8A–8E.
+
+Phase 8 is considered closed only after the Phase 8E merged production workflow passes the full closeout gates documented in `PHASE8_ACCEPTANCE.md`.
 
 ## Principles retained from earlier phases
 
