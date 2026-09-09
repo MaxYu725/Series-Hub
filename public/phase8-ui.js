@@ -202,15 +202,7 @@ function leaveDiscoveryMode() {
 
 function releaseGlobalSearch() {
   if (!searchInput?.value) return;
-  const bridge = document.createElement("button");
-  bridge.type = "button";
-  bridge.hidden = true;
-  bridge.className = "filter";
-  bridge.dataset.view = "phase8-bridge";
-  document.body.append(bridge);
-  bridge.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-  bridge.remove();
-  searchInput.value = "";
+  window.dispatchEvent(new CustomEvent("series-hub:leave-global-search"));
 }
 
 async function fetchDiscovery(region, timeoutMs = 12000) {
