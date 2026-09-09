@@ -9,6 +9,7 @@ import {
   isTargetNetworkSeries,
   networkDiscoveryPage,
   networkDiscoveryParams,
+  networkCandidateRotationOffset,
   normalizeLifecycle,
   selectNetworkSeedsForSync,
   selectRoundRobinCandidates
@@ -190,9 +191,35 @@ test("FOX discovery uses a rolling three-year first-air window without changing 
   assert.equal(TMDB_SYNC_BUDGET.totalExternalRequests, 48);
 });
 
-test("non-FOX network discovery remains unchanged and unbounded by first-air date", () => {
-  for (const seed of CORE_NETWORK_SEEDS.filter((item) => item.name !== "FOX")) {
-    assert.deepEqual(networkDiscoveryParams(seed, NOW), { with_networks: seed.tmdbNetworkId }, seed.name);
+test("Phase 7D recent-window discovery prioritizes current streamer and cable catalogs", () => {
+  const expectedYears = new Map([
+    ["FOX", 3],
+    ["Paramount+", 8],
+    ["Peacock", 8],
+    ["Disney+", 8],
+    ["Hulu", 10],
+    ["AMC", 8],
+    ["AMC+", 8]
+  ]);
+
+  for (const [name, years] of expectedYears) {
+    const seed = CORE_NETWORK_SEEDS.find((item) => item.name === name);
+    assert.equal(seed?.recentFirstAirYears, years, name);
+    assert.equal(
+      networkDiscoveryParams(seed, NOW)["first_air_date.gte"],
+      `${NOW.getUTCFullYear() - years}-01-01`,
+      name
+    );
+  }
+
+  assert.equal(TMDB_SYNC_BUDGET.networkDiscoveryRequests, 6);
+  assert.equal(TMDB_SYNC_BUDGET.totalExternalRequests, 48);
+});
+
+test("legacy network discovery stays unbounded so long-running active series are not excluded", () => {
+  for (const name of ["Apple TV", "HBO", "Prime Video", "FX", "Netflix", "CBS", "NBC"]) {
+    const seed = CORE_NETWORK_SEEDS.find((item) => item.name === name);
+    assert.deepEqual(networkDiscoveryParams(seed, NOW), { with_networks: seed.tmdbNetworkId }, name);
   }
 });
 
@@ -253,5 +280,57 @@ test("round-robin rotation starts from the requested feed offset and wraps safel
   assert.deepEqual(
     selectRoundRobinCandidates(feeds, 6, 1).map((item) => item.id),
     [2, 11, 21, 3, 12, 22]
+  );
+});
+
+
+test("Phase 7D gives each network page a fresh top-five slice at the rollout boundary", () => {
+  const start = new Date("2026-09-09T00:00:00Z");
+  const next = new Date("2026-09-09T06:00:00Z");
+  const cases = [
+    ["Paramount+", start, 1],
+    ["Peacock", start, 2],
+    ["Hulu", next, 1],
+    ["AMC", next, 1]
+  ];
+
+  for (const [name, now, expectedPage] of cases) {
+    const seed = CORE_NETWORK_SEEDS.find((item) => item.name === name);
+    assert.equal(networkDiscoveryPage(seed, now), expectedPage, name);
+    assert.equal(networkCandidateRotationOffset(seed, expectedPage, 20, 5, now), 0, name);
+  }
+  assert.equal(TMDB_SYNC_BUDGET.totalExternalRequests, 48);
+});
+
+test("Phase 7D rotates a repeated network page through all four five-item slices", () => {
+  const seed = CORE_NETWORK_SEEDS.find((item) => item.name === "Hulu");
+  const epoch = new Date("2026-09-09T00:00:00Z");
+  const offsets = [];
+
+  for (let slot = 0; slot < 80 && offsets.length < 4; slot += 1) {
+    const now = new Date(epoch.getTime() + slot * 6 * 60 * 60 * 1000);
+    const active = selectNetworkSeedsForSync(
+      CORE_NETWORK_SEEDS,
+      TMDB_SYNC_BUDGET.networkDiscoveryRequests,
+      now
+    );
+    if (!active.some((item) => item.name === "Hulu")) continue;
+    const page = networkDiscoveryPage(seed, now);
+    if (page !== 1) continue;
+    offsets.push(networkCandidateRotationOffset(seed, page, 20, 5, now));
+  }
+
+  assert.deepEqual(offsets, [0, 5, 10, 15]);
+});
+
+test("round-robin candidate selection accepts independent offsets per feed", () => {
+  const feeds = [
+    [{ id: 1 }, { id: 2 }, { id: 3 }],
+    [{ id: 10 }, { id: 11 }, { id: 12 }]
+  ];
+
+  assert.deepEqual(
+    selectRoundRobinCandidates(feeds, 4, [2, 1]).map((item) => item.id),
+    [3, 11, 1, 12]
   );
 });
