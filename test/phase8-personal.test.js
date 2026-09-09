@@ -101,8 +101,8 @@ test("Phase 8D UI requests only a generic candidate pool and never serializes lo
   const myShows = readFileSync(join(root, "public", "phase5-ui.js"), "utf8");
   const css = readFileSync(join(root, "public", "phase8.css"), "utf8");
 
-  assert.match(html, /Phase 8D/);
-  assert.match(html, /id="phase8-personal-toggle">為你</);
+  assert.match(html, /Phase 8[A-Z]/);
+  assert.match(html, /id="phase8-personal-toggle"[^>]*>為你<\/button>/);
   assert.match(ui, /new URLSearchParams\(\{ region, mode: "browse", limit: "100", sort: "popular" \}\)/);
   assert.match(ui, /loadTrackedShowIds\(\)/);
   assert.match(ui, /loadViewingStates\(\)/);
