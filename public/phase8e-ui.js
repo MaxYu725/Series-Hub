@@ -40,6 +40,11 @@ if (searchInput && discoverButton) {
     const button = MODE_BUTTONS[mode] || featuredToggle || discoverButton;
     button?.click();
   });
+
+  new MutationObserver(syncPressedState).observe(discoverButton, {
+    attributes: true,
+    attributeFilter: ["class"]
+  });
 }
 
 for (const button of Object.values(MODE_BUTTONS)) {
