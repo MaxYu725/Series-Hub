@@ -76,7 +76,7 @@ test("PWA client exposes explicit install and user-controlled update lifecycle",
   assert.match(pwa, /event\.preventDefault\(\)/);
   assert.match(pwa, /安裝 Series Hub/);
   assert.match(pwa, /appinstalled/);
-  assert.match(pwa, /registration\.waiting/);
+  assert.match(pwa, /registration\?\.waiting/);
   assert.match(pwa, /updatefound/);
   assert.match(pwa, /SKIP_WAITING/);
   assert.match(pwa, /controllerchange/);
