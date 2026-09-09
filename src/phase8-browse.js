@@ -79,6 +79,14 @@ async function loadBrowseItems(env, titleRegion, filters, limit) {
   return (result.results || []).map((row) => withResolvedChineseTitle(row, titleRegion));
 }
 
+async function loadBrowseCount(env, filters) {
+  const where = buildBrowseWhere(filters);
+  const row = await env.DB.prepare(`SELECT COUNT(*) AS count FROM shows s WHERE ${where.sql}`)
+    .bind(...where.bindings)
+    .first();
+  return Number(row?.count) || 0;
+}
+
 export async function loadBrowseFacets(env) {
   if (!env.DB) {
     return { networks: [], genres: [], statuses: BROWSE_STATUSES.map((item) => ({ ...item, count: 0 })), years: [] };
@@ -137,6 +145,8 @@ export async function buildBrowse(env, url) {
           titleRegion,
           limit,
           filters,
+          resultCount: 0,
+          totalCount: 0,
           databaseConfigured: false,
           externalRequests: 0
         }
@@ -145,9 +155,10 @@ export async function buildBrowse(env, url) {
   }
 
   try {
-    const [items, facets] = await Promise.all([
+    const [items, facets, totalCount] = await Promise.all([
       loadBrowseItems(env, titleRegion, filters, limit),
-      loadBrowseFacets(env)
+      loadBrowseFacets(env),
+      loadBrowseCount(env, filters)
     ]);
     return {
       status: 200,
@@ -159,6 +170,8 @@ export async function buildBrowse(env, url) {
           limit,
           filters,
           resultCount: items.length,
+          totalCount,
+          truncated: totalCount > items.length,
           databaseConfigured: true,
           externalRequests: 0
         }
