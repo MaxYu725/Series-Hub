@@ -14,40 +14,47 @@ Phase 8 therefore treats search as an existing capability to improve and combine
 
 ## Phase 8A — Discovery Home
 
-First implementation slice:
+Production-accepted on 2026-09-09.
 
-- add an **探索 / Discover** view without changing the current default Today view;
-- build discovery entirely from the already-synced D1 catalog;
-- expose `GET /api/discover?region=HK|TW|CN&limit=N`;
-- return four bounded rails:
+- added an **探索 / Discover** view without changing the default Today view;
+- discovery is built entirely from the already-synced D1 catalog;
+- `GET /api/discover?region=HK|TW|CN&limit=N` returns four bounded rails:
   - **熱門追看** — active catalog ordered by TMDB popularity;
   - **近一年新劇** — active shows first aired within the last 12 months;
   - **即將開播** — upcoming shows with a confirmed future date;
   - **高評分** — active shows with at least 100 TMDB votes, ordered by rating;
-- preserve HK/TW/CN Chinese-title resolution in discovery cards;
-- reuse existing Phase 6 show-detail navigation;
-- render rails horizontally so discovery does not turn the homepage into a very long vertical card wall;
-- keep search, Today/This Week, status views and My Shows as separate first-class modes.
+- HK/TW/CN Chinese-title resolution and Phase 6 show-detail navigation are preserved;
+- rails remain horizontal so discovery does not become a long vertical wall.
 
-### Data and budget boundary
+Production acceptance included the normal TMDB immediate sync, TVmaze bootstrap/convergence, final runtime smoke and VAPID readiness checks.
 
-Phase 8A makes **zero additional external requests**. It does not call TMDB discover, TVmaze or watch-provider endpoints when building the discovery home. The existing Phase 7 TMDB sync ceiling remains unchanged at 48 external requests per catalog sync.
+## Phase 8B — Faceted Browse
 
-No D1 migration is required.
+Implementation slice:
+
+- keep the Phase 8A **精選** rails unchanged;
+- add a separate **全部劇集** mode inside Explore;
+- extend the existing endpoint rather than creating another catalog authority:
+  - `GET /api/discover?mode=browse&region=HK|TW|CN`;
+- support bounded, server-validated facets:
+  - `network` — exact canonical original network/service name from D1;
+  - `genre` — exact canonical TMDB genre name from D1;
+  - `status` — allowlisted Series Hub lifecycle status (`airing`, `upcoming`, `planned`, `completed`);
+  - `year` — validated four-digit first-air year;
+  - `sort` — allowlisted `popular`, `rating`, `newest`, `oldest`, or `title`;
+- facet values are bound SQL parameters; sort expressions are selected only from a fixed server allowlist;
+- return data-driven platform, genre, status and year options with catalog counts;
+- return total filtered count separately from the bounded item result so the UI can indicate truncation;
+- keep original network/service distinct from Phase 7C regional watch-provider availability;
+- keep mobile browse as a compact two-column card grid while Phase 8A remains horizontal rails.
+
+### Phase 8A / 8B data and budget boundary
+
+Both discovery layers make **zero additional external requests**. They do not call TMDB discover, TVmaze or watch-provider endpoints while the user browses. The existing Phase 7 TMDB sync ceiling remains unchanged at 48 external requests per catalog sync.
+
+No D1 migration is required for Phase 8B; it reads the existing `shows`, `networks`, `show_networks`, `genres` and `show_genres` tables.
 
 ## Planned Phase 8 follow-ups
-
-### Phase 8B — Faceted Browse
-
-Add deliberate catalog filters rather than more upstream sources, likely including:
-
-- platform/network;
-- genre;
-- lifecycle/status;
-- release year or recency;
-- sensible sort choices such as popularity, rating and premiere date.
-
-These filters should operate on Series Hub's canonical catalog and must not conflate original network/service with regional watch availability.
 
 ### Phase 8C — Search Quality
 
