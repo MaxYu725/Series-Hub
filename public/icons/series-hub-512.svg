@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Series Hub">
+  <rect width="512" height="512" rx="116" fill="#f4f6fb"/>
+  <rect x="48" y="48" width="416" height="416" rx="90" fill="#0b0d12"/>
+  <path d="M144 187c0-35 28-62 67-62h88v48h-85c-14 0-22 6-22 16 0 11 9 16 25 20l55 11c59 11 88 39 88 85 0 51-40 83-101 83H152v-50h107c27 0 43-9 43-24 0-14-12-22-33-27l-58-11c-45-9-67-38-67-89Z" fill="#f4f6fb"/>
+  <rect x="323" y="125" width="45" height="263" rx="22.5" fill="#ff4d6d"/>
+</svg>

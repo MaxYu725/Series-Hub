@@ -2,11 +2,18 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0b0d12">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Series Hub">
   <title>Series Hub</title>
   <meta name="description" content="集中整理美劇探索、搜尋、今日與本週播映時間、播映中、即將播映、已計劃播出、官方續訂、本機追蹤、劇集詳情、圖片與預告片。">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/series-hub-192.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/series-hub-192.svg">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/phase3.css">
   <link rel="stylesheet" href="/phase4.css">
@@ -16,6 +23,7 @@
   <link rel="stylesheet" href="/phase5e.css">
   <link rel="stylesheet" href="/phase6.css">
   <link rel="stylesheet" href="/phase8.css">
+  <link rel="stylesheet" href="/pwa.css">
 </head>
 <body>
   <header class="site-header">
@@ -175,6 +183,7 @@
     <span>GitHub Actions → Cloudflare Workers + D1</span>
   </footer>
 
+  <script type="module" src="/pwa.js"></script>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/global-search.js"></script>
   <script type="module" src="/phase8e-ui.js"></script>

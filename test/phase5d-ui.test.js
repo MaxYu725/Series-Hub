@@ -46,9 +46,13 @@ test("disable flow deletes server state before clearing local management", () =>
   assert.match(client, /method: "DELETE"/);
 });
 
-test("notification service worker is notification-specific", () => {
+test("shared PWA service worker preserves notification behavior without owning live data state", () => {
   assert.match(sw, /addEventListener\("push"/);
   assert.match(sw, /showNotification/);
   assert.match(sw, /addEventListener\("notificationclick"/);
-  assert.doesNotMatch(sw, /\/api\/shows|\/api\/schedule|localStorage|viewing-state/);
+  assert.doesNotMatch(sw, /\/api\/shows|\/api\/schedule|localStorage/);
+
+  const precacheEnd = sw.indexOf("];", sw.indexOf("const PRECACHE_URLS"));
+  const runtimeLogic = sw.slice(precacheEnd + 2);
+  assert.doesNotMatch(runtimeLogic, /viewing-state|viewingStates/);
 });
