@@ -22,10 +22,13 @@ const STATUS_LABELS = Object.freeze({
   completed: "已完結",
   unknown: "狀態待確認"
 });
+const DISCOVERY_MODES = new Set(["featured", "personal", "browse"]);
 
 let active = false;
 let previousView = "today";
 let previousWasMyShows = false;
+let previousDiscoveryMode = null;
+let pendingDiscoveryMode = null;
 let previousRegionDisabled = false;
 let initialRegion = regionSelect?.value || "HK";
 let requestId = 0;
@@ -230,6 +233,8 @@ function enterSearchMode() {
   const activeFilter = document.querySelector(".filter.active[data-view]");
   previousView = activeFilter?.dataset.view || "today";
   previousWasMyShows = myShowsButton?.classList.contains("active") === true;
+  previousDiscoveryMode = pendingDiscoveryMode;
+  pendingDiscoveryMode = null;
   previousRegionDisabled = regionSelect?.disabled === true;
   initialRegion = currentRegion();
   setSearchModeVisuals();
@@ -242,9 +247,19 @@ function restoreAfterClear() {
   window.clearTimeout(searchTimer);
 
   if (previousWasMyShows) {
+    previousDiscoveryMode = null;
     deferredRegionSync = currentRegion() !== initialRegion;
     if (regionSelect) regionSelect.disabled = previousRegionDisabled;
     myShowsButton?.click();
+    return;
+  }
+
+  if (previousDiscoveryMode) {
+    const mode = previousDiscoveryMode;
+    previousDiscoveryMode = null;
+    deferredRegionSync = false;
+    if (regionSelect) regionSelect.disabled = false;
+    window.dispatchEvent(new CustomEvent("series-hub:restore-discovery", { detail: { mode } }));
     return;
   }
 
@@ -259,6 +274,8 @@ function leaveSearchForControl(control) {
   active = false;
   requestId += 1;
   window.clearTimeout(searchTimer);
+  previousDiscoveryMode = null;
+  pendingDiscoveryMode = null;
   if (searchInput) searchInput.value = "";
 
   const regularFilter = control?.matches(".filter[data-view]") === true;
@@ -272,6 +289,11 @@ function leaveSearchForControl(control) {
 }
 
 if (searchInput && regionSelect && contentPanel && showGrid && scheduleList && emptyState) {
+  window.addEventListener("series-hub:search-origin", (event) => {
+    const mode = event?.detail?.view === "discover" ? event?.detail?.mode : null;
+    if (DISCOVERY_MODES.has(mode)) pendingDiscoveryMode = mode;
+  });
+
   window.addEventListener("series-hub:leave-global-search", () => {
     leaveSearchForControl(null);
   });
