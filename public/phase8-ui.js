@@ -1,3 +1,12 @@
+import { loadTrackedShowIds } from "./tracking.js";
+import { loadViewingStates } from "./viewing-state.js";
+import {
+  catalogSignalValues,
+  loadCatalogSignals,
+  rememberCatalogSignals
+} from "./local-catalog-signals.js";
+import { rankPersonalCandidates } from "./personal-discovery.js";
+
 const discoverButton = document.querySelector("#discover-filter");
 const searchInput = document.querySelector("#search-input");
 const regionSelect = document.querySelector("#title-region-select");
@@ -15,6 +24,7 @@ const emptyActions = document.querySelector("#empty-actions");
 const retryViewButton = document.querySelector("#retry-view-button");
 const exploreTools = document.querySelector("#phase8-explore-tools");
 const featuredToggle = document.querySelector("#phase8-featured-toggle");
+const personalToggle = document.querySelector("#phase8-personal-toggle");
 const browseToggle = document.querySelector("#phase8-browse-toggle");
 const browseControls = document.querySelector("#phase8-browse-controls");
 const networkFilter = document.querySelector("#phase8-network-filter");
@@ -35,6 +45,7 @@ const STATUS_LABELS = Object.freeze({
 let active = false;
 let mode = "featured";
 let requestId = 0;
+let personalPool = [];
 
 function currentRegion() {
   return new Set(["HK", "TW", "CN"]).has(regionSelect?.value) ? regionSelect.value : "HK";
@@ -122,7 +133,14 @@ function createCard(show) {
     footer.append(genre);
   }
 
-  body.append(title, zh, meta, footer);
+  body.append(title, zh, meta);
+  if (show.personal_reason) {
+    const reason = document.createElement("p");
+    reason.className = "personal-reason";
+    reason.textContent = show.personal_reason;
+    body.append(reason);
+  }
+  body.append(footer);
   card.append(imageWrap, body);
   return card;
 }
@@ -187,7 +205,7 @@ function renderFeaturedSkeleton() {
   showGrid.replaceChildren(...sections);
 }
 
-function renderBrowseSkeleton() {
+function renderGridSkeleton() {
   showGrid.replaceChildren(...Array.from({ length: 12 }, createSkeletonCard));
 }
 
@@ -196,23 +214,32 @@ function setModeVisuals(nextMode) {
   document.querySelectorAll(".filter.active, #my-shows-filter.active").forEach((button) => button.classList.remove("active"));
   discoverButton?.classList.add("active");
   featuredToggle?.classList.toggle("active", mode === "featured");
+  personalToggle?.classList.toggle("active", mode === "personal");
   browseToggle?.classList.toggle("active", mode === "browse");
   if (exploreTools) exploreTools.hidden = false;
   if (browseControls) browseControls.hidden = mode !== "browse";
   if (regionSelect) regionSelect.disabled = false;
   showGrid.hidden = false;
   showGrid.classList.toggle("is-discovery", mode === "featured");
+  showGrid.classList.toggle("is-personal", mode === "personal");
   showGrid.classList.toggle("is-browse", mode === "browse");
   scheduleList.hidden = true;
   emptyState.hidden = true;
   emptyState.removeAttribute("data-state");
   if (emptyActions) emptyActions.hidden = true;
   if (retryViewButton) retryViewButton.hidden = true;
-  viewKicker.textContent = "DISCOVER";
-  viewTitle.textContent = mode === "browse" ? "瀏覽全部劇集" : "探索劇集";
-  viewContext.textContent = mode === "browse"
-    ? "按原始平台、類型、狀態及首播年份篩選 Series Hub catalog；地區觀看供應仍由劇集詳情頁獨立顯示。"
-    : "從已收錄的美劇 catalog 即時整理熱門、新劇、即將開播與高評分內容；不額外呼叫 TMDB discovery。";
+  viewKicker.textContent = mode === "personal" ? "FOR YOU" : "DISCOVER";
+
+  if (mode === "browse") {
+    viewTitle.textContent = "瀏覽全部劇集";
+    viewContext.textContent = "按原始平台、類型、狀態及首播年份篩選 Series Hub catalog；地區觀看供應仍由劇集詳情頁獨立顯示。";
+  } else if (mode === "personal") {
+    viewTitle.textContent = "為你推薦";
+    viewContext.textContent = "推薦排序只使用這個瀏覽器內的追蹤與追劇狀態；伺服器只收到通用 catalog request。";
+  } else {
+    viewTitle.textContent = "探索劇集";
+    viewContext.textContent = "從已收錄的美劇 catalog 即時整理熱門、新劇、即將開播與高評分內容；不額外呼叫 TMDB discovery。";
+  }
 }
 
 function leaveDiscoveryMode() {
@@ -220,7 +247,7 @@ function leaveDiscoveryMode() {
   active = false;
   requestId += 1;
   discoverButton?.classList.remove("active");
-  showGrid?.classList.remove("is-discovery", "is-browse");
+  showGrid?.classList.remove("is-discovery", "is-personal", "is-browse");
   if (exploreTools) exploreTools.hidden = true;
   if (browseControls) browseControls.hidden = true;
 }
@@ -270,6 +297,19 @@ async function fetchBrowse(region, timeoutMs = 12000) {
   }
 }
 
+async function fetchPersonalPool(region, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const params = new URLSearchParams({ region, mode: "browse", limit: "100", sort: "popular" });
+    const response = await fetch(`/api/discover?${params}`, { cache: "no-store", signal: controller.signal });
+    if (!response.ok) throw new Error(`Personal pool ${response.status}`);
+    return await response.json();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 function populateFacetSelect(select, options, firstLabel) {
   if (!select || !Array.isArray(options)) return;
   const selected = select.value;
@@ -303,6 +343,7 @@ async function loadFeatured() {
     if (!active || mode !== "featured" || activeRequest !== requestId || currentRegion() !== region) return;
     const sections = (Array.isArray(payload?.data?.sections) ? payload.data.sections : [])
       .filter((section) => Array.isArray(section?.items) && section.items.length > 0);
+    rememberCatalogSignals(sections.flatMap((section) => section.items));
 
     showGrid.replaceChildren(...sections.map(createRail));
     showCount.textContent = `${sections.length} 組精選`;
@@ -327,6 +368,68 @@ async function loadFeatured() {
   }
 }
 
+function renderPersonalPool() {
+  const trackedIds = loadTrackedShowIds();
+  const viewingStates = loadViewingStates();
+  const cachedSignals = catalogSignalValues(loadCatalogSignals());
+  const byId = new Map();
+  for (const show of [...cachedSignals, ...personalPool]) byId.set(Number(show.id), show);
+  const ranked = rankPersonalCandidates(personalPool, [...byId.values()], trackedIds, viewingStates, 18);
+
+  showGrid.replaceChildren(...ranked.items.map(createCard));
+  showCount.textContent = `${ranked.items.length} 套推薦`;
+  emptyState.hidden = ranked.items.length !== 0;
+
+  if (ranked.profile.personalized) {
+    const preferenceLabels = [
+      ...ranked.profile.topGenres.slice(0, 2).map((item) => item.value),
+      ...ranked.profile.topNetworks.slice(0, 1).map((item) => item.value)
+    ];
+    viewContext.textContent = `只在這個瀏覽器用 ${ranked.profile.matchedTrackedShows} 套已追蹤劇集建立偏好${preferenceLabels.length ? `（${preferenceLabels.join(" · ")}）` : ""}；伺服器只收到通用 catalog request。`;
+  } else if (ranked.profile.trackedCount > 0) {
+    viewContext.textContent = `本機已有 ${ranked.profile.trackedCount} 套追蹤劇集，但暫未累積足夠類型／平台訊號；目前以熱門與評分排序，使用「我的劇集」後會逐步補齊。`;
+  } else {
+    viewContext.textContent = "尚未有本機追蹤偏好；目前以熱門與評分排序。加入「我的劇集」後，推薦會只在這個瀏覽器內逐步個人化。";
+  }
+
+  if (ranked.items.length === 0) {
+    emptyTitle.textContent = "暫未有可推薦劇集";
+    emptyCopy.textContent = "可先到精選或全部劇集加入追蹤；推薦資料只會保留在這個瀏覽器。";
+  }
+}
+
+async function loadPersonal() {
+  active = true;
+  setModeVisuals("personal");
+  const activeRequest = ++requestId;
+  const region = currentRegion();
+  contentPanel?.setAttribute("aria-busy", "true");
+  showCount.textContent = "本機排序中…";
+  renderGridSkeleton();
+
+  try {
+    const payload = await fetchPersonalPool(region);
+    if (!active || mode !== "personal" || activeRequest !== requestId || currentRegion() !== region) return;
+    personalPool = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+    rememberCatalogSignals(personalPool);
+    renderPersonalPool();
+  } catch (error) {
+    if (!active || mode !== "personal" || activeRequest !== requestId) return;
+    console.error(error);
+    personalPool = [];
+    showGrid.replaceChildren();
+    showCount.textContent = "載入失敗";
+    emptyState.hidden = false;
+    emptyState.dataset.state = "error";
+    emptyTitle.textContent = "為你推薦暫時無法使用";
+    emptyCopy.textContent = error?.name === "AbortError"
+      ? "通用 catalog 等候超過 12 秒；本機追蹤資料沒有上傳，可稍後再試。"
+      : "Catalog API 暫時無法回應；本機追蹤與追劇狀態沒有上傳。";
+  } finally {
+    if (active && mode === "personal" && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");
+  }
+}
+
 async function loadBrowse() {
   active = true;
   setModeVisuals("browse");
@@ -334,12 +437,13 @@ async function loadBrowse() {
   const region = currentRegion();
   contentPanel?.setAttribute("aria-busy", "true");
   showCount.textContent = "篩選中…";
-  renderBrowseSkeleton();
+  renderGridSkeleton();
 
   try {
     const payload = await fetchBrowse(region);
     if (!active || mode !== "browse" || activeRequest !== requestId || currentRegion() !== region) return;
     const items = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+    rememberCatalogSignals(items);
     populateFacets(payload?.data?.facets);
     showGrid.replaceChildren(...items.map(createCard));
 
@@ -382,6 +486,7 @@ if (discoverButton && regionSelect && contentPanel && showGrid && scheduleList &
   });
 
   featuredToggle?.addEventListener("click", () => loadFeatured());
+  personalToggle?.addEventListener("click", () => loadPersonal());
   browseToggle?.addEventListener("click", () => loadBrowse());
   resetFilters?.addEventListener("click", () => {
     clearBrowseFilters();
@@ -394,6 +499,10 @@ if (discoverButton && regionSelect && contentPanel && showGrid && scheduleList &
     });
   }
 
+  window.addEventListener("series-hub-tracking-changed", () => {
+    if (active && mode === "personal" && personalPool.length > 0) renderPersonalPool();
+  });
+
   window.addEventListener("input", (event) => {
     if (event.target === searchInput && active) leaveDiscoveryMode();
   }, true);
@@ -403,6 +512,7 @@ if (discoverButton && regionSelect && contentPanel && showGrid && scheduleList &
     event.stopImmediatePropagation();
     saveRegion(currentRegion());
     if (mode === "browse") loadBrowse();
+    else if (mode === "personal") loadPersonal();
     else loadFeatured();
   }, true);
 

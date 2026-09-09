@@ -52,12 +52,12 @@ Production acceptance included isolated preview validation, production deploy, i
 
 ## Phase 8C — Search Quality
 
-Implementation slice:
+Production-accepted on 2026-09-09.
 
-- preserve the existing Phase 6 global-search universe and query behavior;
-- do **not** add another search provider or a second catalog query path;
-- intercept the successful `/api/search` payload only at the outer Phase 8 wrapper and deterministically rerank the already-found shows;
-- use normalized NFKC, case-insensitive comparison;
+- preserves the existing Phase 6 global-search universe and query behavior;
+- does **not** add another search provider or a second catalog query path;
+- intercepts the successful `/api/search` payload only at the outer Phase 8 wrapper and deterministically reranks the already-found shows;
+- uses normalized NFKC, case-insensitive comparison;
 - relevance precedence:
   1. exact primary title — English, original or the requested region's resolved Chinese display title;
   2. exact other Chinese preferred title / alias;
@@ -66,28 +66,52 @@ Implementation slice:
   5. primary-title substring;
   6. alias substring;
   7. episode title match;
-- only after relevance ties, use existing popularity / vote-count signals;
-- annotate results with `search_match_type` and `search_match_label` so ranking remains inspectable;
-- retain the existing visible episode-hit presentation;
-- add zero external requests and no D1 migration.
+- only after relevance ties, uses existing popularity / vote-count signals;
+- annotates results with `search_match_type` and `search_match_label` so ranking remains inspectable;
+- retains the existing visible episode-hit presentation;
+- adds zero external requests and no D1 migration.
 
-The goal is relevance, not fuzzy identity resolution. A less-popular exact match must outrank a more-popular partial match, while the existing catalog, regional aliases and TVmaze episode matches remain searchable.
+Production acceptance included isolated preview validation, production deploy, immediate TMDB sync, TVmaze bootstrap/convergence, final runtime smoke, VAPID readiness and preview-resource cleanup.
 
-### Phase 8A / 8B / 8C data and budget boundary
+## Phase 8D — Local-first Personal Discovery
 
-Phase 8 discovery/browse adds **zero external requests**. Search Quality only reorders the existing `/api/search` result in memory and therefore also adds zero external requests. The existing Phase 7 TMDB sync ceiling remains unchanged at 48 external requests per catalog sync.
+Implementation slice:
 
-No D1 migration is required for Phase 8A–8C.
+- adds a third Explore mode: **為你 / For You**;
+- keeps My Shows IDs in the existing `series-hub-tracked-shows-v1` browser storage;
+- keeps viewing states in the existing `series-hub-viewing-states-v1` browser storage;
+- never serializes tracked IDs, viewing states or derived taste scores into the recommendation request;
+- obtains candidates only through a generic existing catalog request:
+  - `GET /api/discover?mode=browse&region=HK|TW|CN&limit=100&sort=popular`;
+- performs recommendation ranking entirely in browser JavaScript;
+- excludes shows that are already tracked;
+- weights local viewing states for taste-profile construction:
+  - `watching` — strongest positive signal;
+  - `waiting` — strong positive signal;
+  - `completed` — retained positive preference signal;
+  - `paused` — weak signal rather than a hard negative;
+  - unset — neutral-positive tracking signal;
+- derives explainable genre/network affinity only from metadata already seen in the browser;
+- stores a bounded local signal cache under `series-hub-local-catalog-signals-v1` containing only:
+  - Series Hub show ID;
+  - genre string;
+  - original network/service string;
+- caps that cache at 300 shows and deliberately omits titles, poster URLs, search terms, timestamps and watch dates;
+- adds recommendation reasons such as `同類型偏好：Drama` or `同平台偏好：HBO`;
+- when no sufficient local taste signal exists, clearly falls back to popularity/rating instead of claiming personalization;
+- keeps the personal grid at the same responsive density as Phase 8B browse.
 
-## Planned Phase 8 follow-ups
+### Phase 8A–8D data and budget boundary
 
-### Phase 8D — Local-first Personal Discovery
+Phase 8A/B discovery and browse use only already-synced D1 data. Phase 8C only reorders an existing search response. Phase 8D reuses one generic D1 browse request and ranks locally. None of these phases adds direct TMDB or TVmaze requests while the user discovers content.
 
-Use existing browser-local My Shows and viewing states to improve discovery without creating an account or server profile. Any recommendation logic should remain explainable and should not silently upload viewing-state data.
+The existing Phase 7 TMDB sync ceiling remains unchanged at 48 external requests per catalog sync. No D1 migration is required for Phase 8A–8D.
+
+## Planned Phase 8 follow-up
 
 ### Phase 8E — Acceptance and Product Polish
 
-Validate mobile horizontal behavior, loading/error states, discovery/search transitions and real production usefulness before closing Phase 8.
+Validate mobile horizontal behavior, loading/error states, discovery/search transitions, personal-discovery privacy boundaries and real production usefulness before closing Phase 8.
 
 ## Principles retained from earlier phases
 
@@ -97,3 +121,4 @@ Validate mobile horizontal behavior, loading/error states, discovery/search tran
 4. Original network/service and regional watch availability remain separate concepts.
 5. No synthetic show identities are inserted to satisfy discovery UI.
 6. Discovery should primarily exploit the catalog already being maintained before increasing upstream request volume.
+7. Personal discovery must remain browser-local unless a future account/profile phase is explicitly designed and approved.
