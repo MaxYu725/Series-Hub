@@ -30,42 +30,56 @@ Production acceptance included the normal TMDB immediate sync, TVmaze bootstrap/
 
 ## Phase 8B — Faceted Browse
 
-Implementation slice:
+Production-accepted on 2026-09-09.
 
-- keep the Phase 8A **精選** rails unchanged;
-- add a separate **全部劇集** mode inside Explore;
-- extend the existing endpoint rather than creating another catalog authority:
+- keeps the Phase 8A **精選** rails unchanged;
+- adds a separate **全部劇集** mode inside Explore;
+- extends the existing endpoint rather than creating another catalog authority:
   - `GET /api/discover?mode=browse&region=HK|TW|CN`;
-- support bounded, server-validated facets:
+- supports bounded, server-validated facets:
   - `network` — exact canonical original network/service name from D1;
   - `genre` — exact canonical TMDB genre name from D1;
   - `status` — allowlisted Series Hub lifecycle status (`airing`, `upcoming`, `planned`, `completed`);
   - `year` — validated four-digit first-air year;
   - `sort` — allowlisted `popular`, `rating`, `newest`, `oldest`, or `title`;
-- facet values are bound SQL parameters; sort expressions are selected only from a fixed server allowlist;
-- return data-driven platform, genre, status and year options with catalog counts;
-- return total filtered count separately from the bounded item result so the UI can indicate truncation;
-- keep original network/service distinct from Phase 7C regional watch-provider availability;
-- keep mobile browse as a compact two-column card grid while Phase 8A remains horizontal rails.
+- facet values use bound SQL parameters; sort expressions are selected only from a fixed server allowlist;
+- returns data-driven platform, genre, status and year options with catalog counts;
+- returns total filtered count separately from the bounded item result so the UI can indicate truncation;
+- keeps original network/service distinct from Phase 7C regional watch-provider availability;
+- keeps mobile browse as a compact two-column card grid while Phase 8A remains horizontal rails.
 
-### Phase 8A / 8B data and budget boundary
+Production acceptance included isolated preview validation, production deploy, immediate TMDB sync, TVmaze bootstrap/convergence, final runtime smoke, VAPID readiness and preview-resource cleanup.
 
-Both discovery layers make **zero additional external requests**. They do not call TMDB discover, TVmaze or watch-provider endpoints while the user browses. The existing Phase 7 TMDB sync ceiling remains unchanged at 48 external requests per catalog sync.
+## Phase 8C — Search Quality
 
-No D1 migration is required for Phase 8B; it reads the existing `shows`, `networks`, `show_networks`, `genres` and `show_genres` tables.
+Implementation slice:
+
+- preserve the existing Phase 6 global-search universe and query behavior;
+- do **not** add another search provider or a second catalog query path;
+- intercept the successful `/api/search` payload only at the outer Phase 8 wrapper and deterministically rerank the already-found shows;
+- use normalized NFKC, case-insensitive comparison;
+- relevance precedence:
+  1. exact primary title — English, original or the requested region's resolved Chinese display title;
+  2. exact other Chinese preferred title / alias;
+  3. primary-title prefix;
+  4. alias prefix;
+  5. primary-title substring;
+  6. alias substring;
+  7. episode title match;
+- only after relevance ties, use existing popularity / vote-count signals;
+- annotate results with `search_match_type` and `search_match_label` so ranking remains inspectable;
+- retain the existing visible episode-hit presentation;
+- add zero external requests and no D1 migration.
+
+The goal is relevance, not fuzzy identity resolution. A less-popular exact match must outrank a more-popular partial match, while the existing catalog, regional aliases and TVmaze episode matches remain searchable.
+
+### Phase 8A / 8B / 8C data and budget boundary
+
+Phase 8 discovery/browse adds **zero external requests**. Search Quality only reorders the existing `/api/search` result in memory and therefore also adds zero external requests. The existing Phase 7 TMDB sync ceiling remains unchanged at 48 external requests per catalog sync.
+
+No D1 migration is required for Phase 8A–8C.
 
 ## Planned Phase 8 follow-ups
-
-### Phase 8C — Search Quality
-
-Improve the existing global search only where production behavior shows value. Candidate work:
-
-- exact/prefix title ranking ahead of generic substring matches;
-- alias-aware ranking;
-- clearer episode-match presentation;
-- optional lightweight recent-search UX stored locally.
-
-Do not add fuzzy cross-source identity matching as part of user search.
 
 ### Phase 8D — Local-first Personal Discovery
 
