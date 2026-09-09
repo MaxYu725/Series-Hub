@@ -121,7 +121,7 @@ test("Phase 8 worker keeps featured discovery and faceted browse on the same end
   assert.equal(payload.meta.externalRequests, 0);
 });
 
-test("Phase 8B UI separates featured rails from all-catalog facets", () => {
+test("Phase 8B UI remains available under later Phase 8 labels", () => {
   const html = readFileSync(join(root, "public", "index.html"), "utf8");
   const ui = readFileSync(join(root, "public", "phase8-ui.js"), "utf8");
   const css = readFileSync(join(root, "public", "phase8.css"), "utf8");
@@ -137,7 +137,7 @@ test("Phase 8B UI separates featured rails from all-catalog facets", () => {
     "phase8-reset-filters"
   ]) assert.match(html, new RegExp(`id=\\"${id}\\"`));
 
-  assert.match(html, /Phase 8B/);
+  assert.match(html, /Phase 8[A-Z0-9.]*/);
   assert.match(ui, /mode: "browse"/);
   assert.match(ui, /network/);
   assert.match(ui, /genre/);

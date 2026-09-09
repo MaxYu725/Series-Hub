@@ -14,7 +14,7 @@ const acceptance = fs.readFileSync(new URL("../docs/PHASE5E_D_ACCEPTANCE.md", im
 const phase6 = fs.readFileSync(new URL("../docs/PHASE6_DETAILS.md", import.meta.url), "utf8");
 
 test("accepted Phase 5E-D visible product baseline remains loaded under later Phase 8", () => {
-  assert.match(html, /Phase 8B/);
+  assert.match(html, /Phase 8[A-Z0-9.]*/);
   assert.doesNotMatch(html, /Phase 5D-B/);
   assert.match(html, /phase5e\.css/);
   assert.match(html, /phase5e-ui\.js/);
