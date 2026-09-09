@@ -1,4 +1,5 @@
 import { normalizeTitleRegion, withResolvedChineseTitle } from "./title-aliases.js";
+import { PHASE8_SHOW_SELECT } from "./phase8-catalog.js";
 
 export const DISCOVERY_SECTIONS = Object.freeze([
   Object.freeze({
@@ -31,35 +32,6 @@ export const DISCOVERY_SECTIONS = Object.freeze([
   })
 ]);
 
-const SHOW_SELECT = `SELECT
-  s.id,
-  s.tmdb_id,
-  s.original_title,
-  s.english_title,
-  s.status,
-  s.tmdb_status,
-  s.poster_url,
-  s.first_air_date,
-  s.next_air_date,
-  s.popularity,
-  s.vote_average,
-  s.vote_count,
-  pt.title_zh_hk,
-  pt.title_zh_hk_source,
-  pt.title_zh_hk_confidence,
-  pt.title_zh_tw,
-  pt.title_zh_tw_source,
-  pt.title_zh_tw_confidence,
-  pt.title_zh_cn,
-  pt.title_zh_cn_source,
-  pt.title_zh_cn_confidence,
-  (SELECT GROUP_CONCAT(ta.title, ' | ') FROM title_aliases ta WHERE ta.show_id = s.id AND ta.season_id IS NULL AND ta.locale = 'zh') AS chinese_aliases,
-  (SELECT GROUP_CONCAT(n.canonical_name, ' · ') FROM show_networks sn JOIN networks n ON n.id = sn.network_id WHERE sn.show_id = s.id ORDER BY sn.is_primary DESC, n.canonical_name ASC) AS networks,
-  (SELECT GROUP_CONCAT(g.name, ' · ') FROM show_genres sg JOIN genres g ON g.id = sg.genre_id WHERE sg.show_id = s.id ORDER BY g.name ASC) AS genres,
-  (SELECT se.season_number FROM seasons se WHERE se.show_id = s.id ORDER BY se.season_number DESC LIMIT 1) AS latest_season_number
-FROM shows s
-LEFT JOIN preferred_show_titles pt ON pt.show_id = s.id`;
-
 export function normalizeDiscoveryLimit(url) {
   const value = Number(url?.searchParams?.get("limit") || 12);
   return Number.isFinite(value) ? Math.min(Math.max(Math.trunc(value), 4), 20) : 12;
@@ -67,7 +39,7 @@ export function normalizeDiscoveryLimit(url) {
 
 async function loadSection(env, definition, titleRegion, limit) {
   const result = await env.DB.prepare(
-    `${SHOW_SELECT}\nWHERE ${definition.where}\nORDER BY ${definition.orderBy}\nLIMIT ?1`
+    `${PHASE8_SHOW_SELECT}\nWHERE ${definition.where}\nORDER BY ${definition.orderBy}\nLIMIT ?1`
   ).bind(limit).all();
 
   return {
@@ -87,7 +59,7 @@ export async function buildDiscovery(env, url) {
       status: 200,
       body: {
         data: { sections: DISCOVERY_SECTIONS.map(({ key, title, description }) => ({ key, title, description, items: [] })) },
-        meta: { phase: "8a-discovery-home", titleRegion, limit, databaseConfigured: false }
+        meta: { phase: "8a-discovery-home", titleRegion, limit, databaseConfigured: false, externalRequests: 0 }
       }
     };
   }
