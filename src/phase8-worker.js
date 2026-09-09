@@ -1,5 +1,6 @@
 import phase7Worker from "./phase7-worker.js";
 import { buildDiscovery } from "./phase8-discovery.js";
+import { buildBrowse } from "./phase8-browse.js";
 
 function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -13,7 +14,9 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/api/discover") {
-      const result = await buildDiscovery(env, url);
+      const result = url.searchParams.get("mode") === "browse"
+        ? await buildBrowse(env, url)
+        : await buildDiscovery(env, url);
       return json(result.body, { status: result.status });
     }
 
