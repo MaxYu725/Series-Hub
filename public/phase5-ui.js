@@ -25,7 +25,8 @@ function boot() {
   const retryViewButton = document.querySelector("#retry-view-button");
   const searchInput = document.querySelector("#search-input");
   const regionSelect = document.querySelector("#title-region-select");
-  if (!myButton || !showGrid || !scheduleList || !viewTitle || !searchInput || !regionSelect) return;
+  const marketSelect = document.querySelector("#market-select");
+  if (!myButton || !showGrid || !scheduleList || !viewTitle || !searchInput || !regionSelect || !marketSelect) return;
 
   let trackedIds = loadTrackedShowIds();
   let myActive = false;
@@ -229,6 +230,7 @@ function boot() {
     event?.stopImmediatePropagation();
     myActive = true;
     regionSelect.disabled = true;
+    marketSelect.disabled = true;
     document.querySelectorAll(".filter").forEach((item) => item.classList.remove("active"));
     myButton.classList.add("active");
     loadMyShows();
@@ -240,6 +242,7 @@ function boot() {
     if (regularFilter) {
       myActive = false;
       regionSelect.disabled = false;
+      marketSelect.disabled = false;
       myButton.classList.remove("active");
       requestId += 1;
       return;

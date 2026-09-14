@@ -386,6 +386,7 @@ async function loadFeatured() {
 }
 
 function renderPersonalPool() {
+  const marketLabel = MARKET_LABELS[currentMarket()] || MARKET_LABELS.all;
   const trackedIds = loadTrackedShowIds();
   const viewingStates = loadViewingStates();
   const cachedSignals = catalogSignalValues(loadCatalogSignals());
@@ -402,11 +403,11 @@ function renderPersonalPool() {
       ...ranked.profile.topGenres.slice(0, 2).map((item) => item.value),
       ...ranked.profile.topNetworks.slice(0, 1).map((item) => item.value)
     ];
-    viewContext.textContent = `只在這個瀏覽器用 ${ranked.profile.matchedTrackedShows} 套已追蹤劇集建立偏好${preferenceLabels.length ? `（${preferenceLabels.join(" · ")}）` : ""}；伺服器只收到通用 catalog request。`;
+    viewContext.textContent = `目前顯示${marketLabel}劇集；只在這個瀏覽器用 ${ranked.profile.matchedTrackedShows} 套已追蹤劇集建立偏好${preferenceLabels.length ? `（${preferenceLabels.join(" · ")}）` : ""}；伺服器只收到通用 catalog request。`;
   } else if (ranked.profile.trackedCount > 0) {
-    viewContext.textContent = `本機已有 ${ranked.profile.trackedCount} 套追蹤劇集，但暫未累積足夠類型／平台訊號；目前以熱門與評分排序，使用「我的劇集」後會逐步補齊。`;
+    viewContext.textContent = `目前顯示${marketLabel}劇集；本機已有 ${ranked.profile.trackedCount} 套追蹤劇集，但暫未累積足夠類型／平台訊號；目前以熱門與評分排序，使用「我的劇集」後會逐步補齊。`;
   } else {
-    viewContext.textContent = "尚未有本機追蹤偏好；目前以熱門與評分排序。加入「我的劇集」後，推薦會只在這個瀏覽器內逐步個人化。";
+    viewContext.textContent = `目前顯示${marketLabel}劇集；尚未有本機追蹤偏好；目前以熱門與評分排序。加入「我的劇集」後，推薦會只在這個瀏覽器內逐步個人化。`;
   }
 
   if (ranked.items.length === 0) {
