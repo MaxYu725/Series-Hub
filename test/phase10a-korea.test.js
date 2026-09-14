@@ -94,14 +94,18 @@ test("Korean discovery is isolated to KR and keeps source health separate", () =
   assert.match(migration, /'TMDB · Korea'/);
 });
 
-test("Phase 10 wrapper preserves Phase 8 delegation and protects Korean sync", async () => {
+test("Phase 10 wrapper preserves Phase 8 delegation and isolates Korean sync cadence", async () => {
   const wrapper = fs.readFileSync(new URL("../src/phase10-worker.js", import.meta.url), "utf8");
-  const wrangler = fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+  const wrangler = JSON.parse(fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
 
   assert.match(wrapper, /phase8Worker\.fetch/);
-  assert.match(wrapper, /phase8Worker\.scheduled/);
+  assert.match(wrapper, /return phase8Worker\.scheduled\(controller, env, ctx\);/);
+  assert.match(wrapper, /KOREA_SYNC_CRON = "37 \*\/6 \* \* \*"/);
   assert.match(wrapper, /controller\.cron === KOREA_SYNC_CRON/);
-  assert.match(wrangler, /"main":\s*"\.\/src\/phase10-worker\.js"/);
+  assert.equal(wrangler.main, "./src/phase10-worker.js");
+  assert.ok(wrangler.triggers.crons.includes("17 */6 * * *"));
+  assert.ok(wrangler.triggers.crons.includes("37 */6 * * *"));
+  assert.ok(wrangler.triggers.crons.includes("47 * * * *"));
 
   const missingToken = await phase10Worker.fetch(
     new Request("https://series-hub.test/api/internal/tmdb-sync-kr", { method: "POST" }),
