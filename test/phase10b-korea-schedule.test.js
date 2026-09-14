@@ -61,10 +61,8 @@ function fakeDb({ tvmazeFuture = false, seasonId = 42, pruneChanges = 0, insertC
 }
 
 test("Phase 10B normalizes a future TMDB next episode without inventing schedule fields", () => {
-  const normalized = normalizeKoreanTmdbNextEpisode(
-    details(),
-    new Date("2026-09-14T00:00:00Z")
-  );
+  const now = new Date("2026-09-14T00:00:00Z");
+  const normalized = normalizeKoreanTmdbNextEpisode(details(), now);
 
   assert.deepEqual(normalized, {
     tmdbId: 777001,
@@ -81,11 +79,18 @@ test("Phase 10B normalizes a future TMDB next episode without inventing schedule
   assert.equal(
     normalizeKoreanTmdbNextEpisode(
       details({ next_episode_to_air: { ...details().next_episode_to_air, air_date: "2026-09-13" } }),
-      new Date("2026-09-14T00:00:00Z")
+      now
     ),
     null
   );
-  assert.equal(normalizeKoreanTmdbNextEpisode({ id: 1 }, new Date("2026-09-14T00:00:00Z")), null);
+  assert.equal(normalizeKoreanTmdbNextEpisode({ id: 1 }, now), null);
+  assert.equal(
+    normalizeKoreanTmdbNextEpisode(
+      details({ next_episode_to_air: { ...details().next_episode_to_air, runtime: null } }),
+      now
+    ).runtimeMinutes,
+    null
+  );
 });
 
 test("Phase 10B inserts one TMDB fallback only when no future TVmaze schedule exists", async () => {
