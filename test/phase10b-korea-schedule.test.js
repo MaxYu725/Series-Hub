@@ -84,6 +84,7 @@ test("Phase 10B normalizes a future TMDB next episode without inventing schedule
     null
   );
   assert.equal(normalizeKoreanTmdbNextEpisode({ id: 1 }, now), null);
+  assert.equal(normalizeKoreanTmdbNextEpisode(details({ id: null }), now), null);
   assert.equal(
     normalizeKoreanTmdbNextEpisode(
       details({ next_episode_to_air: { ...details().next_episode_to_air, runtime: null } }),
