@@ -376,6 +376,9 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
   const includeDetails = typeof options.includeDetails === "function"
     ? options.includeDetails
     : null;
+  const onRejectedDetails = typeof options.onRejectedDetails === "function"
+    ? options.onRejectedDetails
+    : null;
 
   const sourceId = await getSourceId(env.DB);
   const runId = await beginSyncRun(env.DB, sourceId);
@@ -453,6 +456,7 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
       if (!isIncludedKoreanScriptedSeries(details)) continue;
       if (includeDetails && !includeDetails(details)) {
         recordsRejected += 1;
+        if (onRejectedDetails) await onRejectedDetails(details, env.DB);
         continue;
       }
       const normalized = normalizeTmdbSeries(details, now);
