@@ -2,7 +2,7 @@
 
 ## Phase 10A — Korean Catalog Foundation
 
-Status: implementation in progress.
+Status: production foundation validated; Phase 10A.1 catalog-quality hardening in progress.
 
 ### Scope
 
@@ -19,6 +19,22 @@ Excluded genres remain aligned with the accepted US catalog policy:
 - News
 - Reality
 - Talk
+
+Phase 10A.1 adds a second, conservative admission condition: a candidate must carry at least one TMDB fiction genre. This prevents sparse Korean variety/lifestyle records that TMDB labels `Scripted` from entering the catalog merely because their type is misclassified.
+
+Accepted fiction genres are:
+- Drama
+- Comedy
+- Western
+- Crime
+- Mystery
+- Family
+- Action & Adventure
+- Sci-Fi & Fantasy
+- Soap
+- War & Politics
+
+This is not a title blacklist. A sparse record with no fiction genre is simply deferred until TMDB metadata becomes sufficiently specific.
 
 ### Source authority
 
@@ -60,6 +76,23 @@ Only four network seeds are queried in one Korean run. The deterministic six-hou
 
 Network seeds improve coverage but are not an admission whitelist. A Korean scripted/miniseries candidate discovered through the KR broad or upcoming feed may still enter the catalog even when its original network is not in the seed list.
 
+### First production benchmark — 2026-09-14
+
+The first real production KR sync completed successfully with:
+- 103 unique candidates seen
+- 18 detail records selected
+- 7 records initially persisted
+- 6 discovery requests
+- 24 total external requests
+- 0 warnings
+- independent `tmdb_kr=success` and `tmdb=success` health
+
+The run proved the Phase 10A ingestion architecture and budget isolation, but also exposed a data-quality edge case: four of the seven initially persisted rows were sparse Korean variety/lifestyle programs that TMDB currently labels `Scripted` while providing no genres. The three clearly fictional rows all carried fiction genres.
+
+A read-only follow-up diagnostic compared the production rows with Queen of Tears, Crash Landing on You, Moving, The Glory, Lovely Runner and Hospital Playlist. The useful invariant was not episode count, runtime, network or a particular title keyword; it was the presence of at least one fiction genre. This preserves long daily dramas and genre series while rejecting the observed sparse false positives.
+
+Phase 10A.1 therefore applies the fiction-genre requirement as a post-ingestion quality layer and uses migration `0020_phase10a1_korea_catalog_quality.sql` for the one-time cleanup of already-ingested rows that fail the same metadata rule. The cleanup is based only on country and genre relationships and contains no show-title or TMDB-ID blacklist.
+
 ### Product behavior
 
 The existing title model is reused:
@@ -67,7 +100,7 @@ The existing title model is reused:
 - `english_title` uses TMDB English metadata
 - HK / TW / CN Chinese names continue through the existing title alias pipeline
 
-The homepage and PWA branding are made region-neutral (`SERIES TRACKER`, `劇集追蹤`) because the catalog is no longer US-only.
+The homepage and PWA branding are region-neutral (`SERIES TRACKER`, `劇集追蹤`) because the catalog is no longer US-only.
 
 Phase 10A deliberately does not add a market selector yet. Region filtering belongs to Phase 10C after Korean ingestion and schedule coverage are production-validated.
 
@@ -87,15 +120,16 @@ Both retain the existing internal sync-key authorization model.
 
 ### Acceptance gates
 
-Phase 10A is accepted only when:
+Phase 10A / 10A.1 is accepted only when:
 1. all existing US / Phase 1–9 tests remain green;
-2. Korean eligibility rejects non-KR, reality and animation cases;
+2. Korean eligibility rejects non-KR, reality, animation and sparse no-fiction-genre cases;
 3. US request budget remains exactly 48;
 4. Korean request budget remains at or below 24 and runs on an isolated cron invocation;
 5. the Phase 10 wrapper delegates all non-Korean fetch and scheduled behavior to Phase 8;
 6. production D1 records `tmdb_kr` separately from `tmdb`;
 7. a production Korean sync inserts real active Korean scripted series without synthetic IDs or manual show seeds;
-8. the first production benchmark records actual KR catalog coverage before Phase 10B schedule conclusions are made.
+8. the quality cleanup removes the observed false positives without title/TMDB-ID blacklists;
+9. a production re-run confirms accepted KR rows retain fiction genres and the US catalog remains healthy.
 
 ### Deferred
 

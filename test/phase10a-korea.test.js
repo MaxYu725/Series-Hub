@@ -9,6 +9,11 @@ import {
   isIncludedKoreanScriptedSeries
 } from "../src/tmdb-korea.js";
 import {
+  KOREA_FICTION_GENRE_IDS,
+  hasKoreanFictionGenre,
+  isIncludedKoreanCatalogSeries
+} from "../src/tmdb-korea-quality.js";
+import {
   TMDB_SYNC_BUDGET,
   selectNetworkSeedsForSync
 } from "../src/tmdb.js";
@@ -60,6 +65,49 @@ test("Phase 10A defines Korean drama by KR origin rather than Korean language al
     isIncludedKoreanScriptedSeries(koreanSeries({ genres: [{ id: 16, name: "Animation" }] })),
     false
   );
+});
+
+test("Phase 10A.1 requires a real fiction genre instead of trusting Scripted alone", () => {
+  assert.equal(hasKoreanFictionGenre(koreanSeries()), true);
+  assert.equal(isIncludedKoreanCatalogSeries(koreanSeries()), true);
+
+  // Production diagnostics showed several Korean variety/lifestyle records marked
+  // Scripted by TMDB but carrying no genres at all. Sparse metadata stays out
+  // until TMDB supplies a fiction genre.
+  assert.equal(isIncludedKoreanCatalogSeries(koreanSeries({ genres: [] })), false);
+  assert.equal(isIncludedKoreanCatalogSeries(koreanSeries({ genres: null })), false);
+
+  // A drama does not need the literal Drama genre. Fantasy/comedy, crime,
+  // family, soap and other narrative genres remain valid.
+  assert.equal(
+    isIncludedKoreanCatalogSeries(koreanSeries({
+      genres: [
+        { id: 10765, name: "Sci-Fi & Fantasy" },
+        { id: 35, name: "Comedy" }
+      ]
+    })),
+    true
+  );
+  assert.ok(KOREA_FICTION_GENRE_IDS.includes(10766), "Korean daily/soap fiction remains allowed");
+});
+
+test("Phase 10A.1 quality cleanup is metadata-based and contains no title blacklist", () => {
+  const quality = fs.readFileSync(new URL("../src/tmdb-korea-quality.js", import.meta.url), "utf8");
+  const migration = fs.readFileSync(
+    new URL("../migrations/0020_phase10a1_korea_catalog_quality.sql", import.meta.url),
+    "utf8"
+  );
+  const wrapper = fs.readFileSync(new URL("../src/phase10-worker.js", import.meta.url), "utf8");
+
+  assert.match(quality, /NOT EXISTS/);
+  assert.match(quality, /show_genres/);
+  assert.match(quality, /tmdb_genre_id IN/);
+  assert.match(migration, /NOT EXISTS/);
+  assert.match(migration, /show_genres/);
+  assert.match(migration, /tmdb_genre_id IN/);
+  assert.doesNotMatch(migration, /204448|123844|219260|219956/);
+  assert.doesNotMatch(migration, /Good Partner|Shinbyung|낭만닥터|외식하는 날/);
+  assert.match(wrapper, /from "\.\/tmdb-korea-quality\.js"/);
 });
 
 test("Korean network rotation reaches every seed without stealing US discovery requests", () => {
