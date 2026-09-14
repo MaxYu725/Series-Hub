@@ -29,6 +29,7 @@ export function normalizeKoreanTmdbNextEpisode(details, now = new Date()) {
   const stillPath = typeof episode.still_path === "string" && episode.still_path
     ? episode.still_path
     : null;
+  const hasRuntime = episode.runtime !== null && episode.runtime !== undefined && episode.runtime !== "";
 
   return {
     tmdbId,
@@ -37,7 +38,7 @@ export function normalizeKoreanTmdbNextEpisode(details, now = new Date()) {
     name: typeof episode.name === "string" && episode.name.trim() ? episode.name.trim() : null,
     overview: typeof episode.overview === "string" && episode.overview.trim() ? episode.overview.trim() : null,
     airDate,
-    runtimeMinutes: Number.isFinite(Number(episode.runtime)) && Number(episode.runtime) >= 0
+    runtimeMinutes: hasRuntime && Number.isFinite(Number(episode.runtime)) && Number(episode.runtime) >= 0
       ? Number(episode.runtime)
       : null,
     imageUrl: stillPath ? `${TMDB_IMAGE_BASE}${stillPath}` : null,
