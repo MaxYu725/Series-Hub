@@ -27,13 +27,39 @@ export function isIncludedKoreanCatalogSeries(details) {
   return isIncludedKoreanScriptedSeries(details) && hasKoreanFictionGenre(details);
 }
 
+async function pruneRejectedExistingKoreanCatalogSeries(db, tmdbIds) {
+  let recordsPruned = 0;
+
+  for (const tmdbId of tmdbIds) {
+    const result = await db
+      .prepare(
+        `DELETE FROM shows
+         WHERE tmdb_id = ?1
+           AND (',' || COALESCE(origin_country, '') || ',') LIKE '%,KR,%'`
+      )
+      .bind(tmdbId)
+      .run();
+    recordsPruned += Number(result?.meta?.changes || 0);
+  }
+
+  return recordsPruned;
+}
+
 export async function syncTmdbKoreanCatalog(env, options = {}) {
   const callerIncludeDetails = typeof options.includeDetails === "function"
     ? options.includeDetails
     : null;
-  const includeDetails = (details) =>
-    isIncludedKoreanCatalogSeries(details) &&
-    (!callerIncludeDetails || callerIncludeDetails(details));
+  const rejectedQualityTmdbIds = new Set();
+  const includeDetails = (details) => {
+    const qualityIncluded = isIncludedKoreanCatalogSeries(details);
+    const tmdbId = Number(details?.id);
+    if (!qualityIncluded && Number.isInteger(tmdbId) && tmdbId > 0) {
+      rejectedQualityTmdbIds.add(tmdbId);
+    }
+
+    return qualityIncluded &&
+      (!callerIncludeDetails || callerIncludeDetails(details));
+  };
 
   const result = await syncBaseKoreanCatalog(env, {
     ...options,
@@ -41,10 +67,14 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
   });
   if (!result?.ok) return result;
 
+  const recordsPruned = rejectedQualityTmdbIds.size
+    ? await pruneRejectedExistingKoreanCatalogSeries(env.DB, rejectedQualityTmdbIds)
+    : 0;
+
   return {
     ...result,
-    recordsPruned: 0,
+    recordsPruned,
     recordsAccepted: Number(result.recordsChanged || 0),
-    qualityPolicy: "kr_scripted_with_fiction_genre_prewrite"
+    qualityPolicy: "kr_scripted_with_fiction_genre_prewrite_with_stale_cleanup"
   };
 }
