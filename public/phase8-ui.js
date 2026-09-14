@@ -10,6 +10,7 @@ import { rankPersonalCandidates } from "./personal-discovery.js";
 const discoverButton = document.querySelector("#discover-filter");
 const searchInput = document.querySelector("#search-input");
 const regionSelect = document.querySelector("#title-region-select");
+const marketSelect = document.querySelector("#market-select");
 const contentPanel = document.querySelector(".content-panel");
 const viewTitle = document.querySelector("#view-title");
 const viewKicker = document.querySelector("#view-kicker");
@@ -34,6 +35,8 @@ const yearFilter = document.querySelector("#phase8-year-filter");
 const sortFilter = document.querySelector("#phase8-sort-filter");
 const resetFilters = document.querySelector("#phase8-reset-filters");
 
+const MARKET_LABELS = Object.freeze({ all: "全部地區", US: "美國", KR: "韓國" });
+
 const STATUS_LABELS = Object.freeze({
   airing: "播映中",
   upcoming: "即將播映",
@@ -54,6 +57,18 @@ function currentRegion() {
 function saveRegion(region) {
   try {
     window.localStorage.setItem("series-hub-title-region", region);
+  } catch {
+    // Optional preference only.
+  }
+}
+
+function currentMarket() {
+  return Object.hasOwn(MARKET_LABELS, marketSelect?.value) ? marketSelect.value : "all";
+}
+
+function saveMarket(market) {
+  try {
+    window.localStorage.setItem("series-hub-catalog-market", market);
   } catch {
     // Optional preference only.
   }
@@ -229,16 +244,17 @@ function setModeVisuals(nextMode) {
   if (emptyActions) emptyActions.hidden = true;
   if (retryViewButton) retryViewButton.hidden = true;
   viewKicker.textContent = mode === "personal" ? "FOR YOU" : "DISCOVER";
+  const marketLabel = MARKET_LABELS[currentMarket()] || MARKET_LABELS.all;
 
   if (mode === "browse") {
     viewTitle.textContent = "瀏覽全部劇集";
-    viewContext.textContent = "按原始平台、類型、狀態及首播年份篩選 Series Hub catalog；地區觀看供應仍由劇集詳情頁獨立顯示。";
+    viewContext.textContent = `目前顯示${marketLabel}劇集；按原始平台、類型、狀態及首播年份篩選 Series Hub catalog；地區觀看供應仍由劇集詳情頁獨立顯示。`;
   } else if (mode === "personal") {
     viewTitle.textContent = "為你推薦";
-    viewContext.textContent = "推薦排序只使用這個瀏覽器內的追蹤與追劇狀態；伺服器只收到通用 catalog request。";
+    viewContext.textContent = `目前顯示${marketLabel}劇集；推薦排序只使用這個瀏覽器內的追蹤與追劇狀態；伺服器只收到通用 catalog request。`;
   } else {
     viewTitle.textContent = "探索劇集";
-    viewContext.textContent = "從已收錄的美劇 catalog 即時整理熱門、新劇、即將開播與高評分內容；不額外呼叫 TMDB discovery。";
+    viewContext.textContent = `從已收錄的${marketLabel} catalog 即時整理熱門、新劇、即將開播與高評分內容；不額外呼叫 TMDB discovery。`;
   }
 }
 
@@ -257,11 +273,11 @@ function releaseGlobalSearch() {
   window.dispatchEvent(new CustomEvent("series-hub:leave-global-search"));
 }
 
-async function fetchFeatured(region, timeoutMs = 12000) {
+async function fetchFeatured(region, market, timeoutMs = 12000) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const params = new URLSearchParams({ region, limit: "12" });
+    const params = new URLSearchParams({ region, market, limit: "12" });
     const response = await fetch(`/api/discover?${params}`, { cache: "no-store", signal: controller.signal });
     if (!response.ok) throw new Error(`Discover ${response.status}`);
     return await response.json();
@@ -280,12 +296,12 @@ function browseFilterValues() {
   };
 }
 
-async function fetchBrowse(region, timeoutMs = 12000) {
+async function fetchBrowse(region, market, timeoutMs = 12000) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const filters = browseFilterValues();
-    const params = new URLSearchParams({ region, mode: "browse", limit: "80", sort: filters.sort });
+    const params = new URLSearchParams({ region, market, mode: "browse", limit: "80", sort: filters.sort });
     for (const key of ["network", "genre", "status", "year"]) {
       if (filters[key]) params.set(key, filters[key]);
     }
@@ -297,11 +313,11 @@ async function fetchBrowse(region, timeoutMs = 12000) {
   }
 }
 
-async function fetchPersonalPool(region, timeoutMs = 12000) {
+async function fetchPersonalPool(region, market, timeoutMs = 12000) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const params = new URLSearchParams({ region, mode: "browse", limit: "100", sort: "popular" });
+    const params = new URLSearchParams({ region, market, mode: "browse", limit: "100", sort: "popular" });
     const response = await fetch(`/api/discover?${params}`, { cache: "no-store", signal: controller.signal });
     if (!response.ok) throw new Error(`Personal pool ${response.status}`);
     return await response.json();
@@ -334,13 +350,14 @@ async function loadFeatured() {
   setModeVisuals("featured");
   const activeRequest = ++requestId;
   const region = currentRegion();
+  const market = currentMarket();
   contentPanel?.setAttribute("aria-busy", "true");
   showCount.textContent = "整理中…";
   renderFeaturedSkeleton();
 
   try {
-    const payload = await fetchFeatured(region);
-    if (!active || mode !== "featured" || activeRequest !== requestId || currentRegion() !== region) return;
+    const payload = await fetchFeatured(region, market);
+    if (!active || mode !== "featured" || activeRequest !== requestId || currentRegion() !== region || currentMarket() !== market) return;
     const sections = (Array.isArray(payload?.data?.sections) ? payload.data.sections : [])
       .filter((section) => Array.isArray(section?.items) && section.items.length > 0);
     rememberCatalogSignals(sections.flatMap((section) => section.items));
@@ -403,13 +420,14 @@ async function loadPersonal() {
   setModeVisuals("personal");
   const activeRequest = ++requestId;
   const region = currentRegion();
+  const market = currentMarket();
   contentPanel?.setAttribute("aria-busy", "true");
   showCount.textContent = "本機排序中…";
   renderGridSkeleton();
 
   try {
-    const payload = await fetchPersonalPool(region);
-    if (!active || mode !== "personal" || activeRequest !== requestId || currentRegion() !== region) return;
+    const payload = await fetchPersonalPool(region, market);
+    if (!active || mode !== "personal" || activeRequest !== requestId || currentRegion() !== region || currentMarket() !== market) return;
     personalPool = Array.isArray(payload?.data?.items) ? payload.data.items : [];
     rememberCatalogSignals(personalPool);
     renderPersonalPool();
@@ -435,13 +453,14 @@ async function loadBrowse() {
   setModeVisuals("browse");
   const activeRequest = ++requestId;
   const region = currentRegion();
+  const market = currentMarket();
   contentPanel?.setAttribute("aria-busy", "true");
   showCount.textContent = "篩選中…";
   renderGridSkeleton();
 
   try {
-    const payload = await fetchBrowse(region);
-    if (!active || mode !== "browse" || activeRequest !== requestId || currentRegion() !== region) return;
+    const payload = await fetchBrowse(region, market);
+    if (!active || mode !== "browse" || activeRequest !== requestId || currentRegion() !== region || currentMarket() !== market) return;
     const items = Array.isArray(payload?.data?.items) ? payload.data.items : [];
     rememberCatalogSignals(items);
     populateFacets(payload?.data?.facets);
@@ -479,7 +498,7 @@ function clearBrowseFilters() {
   if (sortFilter) sortFilter.value = "popular";
 }
 
-if (discoverButton && regionSelect && contentPanel && showGrid && scheduleList && emptyState) {
+if (discoverButton && regionSelect && marketSelect && contentPanel && showGrid && scheduleList && emptyState) {
   discoverButton.addEventListener("click", () => {
     releaseGlobalSearch();
     loadFeatured();
@@ -508,9 +527,10 @@ if (discoverButton && regionSelect && contentPanel && showGrid && scheduleList &
   }, true);
 
   window.addEventListener("change", (event) => {
-    if (event.target !== regionSelect || !active) return;
+    if (!active || (event.target !== regionSelect && event.target !== marketSelect)) return;
     event.stopImmediatePropagation();
-    saveRegion(currentRegion());
+    if (event.target === regionSelect) saveRegion(currentRegion());
+    if (event.target === marketSelect) saveMarket(currentMarket());
     if (mode === "browse") loadBrowse();
     else if (mode === "personal") loadPersonal();
     else loadFeatured();

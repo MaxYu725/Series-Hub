@@ -1,5 +1,6 @@
 import { normalizeTitleRegion, withResolvedChineseTitle } from "./title-aliases.js";
 import { PHASE8_SHOW_SELECT } from "./phase8-catalog.js";
+import { normalizeCatalogMarket, catalogMarketPattern } from "./market.js";
 
 export const BROWSE_SORTS = Object.freeze({
   popular: Object.freeze({ label: "熱門程度", orderBy: "COALESCE(s.popularity, 0) DESC, COALESCE(s.vote_count, 0) DESC, s.id DESC" }),
@@ -37,6 +38,7 @@ export function normalizeBrowseFilters(url) {
   const yearNumber = /^\d{4}$/.test(rawYear) ? Number(rawYear) : null;
 
   return {
+    market: normalizeCatalogMarket(url?.searchParams?.get("market")),
     network: normalizeTextFacet(url?.searchParams?.get("network")),
     genre: normalizeTextFacet(url?.searchParams?.get("genre")),
     status: STATUS_VALUES.has(rawStatus) ? rawStatus : null,
@@ -48,6 +50,12 @@ export function normalizeBrowseFilters(url) {
 function buildBrowseWhere(filters) {
   const clauses = [];
   const bindings = [];
+
+  const marketPattern = catalogMarketPattern(filters.market);
+  if (marketPattern) {
+    clauses.push("(',' || COALESCE(s.origin_country, '') || ',') LIKE ?");
+    bindings.push(marketPattern);
+  }
 
   if (filters.network) {
     clauses.push("EXISTS (SELECT 1 FROM show_networks bsn JOIN networks bn ON bn.id = bsn.network_id WHERE bsn.show_id = s.id AND bn.canonical_name = ?)");
@@ -88,38 +96,50 @@ async function loadBrowseCount(env, filters) {
   return Number(row?.count) || 0;
 }
 
-export async function loadBrowseFacets(env) {
+export async function loadBrowseFacets(env, marketValue = "all") {
   if (!env.DB) {
     return { networks: [], genres: [], statuses: BROWSE_STATUSES.map((item) => ({ ...item, count: 0 })), years: [] };
   }
 
+  const market = normalizeCatalogMarket(marketValue);
+  const marketPattern = catalogMarketPattern(market);
+  const marketWhere = marketPattern ? "(',' || COALESCE(s.origin_country, '') || ',') LIKE ?1" : "1 = 1";
+  const runFacet = (sql) => {
+    const statement = env.DB.prepare(sql);
+    return marketPattern ? statement.bind(marketPattern).all() : statement.all();
+  };
+
   const [networkResult, genreResult, statusResult, yearResult] = await Promise.all([
-    env.DB.prepare(`SELECT n.canonical_name AS value, COUNT(DISTINCT sn.show_id) AS count
+    runFacet(`SELECT n.canonical_name AS value, COUNT(DISTINCT sn.show_id) AS count
       FROM show_networks sn
       JOIN networks n ON n.id = sn.network_id
       JOIN shows s ON s.id = sn.show_id
+      WHERE ${marketWhere}
       GROUP BY n.canonical_name
       HAVING COUNT(DISTINCT sn.show_id) > 0
       ORDER BY count DESC, value ASC
-      LIMIT 40`).all(),
-    env.DB.prepare(`SELECT g.name AS value, COUNT(DISTINCT sg.show_id) AS count
+      LIMIT 40`),
+    runFacet(`SELECT g.name AS value, COUNT(DISTINCT sg.show_id) AS count
       FROM show_genres sg
       JOIN genres g ON g.id = sg.genre_id
       JOIN shows s ON s.id = sg.show_id
+      WHERE ${marketWhere}
       GROUP BY g.name
       HAVING COUNT(DISTINCT sg.show_id) > 0
       ORDER BY count DESC, value ASC
-      LIMIT 30`).all(),
-    env.DB.prepare(`SELECT status AS value, COUNT(*) AS count
-      FROM shows
-      WHERE status IN ('airing', 'upcoming', 'planned', 'completed')
-      GROUP BY status`).all(),
-    env.DB.prepare(`SELECT substr(first_air_date, 1, 4) AS value, COUNT(*) AS count
-      FROM shows
-      WHERE first_air_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-      GROUP BY substr(first_air_date, 1, 4)
+      LIMIT 30`),
+    runFacet(`SELECT s.status AS value, COUNT(*) AS count
+      FROM shows s
+      WHERE s.status IN ('airing', 'upcoming', 'planned', 'completed')
+        AND ${marketWhere}
+      GROUP BY s.status`),
+    runFacet(`SELECT substr(s.first_air_date, 1, 4) AS value, COUNT(*) AS count
+      FROM shows s
+      WHERE s.first_air_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+        AND ${marketWhere}
+      GROUP BY substr(s.first_air_date, 1, 4)
       ORDER BY value DESC
-      LIMIT 18`).all()
+      LIMIT 18`)
   ]);
 
   const statusCounts = new Map((statusResult.results || []).map((row) => [row.value, Number(row.count) || 0]));
@@ -140,7 +160,7 @@ export async function buildBrowse(env, url) {
     return {
       status: 200,
       body: {
-        data: { items: [], facets: await loadBrowseFacets(env) },
+        data: { items: [], facets: await loadBrowseFacets(env, filters.market) },
         meta: {
           phase: "8b-faceted-browse",
           titleRegion,
@@ -158,7 +178,7 @@ export async function buildBrowse(env, url) {
   try {
     const [items, facets, totalCount] = await Promise.all([
       loadBrowseItems(env, titleRegion, filters, limit),
-      loadBrowseFacets(env),
+      loadBrowseFacets(env, filters.market),
       loadBrowseCount(env, filters)
     ]);
     return {

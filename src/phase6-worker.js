@@ -1,6 +1,7 @@
 import phase5eWorker from "./phase5e-worker.js";
 import { buildShowDetail } from "./phase6-details.js";
 import { normalizeTitleRegion, withResolvedChineseTitle } from "./title-aliases.js";
+import { normalizeCatalogMarket } from "./market.js";
 
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const REGION_LANGUAGE = Object.freeze({ HK: "zh-HK", TW: "zh-TW", CN: "zh-CN" });
@@ -116,7 +117,7 @@ async function listSeasonEpisodes(env, showId, seasonNumber) {
   }
 }
 
-async function episodeSearchMatches(env, query, titleRegion, limit) {
+async function episodeSearchMatches(env, query, titleRegion, market, limit) {
   if (!env.DB) return [];
   const pattern = `%${query}%`;
   const result = await env.DB.prepare(
@@ -125,6 +126,7 @@ async function episodeSearchMatches(env, query, titleRegion, limit) {
       s.tmdb_id,
       s.original_title,
       s.english_title,
+      s.origin_country,
       s.status,
       s.tmdb_status,
       s.poster_url,
@@ -154,9 +156,10 @@ async function episodeSearchMatches(env, query, titleRegion, limit) {
        WHERE search_season.show_id = s.id
          AND search_episode.name LIKE ?1 COLLATE NOCASE
      )
+       AND (?2 = 'all' OR (',' || COALESCE(s.origin_country, '') || ',') LIKE '%,' || ?2 || ',%')
      ORDER BY COALESCE(s.popularity, 0) DESC, s.id DESC
-     LIMIT ?2`
-  ).bind(pattern, limit).all();
+     LIMIT ?3`
+  ).bind(pattern, market, limit).all();
 
   return (result.results || []).map((row) => withResolvedChineseTitle(row, titleRegion));
 }
@@ -165,8 +168,9 @@ async function globalSearch(request, env, ctx, url) {
   const query = normalizeSearchQuery(url);
   const limit = normalizeSearchLimit(url);
   const titleRegion = normalizeTitleRegion(url.searchParams.get("region"));
+  const market = normalizeCatalogMarket(url.searchParams.get("market"));
   if (!query) {
-    return json({ data: [], meta: { count: 0, query: null, titleRegion, global: true } });
+    return json({ data: [], meta: { count: 0, query: null, titleRegion, market, global: true } });
   }
 
   try {
@@ -176,12 +180,13 @@ async function globalSearch(request, env, ctx, url) {
     catalogUrl.searchParams.set("q", query);
     catalogUrl.searchParams.set("limit", String(limit));
     catalogUrl.searchParams.set("region", titleRegion);
+    catalogUrl.searchParams.set("market", market);
 
     const catalogResponse = await phase5eWorker.fetch(new Request(catalogUrl.toString(), request), env, ctx);
     if (!catalogResponse.ok) return catalogResponse;
     const catalogPayload = await catalogResponse.json();
     const titleMatches = Array.isArray(catalogPayload?.data) ? catalogPayload.data : [];
-    const episodeMatches = await episodeSearchMatches(env, query, titleRegion, limit);
+    const episodeMatches = await episodeSearchMatches(env, query, titleRegion, market, limit);
     const episodeByShow = new Map(episodeMatches.map((show) => [Number(show.id), show]));
 
     const merged = [];
@@ -211,6 +216,7 @@ async function globalSearch(request, env, ctx, url) {
         count: merged.length,
         query,
         titleRegion,
+        market,
         global: true,
         titleMatchCount: titleMatches.length,
         episodeMatchCount: episodeMatches.length

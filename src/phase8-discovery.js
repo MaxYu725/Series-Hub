@@ -1,5 +1,6 @@
 import { normalizeTitleRegion, withResolvedChineseTitle } from "./title-aliases.js";
 import { PHASE8_SHOW_SELECT } from "./phase8-catalog.js";
+import { normalizeCatalogMarket } from "./market.js";
 
 export const DISCOVERY_SECTIONS = Object.freeze([
   Object.freeze({
@@ -37,10 +38,10 @@ export function normalizeDiscoveryLimit(url) {
   return Number.isFinite(value) ? Math.min(Math.max(Math.trunc(value), 4), 20) : 12;
 }
 
-async function loadSection(env, definition, titleRegion, limit) {
+async function loadSection(env, definition, titleRegion, market, limit) {
   const result = await env.DB.prepare(
-    `${PHASE8_SHOW_SELECT}\nWHERE ${definition.where}\nORDER BY ${definition.orderBy}\nLIMIT ?1`
-  ).bind(limit).all();
+    `${PHASE8_SHOW_SELECT}\nWHERE ${definition.where}\n  AND (?1 = 'all' OR (',' || COALESCE(s.origin_country, '') || ',') LIKE '%,' || ?1 || ',%')\nORDER BY ${definition.orderBy}\nLIMIT ?2`
+  ).bind(market, limit).all();
 
   return {
     key: definition.key,
@@ -53,20 +54,21 @@ async function loadSection(env, definition, titleRegion, limit) {
 export async function buildDiscovery(env, url) {
   const titleRegion = normalizeTitleRegion(url?.searchParams?.get("region"));
   const limit = normalizeDiscoveryLimit(url);
+  const market = normalizeCatalogMarket(url?.searchParams?.get("market"));
 
   if (!env.DB) {
     return {
       status: 200,
       body: {
         data: { sections: DISCOVERY_SECTIONS.map(({ key, title, description }) => ({ key, title, description, items: [] })) },
-        meta: { phase: "8a-discovery-home", titleRegion, limit, databaseConfigured: false, externalRequests: 0 }
+        meta: { phase: "8a-discovery-home", titleRegion, market, limit, databaseConfigured: false, externalRequests: 0 }
       }
     };
   }
 
   try {
     const sections = await Promise.all(
-      DISCOVERY_SECTIONS.map((definition) => loadSection(env, definition, titleRegion, limit))
+      DISCOVERY_SECTIONS.map((definition) => loadSection(env, definition, titleRegion, market, limit))
     );
     return {
       status: 200,
@@ -75,6 +77,7 @@ export async function buildDiscovery(env, url) {
         meta: {
           phase: "8a-discovery-home",
           titleRegion,
+          market,
           limit,
           sectionCount: sections.length,
           databaseConfigured: true,
