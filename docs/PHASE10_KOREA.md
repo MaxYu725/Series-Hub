@@ -138,7 +138,7 @@ Phase 10A / 10A.1 is accepted only when:
 
 ## Phase 10B — Korean Schedule Coverage
 
-Status: implementation in progress after production baseline.
+Status: accepted in production after Phase 10B.1 schedule-gap prioritization.
 
 ### Production baseline — 2026-09-14
 
@@ -176,23 +176,54 @@ When TMDB changes or withdraws its next episode, stale future fallback rows are 
 
 A TMDB fallback never overwrites an existing TVmaze-owned episode row.
 
+### Phase 10B.1 — schedule-gap prioritization
+
+The first post-deploy Phase 10B acceptance run proved the fallback writer itself worked: Doctor X was inserted correctly, but Good Partner remained missing. The cause was candidate selection rather than persistence. The Korean sync fetches at most 18 detail records per run, and an already-cataloged show with a schedule gap was not guaranteed to appear in the rotating discovery sample.
+
+Phase 10B.1 closes that gap without increasing the request budget. Before the normal round-robin detail selection is finalized, D1 contributes active Korean catalog rows that have no future TVmaze-owned episode. These priority candidates occupy the existing 18 detail slots, are deduplicated against normal discovery candidates, and the remaining slots are filled by the existing discovery rotation.
+
+This keeps the operational ceilings unchanged:
+- 6 discovery requests
+- at most 18 detail requests
+- at most 24 total external requests
+
+The priority query deliberately includes existing TMDB-fallback shows as long as TVmaze still has no future schedule. This lets later KR syncs refresh, change or withdraw the TMDB fallback while preserving TVmaze as the primary authority.
+
+### Final production acceptance — 2026-09-14
+
+The final production acceptance after PR #122 confirmed:
+- 4 current Korean schedule-gap candidates were prioritized
+- 18 detail candidates were selected
+- external request budget remained exactly 24 / 24
+- 2 TMDB schedule fallbacks were applied
+- Good Partner S2E1 was present with air date `2026-12-04` and TMDB episode provenance
+- Doctor X S1E1 was present with air date `2026-10-09` and TMDB episode provenance
+- future Korean TVmaze-owned episode count remained stable at 124 → 124
+- future TMDB fallback rows outside the Korean catalog remained 0
+- latest `tmdb_kr` sync status was `success`
+- no warnings were reported by the accepted KR sync
+
+The previously observed Good Partner gap is therefore closed in production. Phase 10B and Phase 10B.1 are accepted.
+
 ### Phase 10B acceptance gates
 
-Phase 10B is accepted only when:
+Phase 10B / 10B.1 is accepted only when:
 1. all existing tests remain green;
 2. a valid TMDB future next episode can populate one fallback episode without an extra network request;
 3. past, missing or malformed TMDB next-episode data never creates a fallback;
 4. TVmaze future schedule prevents TMDB fallback insertion;
 5. TVmaze can replace/remove a previous fallback when it gains future schedule coverage;
 6. a TMDB schedule change updates a TMDB-owned fallback without overwriting TVmaze ownership;
-7. the KR request ceiling remains 24 and the US ceiling remains 48;
-8. production validation confirms the expected schedule gaps close without fabricated dates or US schedule regressions.
+7. existing Korean schedule gaps are prioritized inside the original 18-detail budget rather than by adding requests;
+8. the KR request ceiling remains 24 and the US ceiling remains 48;
+9. production validation confirms the expected schedule gaps close without fabricated dates, non-KR fallback leakage or TVmaze ownership regression.
 
-### Deferred
+All Phase 10B / 10B.1 acceptance gates passed on 2026-09-14.
+
+### Deferred / next milestone
 
 Not part of 10A/10B:
 - Korean official renewal / production evidence registry
-- US / Korea catalog UI selector (Phase 10C)
 - Japan / Taiwan / Europe expansion
 
-These remain deferred until Phase 10B schedule coverage is production-validated.
+Phase 10C — the US / Korea catalog UI selector — is now unblocked and is the next planned milestone.
