@@ -82,7 +82,7 @@ test("Phase 10A.1 requires a real fiction genre instead of trusting Scripted alo
   assert.ok(KOREA_FICTION_GENRE_IDS.includes(10766), "Korean daily/soap fiction remains allowed");
 });
 
-test("Phase 10A.1 applies the quality gate before persistence and contains no title blacklist", () => {
+test("Phase 10A.1 rejects new sparse rows before persistence and removes stale accepted rows", () => {
   const quality = fs.readFileSync(new URL("../src/tmdb-korea-quality.js", import.meta.url), "utf8");
   const source = fs.readFileSync(new URL("../src/tmdb-korea.js", import.meta.url), "utf8");
   const migration = fs.readFileSync(
@@ -97,10 +97,14 @@ test("Phase 10A.1 applies the quality gate before persistence and contains no ti
   const persistIndex = source.indexOf("await persistSeries(env.DB, normalized)");
   assert.ok(qualityGateIndex > 0 && persistIndex > qualityGateIndex, "quality gate must run before D1 persistence");
 
-  assert.match(quality, /includeDetails/);
+  assert.match(quality, /rejectedQualityTmdbIds = new Set\(\)/);
+  assert.match(quality, /rejectedQualityTmdbIds\.add\(tmdbId\)/);
+  assert.match(quality, /DELETE FROM shows/);
+  assert.match(quality, /tmdb_id = \?1/);
+  assert.match(quality, /recordsPruned/);
   assert.match(quality, /recordsAccepted: Number\(result\.recordsChanged/);
-  assert.match(quality, /recordsPruned: 0/);
-  assert.doesNotMatch(quality, /DELETE FROM shows/);
+  assert.doesNotMatch(quality, /204448|123844|219260|219956/);
+  assert.doesNotMatch(quality, /Good Partner|Shinbyung|낭만닥터|외식하는 날/);
 
   assert.match(migration, /NOT EXISTS/);
   assert.match(migration, /show_genres/);
