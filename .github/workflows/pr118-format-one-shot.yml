@@ -1,0 +1,51 @@
+name: PR118 format one-shot
+
+on:
+  push:
+    branches:
+      - phase10a1-rejected-row-cleanup
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase10a1-rejected-row-cleanup
+          fetch-depth: 0
+
+      - name: Fix indentation only
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path("src/tmdb-korea.js")
+          source = path.read_text()
+          old = '''      if (!isIncludedKoreanScriptedSeries(details)) {
+recordsRejected += 1;
+if (onRejectedDetails) await onRejectedDetails(details, env.DB);
+continue;
+      }'''
+          new = '''      if (!isIncludedKoreanScriptedSeries(details)) {
+        recordsRejected += 1;
+        if (onRejectedDetails) await onRejectedDetails(details, env.DB);
+        continue;
+      }'''
+          if source.count(old) != 1:
+              raise SystemExit("expected exactly one malformed indentation block")
+          path.write_text(source.replace(old, new))
+
+      - name: Commit formatting and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/pr118-format-one-shot.yml
+          git add src/tmdb-korea.js
+          git commit -m "Format Korean base rejection cleanup"
+          git push origin HEAD:phase10a1-rejected-row-cleanup
