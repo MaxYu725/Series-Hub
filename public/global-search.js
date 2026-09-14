@@ -1,5 +1,6 @@
 const searchInput = document.querySelector("#search-input");
 const regionSelect = document.querySelector("#title-region-select");
+const marketSelect = document.querySelector("#market-select");
 const contentPanel = document.querySelector(".content-panel");
 const viewTitle = document.querySelector("#view-title");
 const viewKicker = document.querySelector("#view-kicker");
@@ -15,6 +16,7 @@ const retryViewButton = document.querySelector("#retry-view-button");
 const myShowsButton = document.querySelector("#my-shows-filter");
 
 const REGION_LABELS = Object.freeze({ HK: "香港", TW: "台灣", CN: "中國大陸" });
+const MARKET_LABELS = Object.freeze({ all: "全部地區", US: "美國", KR: "韓國" });
 const STATUS_LABELS = Object.freeze({
   airing: "播映中",
   upcoming: "即將播映",
@@ -52,15 +54,28 @@ function currentQuery() {
   return searchInput?.value.trim() || "";
 }
 
+function currentMarket() {
+  return Object.hasOwn(MARKET_LABELS, marketSelect?.value) ? marketSelect.value : "all";
+}
+
+function saveMarket(market) {
+  try {
+    window.localStorage.setItem("series-hub-catalog-market", market);
+  } catch {
+    // Optional preference only.
+  }
+}
+
 function setGlobalSearchHeading(query) {
   viewKicker.textContent = "SEARCH";
   viewTitle.textContent = "搜尋結果";
-  viewContext.textContent = `正在搜尋整個劇集庫，包括劇名、中文譯名及單集名稱。搜尋字：${query}`;
+  viewContext.textContent = `正在搜尋${MARKET_LABELS[currentMarket()] || MARKET_LABELS.all}劇集庫，包括劇名、中文譯名及單集名稱。搜尋字：${query}`;
 }
 
 function setSearchModeVisuals() {
   document.querySelectorAll(".filter.active, #my-shows-filter.active").forEach((button) => button.classList.remove("active"));
   if (regionSelect) regionSelect.disabled = false;
+  if (marketSelect) marketSelect.disabled = false;
   showGrid.hidden = false;
   scheduleList.hidden = true;
   emptyState.hidden = true;
@@ -168,11 +183,11 @@ function createSearchCard(show) {
   return card;
 }
 
-async function fetchSearch(query, region, timeoutMs = 12000) {
+async function fetchSearch(query, region, market, timeoutMs = 12000) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const params = new URLSearchParams({ q: query, region, limit: "100" });
+    const params = new URLSearchParams({ q: query, region, market, limit: "100" });
     const response = await fetch(`/api/search?${params}`, { cache: "no-store", signal: controller.signal });
     if (!response.ok) throw new Error(`Search ${response.status}`);
     return await response.json();
@@ -185,6 +200,7 @@ async function runGlobalSearch(query) {
   if (!active || !query) return;
   const activeRequest = ++requestId;
   const region = currentRegion();
+  const market = currentMarket();
   setSearchModeVisuals();
   setGlobalSearchHeading(query);
   contentPanel?.setAttribute("aria-busy", "true");
@@ -192,8 +208,8 @@ async function runGlobalSearch(query) {
   showGrid.replaceChildren(...Array.from({ length: 4 }, createSkeletonCard));
 
   try {
-    const payload = await fetchSearch(query, region);
-    if (!active || activeRequest !== requestId || currentQuery() !== query || currentRegion() !== region) return;
+    const payload = await fetchSearch(query, region, market);
+    if (!active || activeRequest !== requestId || currentQuery() !== query || currentRegion() !== region || currentMarket() !== market) return;
     const shows = Array.isArray(payload?.data) ? payload.data : [];
     showGrid.replaceChildren(...shows.map(createSearchCard));
     showCount.textContent = `${shows.length} 套`;
@@ -288,7 +304,7 @@ function leaveSearchForControl(control) {
   }
 }
 
-if (searchInput && regionSelect && contentPanel && showGrid && scheduleList && emptyState) {
+if (searchInput && regionSelect && marketSelect && contentPanel && showGrid && scheduleList && emptyState) {
   window.addEventListener("series-hub:search-origin", (event) => {
     const mode = event?.detail?.view === "discover" ? event?.detail?.mode : null;
     if (DISCOVERY_MODES.has(mode)) pendingDiscoveryMode = mode;
@@ -314,9 +330,11 @@ if (searchInput && regionSelect && contentPanel && showGrid && scheduleList && e
   }, true);
 
   document.addEventListener("change", (event) => {
-    if (event.target !== regionSelect || !active || allowUnderlyingRegionChange) return;
+    if (!active || (event.target !== regionSelect && event.target !== marketSelect)) return;
+    if (event.target === regionSelect && allowUnderlyingRegionChange) return;
     event.stopImmediatePropagation();
-    saveRegion(currentRegion());
+    if (event.target === regionSelect) saveRegion(currentRegion());
+    if (event.target === marketSelect) saveMarket(currentMarket());
     window.clearTimeout(searchTimer);
     const query = currentQuery();
     if (query) searchTimer = window.setTimeout(() => runGlobalSearch(query), 0);

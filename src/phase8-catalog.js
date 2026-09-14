@@ -3,6 +3,7 @@ export const PHASE8_SHOW_SELECT = `SELECT
   s.tmdb_id,
   s.original_title,
   s.english_title,
+  s.origin_country,
   s.status,
   s.tmdb_status,
   s.poster_url,

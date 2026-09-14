@@ -21,7 +21,7 @@ test("typing uses a dedicated global search endpoint instead of the current tab"
   assert.match(searchJs, /\/api\/search\?\$\{params\}/);
   assert.match(searchJs, /viewKicker\.textContent = "SEARCH"/);
   assert.match(searchJs, /viewTitle\.textContent = "搜尋結果"/);
-  assert.match(searchJs, /搜尋整個劇集庫/);
+  assert.match(searchJs, /正在搜尋\$\{MARKET_LABELS\[currentMarket\(\)\] \|\| MARKET_LABELS\.all\}劇集庫/);
   assert.match(searchJs, /\.filter\.active, #my-shows-filter\.active/);
 });
 

@@ -48,11 +48,20 @@
         <span id="show-count">載入中…</span>
       </div>
 
-      <section class="catalog-tools" aria-label="探索、排程、劇集搜尋、譯名地區與狀態篩選">
+      <section class="catalog-tools" aria-label="探索、排程、劇集搜尋、劇集地區、譯名地區與狀態篩選">
         <div class="catalog-inputs">
           <label class="search-box">
             <span class="search-label">搜尋</span>
             <input id="search-input" type="search" autocomplete="off" placeholder="劇名、中文譯名或集名">
+          </label>
+
+          <label class="region-box">
+            <span class="search-label">劇集地區</span>
+            <select id="market-select" aria-label="劇集地區">
+              <option value="all">全部</option>
+              <option value="US">美國</option>
+              <option value="KR">韓國</option>
+            </select>
           </label>
 
           <label class="region-box">

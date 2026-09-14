@@ -103,7 +103,7 @@ test("Phase 8D UI requests only a generic candidate pool and never serializes lo
 
   assert.match(html, /Phase 8[A-Z]/);
   assert.match(html, /id="phase8-personal-toggle"[^>]*>為你<\/button>/);
-  assert.match(ui, /new URLSearchParams\(\{ region, mode: "browse", limit: "100", sort: "popular" \}\)/);
+  assert.match(ui, /new URLSearchParams\(\{ region, market, mode: "browse", limit: "100", sort: "popular" \}\)/);
   assert.match(ui, /loadTrackedShowIds\(\)/);
   assert.match(ui, /loadViewingStates\(\)/);
   assert.match(ui, /伺服器只收到通用 catalog request/);

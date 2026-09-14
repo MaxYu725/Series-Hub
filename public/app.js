@@ -15,7 +15,9 @@ const views = {
 };
 
 const TITLE_REGION_STORAGE_KEY = "series-hub-title-region";
+const MARKET_STORAGE_KEY = "series-hub-catalog-market";
 const TITLE_REGION_LABELS = Object.freeze({ HK: "香港", TW: "台灣", CN: "中國大陸" });
+const MARKET_LABELS = Object.freeze({ all: "全部地區", US: "美國", KR: "韓國" });
 const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Local";
 
 function storedTitleRegion() {
@@ -35,12 +37,30 @@ function saveTitleRegion(region) {
   }
 }
 
+function storedMarket() {
+  try {
+    const value = window.localStorage.getItem(MARKET_STORAGE_KEY);
+    return Object.hasOwn(MARKET_LABELS, value) ? value : "all";
+  } catch {
+    return "all";
+  }
+}
+
+function saveMarket(market) {
+  try {
+    window.localStorage.setItem(MARKET_STORAGE_KEY, market);
+  } catch {
+    // Storage is optional. The active in-memory preference still works.
+  }
+}
+
 const state = {
   view: "today",
   shows: [],
   episodes: [],
   query: "",
   titleRegion: storedTitleRegion(),
+  market: storedMarket(),
   loading: false,
   error: null,
   requestId: 0
@@ -63,8 +83,10 @@ const emptyActions = document.querySelector("#empty-actions");
 const retryViewButton = document.querySelector("#retry-view-button");
 const searchInput = document.querySelector("#search-input");
 const titleRegionSelect = document.querySelector("#title-region-select");
+const marketSelect = document.querySelector("#market-select");
 
 titleRegionSelect.value = state.titleRegion;
+if (marketSelect) marketSelect.value = state.market;
 
 function setHealth(type, text) {
   statusDot.className = `status-dot ${type}`;
@@ -535,11 +557,12 @@ function render() {
   const view = views[state.view];
   const isSchedule = view.type === "schedule";
   const regionLabel = TITLE_REGION_LABELS[state.titleRegion];
+  const marketLabel = MARKET_LABELS[state.market] || MARKET_LABELS.all;
   viewTitle.textContent = view.title;
   viewKicker.textContent = view.kicker;
   viewContext.textContent = isSchedule
-    ? `中文名優先使用${regionLabel}譯名；同日多集會合併為一張劇集卡，精確時間按 ${browserTimeZone} 顯示。`
-    : `中文名優先使用${regionLabel}譯名；播映中劇集會直接顯示下一集已確認時間，未有逐集資料時明確標示待確認。`;
+    ? `目前顯示${marketLabel}劇集；中文名優先使用${regionLabel}譯名；同日多集會合併為一張劇集卡，精確時間按 ${browserTimeZone} 顯示。`
+    : `目前顯示${marketLabel}劇集；中文名優先使用${regionLabel}譯名；播映中劇集會直接顯示下一集已確認時間，未有逐集資料時明確標示待確認。`;
 
   contentPanel?.setAttribute("aria-busy", String(state.loading));
   emptyState.removeAttribute("data-state");
@@ -600,7 +623,7 @@ async function fetchJson(url, label, timeoutMs = 12000) {
 }
 
 async function loadCatalog(view, requestId) {
-  const params = new URLSearchParams({ status: view.status, limit: "60", region: state.titleRegion });
+  const params = new URLSearchParams({ status: view.status, limit: "60", region: state.titleRegion, market: state.market });
   if (state.query) params.set("q", state.query);
   const payload = await fetchJson(`/api/shows?${params}`, "Shows");
   if (requestId !== state.requestId) return;
@@ -612,7 +635,7 @@ async function loadSchedule(view, requestId) {
   const today = localDateKey();
   const from = addDateKeyDays(today, -1);
   const apiDays = Math.min(view.days + 2, 14);
-  const params = new URLSearchParams({ from, days: String(apiDays), region: state.titleRegion });
+  const params = new URLSearchParams({ from, days: String(apiDays), region: state.titleRegion, market: state.market });
   const payload = await fetchJson(`/api/schedule?${params}`, "Schedule");
   if (requestId !== state.requestId) return;
   const windowEpisodes = scheduleWindow(payload.data, today, view.days, browserTimeZone);
@@ -621,6 +644,8 @@ async function loadSchedule(view, requestId) {
 }
 
 async function loadCurrentView() {
+  if (Object.hasOwn(TITLE_REGION_LABELS, titleRegionSelect?.value)) state.titleRegion = titleRegionSelect.value;
+  if (Object.hasOwn(MARKET_LABELS, marketSelect?.value)) state.market = marketSelect.value;
   const requestId = ++state.requestId;
   const view = views[state.view];
   state.loading = true;
@@ -694,6 +719,16 @@ titleRegionSelect.addEventListener("change", () => {
   if (!Object.hasOwn(TITLE_REGION_LABELS, region) || region === state.titleRegion) return;
   state.titleRegion = region;
   saveTitleRegion(region);
+  state.shows = [];
+  state.episodes = [];
+  loadCurrentView();
+});
+
+marketSelect?.addEventListener("change", () => {
+  const market = marketSelect.value;
+  if (!Object.hasOwn(MARKET_LABELS, market) || market === state.market) return;
+  state.market = market;
+  saveMarket(market);
   state.shows = [];
   state.episodes = [];
   loadCurrentView();

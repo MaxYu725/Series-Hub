@@ -2,6 +2,7 @@ import { syncTmdbCatalog } from "./tmdb.js";
 import { syncTvmazeEpisodes } from "./tvmaze.js";
 import { applyTitleOverride } from "./title-admin.js";
 import { normalizeTitleRegion, withResolvedChineseTitle } from "./title-aliases.js";
+import { normalizeCatalogMarket } from "./market.js";
 
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -99,6 +100,7 @@ async function listShows(env, url) {
   const status = normalizeStatus(url);
   const query = normalizeQuery(url);
   const titleRegion = requestedTitleRegion(url);
+  const market = normalizeCatalogMarket(url.searchParams.get("market"));
   const queryPattern = query ? `%${query}%` : null;
 
   try {
@@ -156,13 +158,14 @@ async function listShows(env, url) {
           OR s.original_title LIKE ?2 COLLATE NOCASE
           OR EXISTS (SELECT 1 FROM title_aliases search_alias WHERE search_alias.show_id = s.id AND search_alias.title LIKE ?2 COLLATE NOCASE)
         )
+        AND (?3 = 'all' OR (',' || COALESCE(s.origin_country, '') || ',') LIKE '%,' || ?3 || ',%')
       ORDER BY
         CASE s.status WHEN 'airing' THEN 0 WHEN 'upcoming' THEN 1 WHEN 'planned' THEN 2 ELSE 3 END,
         CASE WHEN s.status = 'upcoming' THEN COALESCE(s.next_air_date, '9999-12-31') END ASC,
         COALESCE(s.popularity, 0) DESC,
         s.id DESC
-      LIMIT ?3`
-    ).bind(status, queryPattern, limit).all();
+      LIMIT ?4`
+    ).bind(status, queryPattern, market, limit).all();
 
     const rows = resolveRows(result.results || [], titleRegion);
     return json({
@@ -174,6 +177,7 @@ async function listShows(env, url) {
         status,
         query,
         titleRegion,
+        market,
         phase: PHASE
       }
     });
@@ -195,6 +199,7 @@ async function listSchedule(env, url) {
   const days = Number.isFinite(requestedDays) ? Math.min(Math.max(Math.trunc(requestedDays), 1), 14) : 7;
   const through = addDays(from, days - 1);
   const titleRegion = requestedTitleRegion(url);
+  const market = normalizeCatalogMarket(url.searchParams.get("market"));
 
   try {
     const result = await env.DB.prepare(
@@ -215,6 +220,7 @@ async function listSchedule(env, url) {
         s.tmdb_id,
         s.english_title,
         s.original_title,
+        s.origin_country,
         s.poster_url,
         s.status AS show_status,
         pt.title_zh_hk,
@@ -234,8 +240,9 @@ async function listSchedule(env, url) {
       LEFT JOIN preferred_show_titles pt ON pt.show_id = s.id
       WHERE e.air_date BETWEEN ?1 AND ?2
         AND s.status IN ('airing', 'upcoming', 'planned')
+        AND (?3 = 'all' OR (',' || COALESCE(s.origin_country, '') || ',') LIKE '%,' || ?3 || ',%')
       ORDER BY e.air_date ASC, COALESCE(e.air_timestamp, e.air_time, '99:99') ASC, s.english_title ASC`
-    ).bind(from, through).all();
+    ).bind(from, through, market).all();
 
     const rows = resolveRows(result.results || [], titleRegion);
     return json({
@@ -246,6 +253,7 @@ async function listSchedule(env, url) {
         through,
         days,
         titleRegion,
+        market,
         phase: PHASE,
         source: "TVmaze",
         attribution_url: "https://www.tvmaze.com"

@@ -80,7 +80,7 @@ test("Phase 8B exposes bounded allowlisted filters and sorts", () => {
   assert.deepEqual(BROWSE_STATUSES.map((item) => item.value), ["airing", "upcoming", "planned", "completed"]);
 
   const valid = normalizeBrowseFilters(new URL("https://example.test/api/discover?mode=browse&network=HBO&genre=Drama&status=airing&year=2026&sort=rating"));
-  assert.deepEqual(valid, { network: "HBO", genre: "Drama", status: "airing", year: "2026", sort: "rating" });
+  assert.deepEqual(valid, { market: "all", network: "HBO", genre: "Drama", status: "airing", year: "2026", sort: "rating" });
 
   const invalid = normalizeBrowseFilters(new URL("https://example.test/api/discover?mode=browse&status=deleted&year=1800&sort=DROP%20TABLE"));
   assert.equal(invalid.status, null);
