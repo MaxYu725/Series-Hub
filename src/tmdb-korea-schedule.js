@@ -14,18 +14,19 @@ export function normalizeKoreanTmdbNextEpisode(details, now = new Date()) {
   const episode = details?.next_episode_to_air;
   if (!episode) return null;
 
+  const showTmdbId = Number(details?.id);
   const tmdbId = Number(episode.id);
   const seasonNumber = Number(episode.season_number);
   const episodeNumber = Number(episode.episode_number);
   const airDate = toDateOnly(episode.air_date);
   const today = todayUtc(now);
 
+  if (!Number.isInteger(showTmdbId) || showTmdbId <= 0) return null;
   if (!Number.isInteger(tmdbId) || tmdbId <= 0) return null;
   if (!Number.isInteger(seasonNumber) || seasonNumber < 1) return null;
   if (!Number.isInteger(episodeNumber) || episodeNumber < 1) return null;
   if (!airDate || airDate < today) return null;
 
-  const showTmdbId = Number(details?.id);
   const stillPath = typeof episode.still_path === "string" && episode.still_path
     ? episode.still_path
     : null;
@@ -42,9 +43,7 @@ export function normalizeKoreanTmdbNextEpisode(details, now = new Date()) {
       ? Number(episode.runtime)
       : null,
     imageUrl: stillPath ? `${TMDB_IMAGE_BASE}${stillPath}` : null,
-    sourceUrl: Number.isInteger(showTmdbId) && showTmdbId > 0
-      ? `${TMDB_WEB_BASE}/${showTmdbId}/season/${seasonNumber}/episode/${episodeNumber}`
-      : null
+    sourceUrl: `${TMDB_WEB_BASE}/${showTmdbId}/season/${seasonNumber}/episode/${episodeNumber}`
   };
 }
 
