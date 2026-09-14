@@ -1,0 +1,3918 @@
+
+> series-hub@0.1.0 test
+> npm install --no-package-lock --no-audit --no-fund --ignore-scripts && node --test
+
+
+added 55 packages in 7s
+TAP version 13
+# Subtest: global search owns search input before view-specific handlers
+ok 1 - global search owns search input before view-specific handlers
+  ---
+  duration_ms: 2.286886
+  type: 'test'
+  ...
+# Subtest: typing uses a dedicated global search endpoint instead of the current tab
+not ok 2 - typing uses a dedicated global search endpoint instead of the current tab
+  ---
+  duration_ms: 5.70427
+  type: 'test'
+  location: '/home/runner/work/Series-Hub/Series-Hub/test/global-search.test.js:20:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /搜尋整個劇集庫/. Input:
+    
+    'const searchInput = document.querySelector("#search-input");\n' +
+      'const regionSelect = document.querySelector("#title-region-select");\n' +
+      'const marketSelect = document.querySelector("#market-select");\n' +
+      'const contentPanel = document.querySelector(".content-panel");\n' +
+      'const viewTitle = document.querySelector("#view-title");\n' +
+      'const viewKicker = document.querySelector("#view-kicker");\n' +
+      'const viewContext = document.querySelector("#view-context");\n' +
+      'const showCount = document.querySelector("#show-count");\n' +
+      'const showGrid = document.querySelector("#show-grid");\n' +
+      'const scheduleList = document.querySelector("#schedule-list");\n' +
+      'const emptyState = document.querySelector("#empty-state");\n' +
+      'const emptyTitle = document.querySelector("#empty-title");\n' +
+      'const emptyCopy = document.querySelector("#empty-copy");\n' +
+      'const emptyActions = document.querySelector("#empty-actions");\n' +
+      'const retryViewButton = document.querySelector("#retry-view-button");\n' +
+      'const myShowsButton = document.querySelector("#my-shows-filter");\n' +
+      '\n' +
+      'const REGION_LABELS = Object.freeze({ HK: "香港", TW: "台灣", CN: "中國大陸" });\n' +
+      'const MARKET_LABELS = Object.freeze({ all: "全部地區", US: "美國", KR: "韓國" });\n' +
+      'const STATUS_LABELS = Object.freeze({\n' +
+      '  airing: "播映中",\n' +
+      '  upcoming: "即將播映",\n' +
+      '  planned: "計劃播出",\n' +
+      '  completed: "已完結",\n' +
+      '  unknown: "狀態待確認"\n' +
+      '});\n' +
+      'const DISCOVERY_MODES = new Set(["featured", "personal", "browse"]);\n' +
+      '\n' +
+      'let active = false;\n' +
+      'let previousView = "today";\n' +
+      'let previousWasMyShows = false;\n' +
+      'let previousDiscoveryMode = null;\n' +
+      'let pendingDiscoveryMode = null;\n' +
+      'let previousRegionDisabled = false;\n' +
+      'let initialRegion = regionSelect?.value || "HK";\n' +
+      'let requestId = 0;\n' +
+      'let searchTimer = null;\n' +
+      'let allowUnderlyingRegionChange = false;\n' +
+      'let deferredRegionSync = false;\n' +
+      '\n' +
+      'function saveRegion(region) {\n' +
+      '  try {\n' +
+      '    window.localStorage.setItem("series-hub-title-region", region);\n' +
+      '  } catch {\n' +
+      '    // Region persistence is optional; the active select value still works.\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function currentRegion() {\n' +
+      '  return Object.hasOwn(REGION_LABELS, regionSelect?.value) ? regionSelect.value : "HK";\n' +
+      '}\n' +
+      '\n' +
+      'function currentQuery() {\n' +
+      '  return searchInput?.value.trim() || "";\n' +
+      '}\n' +
+      '\n' +
+      'function currentMarket() {\n' +
+      '  return Object.hasOwn(MARKET_LABELS, marketSelect?.value) ? marketSelect.value : "all";\n' +
+      '}\n' +
+      '\n' +
+      'function saveMarket(market) {\n' +
+      '  try {\n' +
+      '    window.localStorage.setItem("series-hub-catalog-market", market);\n' +
+      '  } catch {\n' +
+      '    // Optional preference only.\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function setGlobalSearchHeading(query) {\n' +
+      '  viewKicker.textContent = "SEARCH";\n' +
+      '  viewTitle.textContent = "搜尋結果";\n' +
+      '  viewContext.textContent = `正在搜尋${MARKET_LABELS[currentMarket()] || MARKET_LABELS.all}劇集庫，包括劇名、中文譯名及單集名稱。搜尋字：${query}`;\n' +
+      '}\n' +
+      '\n' +
+      'function setSearchModeVisuals() {\n' +
+      '  document.querySelectorAll(".filter.active, #my-shows-filter.active").forEach((button) => button.classList.remove("active"));\n' +
+      '  if (regionSelect) regionSelect.disabled = false;\n' +
+      '  if (marketSelect) marketSelect.disabled = false;\n' +
+      '  showGrid.hidden = false;\n' +
+      '  scheduleList.hidden = true;\n' +
+      '  emptyState.hidden = true;\n' +
+      '  emptyState.removeAttribute("data-state");\n' +
+      '  if (emptyActions) emptyActions.hidden = true;\n' +
+      '  if (retryViewButton) retryViewButton.hidden = true;\n' +
+      '}\n' +
+      '\n' +
+      'function createSkeletonCard() {\n' +
+      '  const card = document.createElement("article");\n' +
+      '  card.className = "loading-skeleton-card";\n' +
+      '  card.setAttribute("aria-hidden", "true");\n' +
+      '  const poster = document.createElement("div");\n' +
+      '  poster.className = "loading-skeleton-poster";\n' +
+      '  const lines = document.createElement("div");\n' +
+      '  lines.className = "loading-skeleton-lines";\n' +
+      '  for (const className of ["loading-skeleton-line", "loading-skeleton-line short", "loading-skeleton-line tiny"]) {\n' +
+      '    const line = document.createElement("div");\n' +
+      '    line.className = className;\n' +
+      '    lines.append(line);\n' +
+      '  }\n' +
+      '  card.append(poster, lines);\n' +
+      '  return card;\n' +
+      '}\n' +
+      '\n' +
+      'function chineseTitle(show) {\n' +
+      '  if (show.display_title_zh) return show.display_title_zh;\n' +
+      '  const region = currentRegion().toLowerCase();\n' +
+      '  return show[`title_zh_${region}`] || show.title_zh_hk || show.title_zh_tw || show.title_zh_cn || "";\n' +
+      '}\n' +
+      '\n' +
+      'function episodeMatchLabel(show) {\n' +
+      '  if (!show.search_match_episode) return null;\n' +
+      '  const season = Number(show.search_match_season_number);\n' +
+      '  const episode = Number(show.search_match_episode_number);\n' +
+      '  const code = Number.isInteger(season) && season > 0 && Number.isInteger(episode) && episode > 0\n' +
+      '    ? `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`\n' +
+      '    : null;\n' +
+      '  return `單集命中：${[code, show.search_match_episode].filter(Boolean).join(" · ")}`;\n' +
+      '}\n' +
+      '\n' +
+      'function createSearchCard(show) {\n' +
+      '  const card = document.createElement("article");\n' +
+      '  card.className = "show-card";\n' +
+      '  card.dataset.showId = String(show.id);\n' +
+      '\n' +
+      '  const imageWrap = document.createElement("div");\n' +
+      '  imageWrap.className = "poster-wrap";\n' +
+      '  if (show.poster_url) {\n' +
+      '    const image = document.createElement("img");\n' +
+      '    image.className = "poster";\n' +
+      '    image.src = show.poster_url;\n' +
+      '    image.alt = `${show.english_title || show.original_title || "Series Hub"} poster`;\n' +
+      '    image.loading = "lazy";\n' +
+      '    image.decoding = "async";\n' +
+      '    imageWrap.append(image);\n' +
+      '  } else {\n' +
+      '    const placeholder = document.createElement("div");\n' +
+      '    placeholder.className = "poster poster-placeholder";\n' +
+      '    placeholder.textContent = "Series Hub";\n' +
+      '    imageWrap.append(placeholder);\n' +
+      '  }\n' +
+      '\n' +
+      '  const status = document.createElement("span");\n' +
+      '  status.className = `status-badge status-${show.status || "unknown"}`;\n' +
+      '  status.textContent = STATUS_LABELS[show.status] || show.tmdb_status || "狀態待確認";\n' +
+      '  imageWrap.append(status);\n' +
+      '\n' +
+      '  const body = document.createElement("div");\n' +
+      '  body.className = "show-card-body";\n' +
+      '  const title = document.createElement("h4");\n' +
+      '  title.textContent = show.english_title || show.original_title || "劇名待補";\n' +
+      '  const zh = document.createElement("p");\n' +
+      '  zh.className = "chinese-title";\n' +
+      '  zh.textContent = chineseTitle(show) || "中文譯名待補";\n' +
+      '  const meta = document.createElement("div");\n' +
+      '  meta.className = "show-meta";\n' +
+      '  meta.textContent = [show.latest_season_number ? `Season ${show.latest_season_number}` : null, show.networks]\n' +
+      '    .filter(Boolean)\n' +
+      '    .join(" · ") || "平台資料待補";\n' +
+      '\n' +
+      '  body.append(title, zh, meta);\n' +
+      '  const episodeMatch = episodeMatchLabel(show);\n' +
+      '  if (episodeMatch) {\n' +
+      '    const note = document.createElement("p");\n' +
+      '    note.className = "show-schedule-note is-confirmed";\n' +
+      '    note.textContent = episodeMatch;\n' +
+      '    body.append(note);\n' +
+      '  }\n' +
+      '\n' +
+      '  const footer = document.createElement("div");\n' +
+      '  footer.className = "show-card-footer";\n' +
+      '  if (Number(show.vote_average) > 0) {\n' +
+      '    const rating = document.createElement("span");\n' +
+      '    rating.textContent = `★ ${Number(show.vote_average).toFixed(1)}`;\n' +
+      '    footer.append(rating);\n' +
+      '  }\n' +
+      '  if (show.genres) {\n' +
+      '    const genre = document.createElement("span");\n' +
+      '    genre.textContent = String(show.genres).split(" · ").slice(0, 2).join(" · ");\n' +
+      '    footer.append(genre);\n' +
+      '  }\n' +
+      '  body.append(footer);\n' +
+      '  card.append(imageWrap, body);\n' +
+      '  return card;\n' +
+      '}\n' +
+      '\n' +
+      'async function fetchSearch(query, region, market, timeoutMs = 12000) {\n' +
+      '  const controller = new AbortController();\n' +
+      '  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);\n' +
+      '  try {\n' +
+      '    const params = new URLSearchParams({ q: query, region, market, limit: "100" });\n' +
+      '    const response = await fetch(`/api/search?${params}`, { cache: "no-store", signal: controller.signal });\n' +
+      '    if (!response.ok) throw new Error(`Search ${response.status}`);\n' +
+      '    return await response.json();\n' +
+      '  } finally {\n' +
+      '    window.clearTimeout(timeout);\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'async function runGlobalSearch(query) {\n' +
+      '  if (!active || !query) return;\n' +
+      '  const activeRequest = ++requestId;\n' +
+      '  const region = currentRegion();\n' +
+      '  const market = currentMarket();\n' +
+      '  setSearchModeVisuals();\n' +
+      '  setGlobalSearchHeading(query);\n' +
+      '  contentPanel?.setAttribute("aria-busy", "true");\n' +
+      '  showCount.textContent = "搜尋中…";\n' +
+      '  showGrid.replaceChildren(...Array.from({ length: 4 }, createSkeletonCard));\n' +
+      '\n' +
+      '  try {\n' +
+      '    const payload = await fetchSearch(query, region, market);\n' +
+      '    if (!active || activeRequest !== requestId || currentQuery() !== query || currentRegion() !== region || currentMarket() !== market) return;\n' +
+      '    const shows = Array.isArray(payload?.data) ? payload.data : [];\n' +
+      '    showGrid.replaceChildren(...shows.map(createSearchCard));\n' +
+      '    showCount.textContent = `${shows.length} 套`;\n' +
+      '    emptyState.hidden = shows.length !== 0;\n' +
+      '    if (shows.length === 0) {\n' +
+      '      emptyTitle.textContent = "整個劇集庫找不到符合的劇集";\n' +
+      '      emptyCopy.textContent = `沒有任何劇集名稱、中文譯名或單集名稱符合「${query}」。請檢查拼字，或目前資料庫尚未收錄該劇。`;\n' +
+      '    }\n' +
+      '  } catch (error) {\n' +
+      '    if (!active || activeRequest !== requestId) return;\n' +
+      '    console.error(error);\n' +
+      '    showGrid.replaceChildren();\n' +
+      '    showCount.textContent = "搜尋失敗";\n' +
+      '    emptyState.hidden = false;\n' +
+      '    emptyState.dataset.state = "error";\n' +
+      '    emptyTitle.textContent = "全域搜尋暫時無法使用";\n' +
+      '    emptyCopy.textContent = error?.name === "AbortError"\n' +
+      '      ? "搜尋等候超過 12 秒，請稍後再試。"\n' +
+      '      : "網絡或搜尋 API 暫時無法回應；原有劇集資料不受影響。";\n' +
+      '  } finally {\n' +
+      '    if (active && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function syncUnderlyingRegion() {\n' +
+      '  if (!regionSelect || currentRegion() === initialRegion) return;\n' +
+      '  allowUnderlyingRegionChange = true;\n' +
+      '  regionSelect.disabled = false;\n' +
+      '  regionSelect.dispatchEvent(new Event("change", { bubbles: true }));\n' +
+      '  allowUnderlyingRegionChange = false;\n' +
+      '  initialRegion = currentRegion();\n' +
+      '}\n' +
+      '\n' +
+      'function enterSearchMode() {\n' +
+      '  if (active) return;\n' +
+      '  active = true;\n' +
+      '  const activeFilter = document.querySelector(".filter.active[data-view]");\n' +
+      '  previousView = activeFilter?.dataset.view || "today";\n' +
+      '  previousWasMyShows = myShowsButton?.classList.contains("active") === true;\n' +
+      '  previousDiscoveryMode = pendingDiscoveryMode;\n' +
+      '  pendingDiscoveryMode = null;\n' +
+      '  previousRegionDisabled = regionSelect?.disabled === true;\n' +
+      '  initialRegion = currentRegion();\n' +
+      '  setSearchModeVisuals();\n' +
+      '}\n' +
+      '\n' +
+      'function restoreAfterClear() {\n' +
+      '  if (!active) return;\n' +
+      '  active = false;\n' +
+      '  requestId += 1;\n' +
+      '  window.clearTimeout(searchTimer);\n' +
+      '\n' +
+      '  if (previousWasMyShows) {\n' +
+      '    previousDiscoveryMode = null;\n' +
+      '    deferredRegionSync = currentRegion() !== initialRegion;\n' +
+      '    if (regionSelect) regionSelect.disabled = previousRegi'... 3113 more characters
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    const searchInput = document.querySelector("#search-input");
+    const regionSelect = document.querySelector("#title-region-select");
+    const marketSelect = document.querySelector("#market-select");
+    const contentPanel = document.querySelector(".content-panel");
+    const viewTitle = document.querySelector("#view-title");
+    const viewKicker = document.querySelector("#view-kicker");
+    const viewContext = document.querySelector("#view-context");
+    const showCount = document.querySelector("#show-count");
+    const showGrid = document.querySelector("#show-grid");
+    const scheduleList = document.querySelector("#schedule-list");
+    const emptyState = document.querySelector("#empty-state");
+    const emptyTitle = document.querySelector("#empty-title");
+    const emptyCopy = document.querySelector("#empty-copy");
+    const emptyActions = document.querySelector("#empty-actions");
+    const retryViewButton = document.querySelector("#retry-view-button");
+    const myShowsButton = document.querySelector("#my-shows-filter");
+    
+    const REGION_LABELS = Object.freeze({ HK: "香港", TW: "台灣", CN: "中國大陸" });
+    const MARKET_LABELS = Object.freeze({ all: "全部地區", US: "美國", KR: "韓國" });
+    const STATUS_LABELS = Object.freeze({
+      airing: "播映中",
+      upcoming: "即將播映",
+      planned: "計劃播出",
+      completed: "已完結",
+      unknown: "狀態待確認"
+    });
+    const DISCOVERY_MODES = new Set(["featured", "personal", "browse"]);
+    
+    let active = false;
+    let previousView = "today";
+    let previousWasMyShows = false;
+    let previousDiscoveryMode = null;
+    let pendingDiscoveryMode = null;
+    let previousRegionDisabled = false;
+    let initialRegion = regionSelect?.value || "HK";
+    let requestId = 0;
+    let searchTimer = null;
+    let allowUnderlyingRegionChange = false;
+    let deferredRegionSync = false;
+    
+    function saveRegion(region) {
+      try {
+        window.localStorage.setItem("series-hub-title-region", region);
+      } catch {
+        // Region persistence is optional; the active select value still works.
+      }
+    }
+    
+    function currentRegion() {
+      return Object.hasOwn(REGION_LABELS, regionSelect?.value) ? regionSelect.value : "HK";
+    }
+    
+    function currentQuery() {
+      return searchInput?.value.trim() || "";
+    }
+    
+    function currentMarket() {
+      return Object.hasOwn(MARKET_LABELS, marketSelect?.value) ? marketSelect.value : "all";
+    }
+    
+    function saveMarket(market) {
+      try {
+        window.localStorage.setItem("series-hub-catalog-market", market);
+      } catch {
+        // Optional preference only.
+      }
+    }
+    
+    function setGlobalSearchHeading(query) {
+      viewKicker.textContent = "SEARCH";
+      viewTitle.textContent = "搜尋結果";
+      viewContext.textContent = `正在搜尋${MARKET_LABELS[currentMarket()] || MARKET_LABELS.all}劇集庫，包括劇名、中文譯名及單集名稱。搜尋字：${query}`;
+    }
+    
+    function setSearchModeVisuals() {
+      document.querySelectorAll(".filter.active, #my-shows-filter.active").forEach((button) => button.classList.remove("active"));
+      if (regionSelect) regionSelect.disabled = false;
+      if (marketSelect) marketSelect.disabled = false;
+      showGrid.hidden = false;
+      scheduleList.hidden = true;
+      emptyState.hidden = true;
+      emptyState.removeAttribute("data-state");
+      if (emptyActions) emptyActions.hidden = true;
+      if (retryViewButton) retryViewButton.hidden = true;
+    }
+    
+    function createSkeletonCard() {
+      const card = document.createElement("article");
+      card.className = "loading-skeleton-card";
+      card.setAttribute("aria-hidden", "true");
+      const poster = document.createElement("div");
+      poster.className = "loading-skeleton-poster";
+      const lines = document.createElement("div");
+      lines.className = "loading-skeleton-lines";
+      for (const className of ["loading-skeleton-line", "loading-skeleton-line short", "loading-skeleton-line tiny"]) {
+        const line = document.createElement("div");
+        line.className = className;
+        lines.append(line);
+      }
+      card.append(poster, lines);
+      return card;
+    }
+    
+    function chineseTitle(show) {
+      if (show.display_title_zh) return show.display_title_zh;
+      const region = currentRegion().toLowerCase();
+      return show[`title_zh_${region}`] || show.title_zh_hk || show.title_zh_tw || show.title_zh_cn || "";
+    }
+    
+    function episodeMatchLabel(show) {
+      if (!show.search_match_episode) return null;
+      const season = Number(show.search_match_season_number);
+      const episode = Number(show.search_match_episode_number);
+      const code = Number.isInteger(season) && season > 0 && Number.isInteger(episode) && episode > 0
+        ? `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`
+        : null;
+      return `單集命中：${[code, show.search_match_episode].filter(Boolean).join(" · ")}`;
+    }
+    
+    function createSearchCard(show) {
+      const card = document.createElement("article");
+      card.className = "show-card";
+      card.dataset.showId = String(show.id);
+    
+      const imageWrap = document.createElement("div");
+      imageWrap.className = "poster-wrap";
+      if (show.poster_url) {
+        const image = document.createElement("img");
+        image.className = "poster";
+        image.src = show.poster_url;
+        image.alt = `${show.english_title || show.original_title || "Series Hub"} poster`;
+        image.loading = "lazy";
+        image.decoding = "async";
+        imageWrap.append(image);
+      } else {
+        const placeholder = document.createElement("div");
+        placeholder.className = "poster poster-placeholder";
+        placeholder.textContent = "Series Hub";
+        imageWrap.append(placeholder);
+      }
+    
+      const status = document.createElement("span");
+      status.className = `status-badge status-${show.status || "unknown"}`;
+      status.textContent = STATUS_LABELS[show.status] || show.tmdb_status || "狀態待確認";
+      imageWrap.append(status);
+    
+      const body = document.createElement("div");
+      body.className = "show-card-body";
+      const title = document.createElement("h4");
+      title.textContent = show.english_title || show.original_title || "劇名待補";
+      const zh = document.createElement("p");
+      zh.className = "chinese-title";
+      zh.textContent = chineseTitle(show) || "中文譯名待補";
+      const meta = document.createElement("div");
+      meta.className = "show-meta";
+      meta.textContent = [show.latest_season_number ? `Season ${show.latest_season_number}` : null, show.networks]
+        .filter(Boolean)
+        .join(" · ") || "平台資料待補";
+    
+      body.append(title, zh, meta);
+      const episodeMatch = episodeMatchLabel(show);
+      if (episodeMatch) {
+        const note = document.createElement("p");
+        note.className = "show-schedule-note is-confirmed";
+        note.textContent = episodeMatch;
+        body.append(note);
+      }
+    
+      const footer = document.createElement("div");
+      footer.className = "show-card-footer";
+      if (Number(show.vote_average) > 0) {
+        const rating = document.createElement("span");
+        rating.textContent = `★ ${Number(show.vote_average).toFixed(1)}`;
+        footer.append(rating);
+      }
+      if (show.genres) {
+        const genre = document.createElement("span");
+        genre.textContent = String(show.genres).split(" · ").slice(0, 2).join(" · ");
+        footer.append(genre);
+      }
+      body.append(footer);
+      card.append(imageWrap, body);
+      return card;
+    }
+    
+    async function fetchSearch(query, region, market, timeoutMs = 12000) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const params = new URLSearchParams({ q: query, region, market, limit: "100" });
+        const response = await fetch(`/api/search?${params}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error(`Search ${response.status}`);
+        return await response.json();
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+    
+    async function runGlobalSearch(query) {
+      if (!active || !query) return;
+      const activeRequest = ++requestId;
+      const region = currentRegion();
+      const market = currentMarket();
+      setSearchModeVisuals();
+      setGlobalSearchHeading(query);
+      contentPanel?.setAttribute("aria-busy", "true");
+      showCount.textContent = "搜尋中…";
+      showGrid.replaceChildren(...Array.from({ length: 4 }, createSkeletonCard));
+    
+      try {
+        const payload = await fetchSearch(query, region, market);
+        if (!active || activeRequest !== requestId || currentQuery() !== query || currentRegion() !== region || currentMarket() !== market) return;
+        const shows = Array.isArray(payload?.data) ? payload.data : [];
+        showGrid.replaceChildren(...shows.map(createSearchCard));
+        showCount.textContent = `${shows.length} 套`;
+        emptyState.hidden = shows.length !== 0;
+        if (shows.length === 0) {
+          emptyTitle.textContent = "整個劇集庫找不到符合的劇集";
+          emptyCopy.textContent = `沒有任何劇集名稱、中文譯名或單集名稱符合「${query}」。請檢查拼字，或目前資料庫尚未收錄該劇。`;
+        }
+      } catch (error) {
+        if (!active || activeRequest !== requestId) return;
+        console.error(error);
+        showGrid.replaceChildren();
+        showCount.textContent = "搜尋失敗";
+        emptyState.hidden = false;
+        emptyState.dataset.state = "error";
+        emptyTitle.textContent = "全域搜尋暫時無法使用";
+        emptyCopy.textContent = error?.name === "AbortError"
+          ? "搜尋等候超過 12 秒，請稍後再試。"
+          : "網絡或搜尋 API 暫時無法回應；原有劇集資料不受影響。";
+      } finally {
+        if (active && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");
+      }
+    }
+    
+    function syncUnderlyingRegion() {
+      if (!regionSelect || currentRegion() === initialRegion) return;
+      allowUnderlyingRegionChange = true;
+      regionSelect.disabled = false;
+      regionSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      allowUnderlyingRegionChange = false;
+      initialRegion = currentRegion();
+    }
+    
+    function enterSearchMode() {
+      if (active) return;
+      active = true;
+      const activeFilter = document.querySelector(".filter.active[data-view]");
+      previousView = activeFilter?.dataset.view || "today";
+      previousWasMyShows = myShowsButton?.classList.contains("active") === true;
+      previousDiscoveryMode = pendingDiscoveryMode;
+      pendingDiscoveryMode = null;
+      previousRegionDisabled = regionSelect?.disabled === true;
+      initialRegion = currentRegion();
+      setSearchModeVisuals();
+    }
+    
+    function restoreAfterClear() {
+      if (!active) return;
+      active = false;
+      requestId += 1;
+      window.clearTimeout(searchTimer);
+    
+      if (previousWasMyShows) {
+        previousDiscoveryMode = null;
+        deferredRegionSync = currentRegion() !== initialRegion;
+        if (regionSelect) regionSelect.disabled = previousRegionDisabled;
+        myShowsButton?.click();
+        return;
+      }
+    
+      if (previousDiscoveryMode) {
+        const mode = previousDiscoveryMode;
+        previousDiscoveryMode = null;
+        deferredRegionSync = false;
+        if (regionSelect) regionSelect.disabled = false;
+        window.dispatchEvent(new CustomEvent("series-hub:restore-discovery", { detail: { mode } }));
+        return;
+      }
+    
+      syncUnderlyingRegion();
+      if (regionSelect) regionSelect.disabled = false;
+      document.querySelectorAll(".filter").forEach((button) => button.classList.toggle("active", button.dataset.view === previousView));
+      window.dispatchEvent(new CustomEvent("series-hub:retry", { detail: { view: previousView } }));
+    }
+    
+    function leaveSearchForControl(control) {
+      if (!active) return;
+      active = false;
+      requestId += 1;
+      window.clearTimeout(searchTimer);
+      previousDiscoveryMode = null;
+      pendingDiscoveryMode = null;
+      if (searchInput) searchInput.value = "";
+    
+      const regularFilter = control?.matches(".filter[data-view]") === true;
+      if (regularFilter) {
+        syncUnderlyingRegion();
+        deferredRegionSync = false;
+        if (regionSelect) regionSelect.disabled = false;
+      } else if (currentRegion() !== initialRegion) {
+        deferredRegionSync = true;
+      }
+    }
+    
+    if (searchInput && regionSelect && marketSelect && contentPanel && showGrid && scheduleList && emptyState) {
+      window.addEventListener("series-hub:search-origin", (event) => {
+        const mode = event?.detail?.view === "discover" ? event?.detail?.mode : null;
+        if (DISCOVERY_MODES.has(mode)) pendingDiscoveryMode = mode;
+      });
+    
+      window.addEventListener("series-hub:leave-global-search", () => {
+        leaveSearchForControl(null);
+      });
+    
+      document.addEventListener("input", (event) => {
+        if (event.target !== searchInput) return;
+        event.stopImmediatePropagation();
+        window.clearTimeout(searchTimer);
+        const query = currentQuery();
+        if (!query) {
+          restoreAfterClear();
+          return;
+        }
+        enterSearchMode();
+        setSearchModeVisuals();
+        setGlobalSearchHeading(query);
+        searchTimer = window.setTimeout(() => runGlobalSearch(query), 250);
+      }, true);
+    
+      document.addEventListener("change", (event) => {
+        if (!active || (event.target !== regionSelect && event.target !== marketSelect)) return;
+        if (event.target === regionSelect && allowUnderlyingRegionChange) return;
+        event.stopImmediatePropagation();
+        if (event.target === regionSelect) saveRegion(currentRegion());
+        if (event.target === marketSelect) saveMarket(currentMarket());
+        window.clearTimeout(searchTimer);
+        const query = currentQuery();
+        if (query) searchTimer = window.setTimeout(() => runGlobalSearch(query), 0);
+      }, true);
+    
+      document.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const control = target?.closest(".filter[data-view], #my-shows-filter");
+        if (!control) return;
+    
+        if (active) {
+          leaveSearchForControl(control);
+          return;
+        }
+    
+        if (deferredRegionSync && control.matches(".filter[data-view]")) {
+          syncUnderlyingRegion();
+          deferredRegionSync = false;
+        }
+      }, true);
+    }
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/Series-Hub/Series-Hub/test/global-search.test.js:24:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: clearing search restores the previous view rather than walking every tab
+ok 3 - clearing search restores the previous view rather than walking every tab
+  ---
+  duration_ms: 0.228374
+  type: 'test'
+  ...
+# Subtest: global search backend deliberately omits status and reuses the catalog query
+ok 4 - global search backend deliberately omits status and reuses the catalog query
+  ---
+  duration_ms: 0.234065
+  type: 'test'
+  ...
+# Subtest: episode titles can resolve their parent show in global search
+ok 5 - episode titles can resolve their parent show in global search
+  ---
+  duration_ms: 0.200943
+  type: 'test'
+  ...
+# Subtest: a global miss says the whole catalog was searched
+ok 6 - a global miss says the whole catalog was searched
+  ---
+  duration_ms: 0.200833
+  type: 'test'
+  ...
+# Subtest: lifecycle dimensions keep decision, production and schedule facts independent
+ok 7 - lifecycle dimensions keep decision, production and schedule facts independent
+  ---
+  duration_ms: 1.551009
+  type: 'test'
+  ...
+# Subtest: summary keeps a final-season decision and production state at the same time
+ok 8 - summary keeps a final-season decision and production state at the same time
+  ---
+  duration_ms: 0.639457
+  type: 'test'
+  ...
+# Subtest: same-time production evidence uses semantic precedence rather than insert order
+ok 9 - same-time production evidence uses semantic precedence rather than insert order
+  ---
+  duration_ms: 1.338305
+  type: 'test'
+  ...
+# Subtest: retracted evidence is excluded from the current summary but can remain in storage
+ok 10 - retracted evidence is excluded from the current summary but can remain in storage
+  ---
+  duration_ms: 0.288066
+  type: 'test'
+  ...
+# Subtest: future season evidence is valid even before a season row exists
+ok 11 - future season evidence is valid even before a season row exists
+  ---
+  duration_ms: 0.844488
+  type: 'test'
+  ...
+# Subtest: lifecycle evidence rejects unsupported states and insecure source URLs
+ok 12 - lifecycle evidence rejects unsupported states and insecure source URLs
+  ---
+  duration_ms: 0.423737
+  type: 'test'
+  ...
+# Subtest: official source URL matching requires the registered host and path prefix
+ok 13 - official source URL matching requires the registered host and path prefix
+  ---
+  duration_ms: 0.387529
+  type: 'test'
+  ...
+# Subtest: evidence keys are deterministic and distinguish event types
+ok 14 - evidence keys are deterministic and distinguish event types
+  ---
+  duration_ms: 29.875055
+  type: 'test'
+  ...
+# Subtest: Phase 10A uses verified Korean network seeds and a separate 24-request ceiling
+ok 15 - Phase 10A uses verified Korean network seeds and a separate 24-request ceiling
+  ---
+  duration_ms: 1.765809
+  type: 'test'
+  ...
+# Subtest: Phase 10A defines Korean drama by KR origin rather than Korean language alone
+ok 16 - Phase 10A defines Korean drama by KR origin rather than Korean language alone
+  ---
+  duration_ms: 0.561312
+  type: 'test'
+  ...
+# Subtest: Phase 10A.1 requires a real fiction genre instead of trusting Scripted alone
+ok 17 - Phase 10A.1 requires a real fiction genre instead of trusting Scripted alone
+  ---
+  duration_ms: 0.443754
+  type: 'test'
+  ...
+# Subtest: Phase 10A.1 preserves shared KR/US rows that remain eligible for the US catalog
+ok 18 - Phase 10A.1 preserves shared KR/US rows that remain eligible for the US catalog
+  ---
+  duration_ms: 0.946217
+  type: 'test'
+  ...
+# Subtest: Phase 10A.1 rejects new sparse rows before persistence and cleans stale rows inside tracked sync
+ok 19 - Phase 10A.1 rejects new sparse rows before persistence and cleans stale rows inside tracked sync
+  ---
+  duration_ms: 1.625367
+  type: 'test'
+  ...
+# Subtest: Korean network rotation reaches every seed without stealing US discovery requests
+ok 20 - Korean network rotation reaches every seed without stealing US discovery requests
+  ---
+  duration_ms: 1.485688
+  type: 'test'
+  ...
+# Subtest: Korean discovery is isolated to KR and keeps source health separate
+ok 21 - Korean discovery is isolated to KR and keeps source health separate
+  ---
+  duration_ms: 0.560481
+  type: 'test'
+  ...
+# Subtest: Phase 10 wrapper preserves Phase 8 delegation and isolates Korean sync cadence
+ok 22 - Phase 10 wrapper preserves Phase 8 delegation and isolates Korean sync cadence
+  ---
+  duration_ms: 44.475391
+  type: 'test'
+  ...
+# Subtest: tmdb_kr sync status is readable without changing the legacy tmdb status contract
+ok 23 - tmdb_kr sync status is readable without changing the legacy tmdb status contract
+  ---
+  duration_ms: 3.093724
+  type: 'test'
+  ...
+# Subtest: Phase 10B normalizes a future TMDB next episode without inventing schedule fields
+ok 24 - Phase 10B normalizes a future TMDB next episode without inventing schedule fields
+  ---
+  duration_ms: 8.178944
+  type: 'test'
+  ...
+# Subtest: Phase 10B inserts one TMDB fallback only when no future TVmaze schedule exists
+ok 25 - Phase 10B inserts one TMDB fallback only when no future TVmaze schedule exists
+  ---
+  duration_ms: 4.752613
+  type: 'test'
+  ...
+# Subtest: Phase 10B keeps TVmaze primary and removes stale future TMDB fallbacks
+ok 26 - Phase 10B keeps TVmaze primary and removes stale future TMDB fallbacks
+  ---
+  duration_ms: 0.498405
+  type: 'test'
+  ...
+# Subtest: Phase 10B clears a withdrawn TMDB fallback instead of fabricating a future episode
+ok 27 - Phase 10B clears a withdrawn TMDB fallback instead of fabricating a future episode
+  ---
+  duration_ms: 0.382881
+  type: 'test'
+  ...
+# Subtest: Phase 10B integration stays inside the existing KR request budget and lets TVmaze take over
+ok 28 - Phase 10B integration stays inside the existing KR request budget and lets TVmaze take over
+  ---
+  duration_ms: 1.039039
+  type: 'test'
+  ...
+# Subtest: Phase 10B.1 selects active KR rows without future TVmaze schedule inside detail budget
+ok 29 - Phase 10B.1 selects active KR rows without future TVmaze schedule inside detail budget
+  ---
+  duration_ms: 3.779376
+  type: 'test'
+  ...
+# Subtest: Phase 10B.1 priority candidates lead while duplicate discovery candidates are removed
+ok 30 - Phase 10B.1 priority candidates lead while duplicate discovery candidates are removed
+  ---
+  duration_ms: 0.363796
+  type: 'test'
+  ...
+# Subtest: Phase 10B.1 never expands the Korean external request ceiling
+ok 31 - Phase 10B.1 never expands the Korean external request ceiling
+  ---
+  duration_ms: 0.749151
+  type: 'test'
+  ...
+# Subtest: Phase 10C documents the shared selector without changing provider budgets
+ok 32 - Phase 10C documents the shared selector without changing provider budgets
+  ---
+  duration_ms: 1.649021
+  type: 'test'
+  ...
+# Subtest: Phase 10C normalizes only supported catalog markets
+ok 33 - Phase 10C normalizes only supported catalog markets
+  ---
+  duration_ms: 2.774311
+  type: 'test'
+  ...
+# Subtest: Phase 10C browse filters carry the same market contract
+ok 34 - Phase 10C browse filters carry the same market contract
+  ---
+  duration_ms: 0.610644
+  type: 'test'
+  ...
+# Subtest: Phase 10C applies market filtering to catalog, schedule, discovery, browse and search
+ok 35 - Phase 10C applies market filtering to catalog, schedule, discovery, browse and search
+  ---
+  duration_ms: 1.219414
+  type: 'test'
+  ...
+# Subtest: Phase 10C exposes one persistent shared market selector across UI controllers
+ok 36 - Phase 10C exposes one persistent shared market selector across UI controllers
+  ---
+  duration_ms: 1.196902
+  type: 'test'
+  ...
+# Subtest: Phase 10C keeps My Shows outside the market filter
+ok 37 - Phase 10C keeps My Shows outside the market filter
+  ---
+  duration_ms: 1.676813
+  type: 'test'
+  ...
+# Subtest: Phase 10C personal discovery retains selected-market context after ranking
+ok 38 - Phase 10C personal discovery retains selected-market context after ranking
+  ---
+  duration_ms: 0.505038
+  type: 'test'
+  ...
+# Subtest: a returning series after a long hiatus with a future episode is upcoming
+ok 39 - a returning series after a long hiatus with a future episode is upcoming
+  ---
+  duration_ms: 2.13298
+  type: 'test'
+  ...
+# Subtest: a recently active weekly series with a future episode remains airing
+ok 40 - a recently active weekly series with a future episode remains airing
+  ---
+  duration_ms: 0.306449
+  type: 'test'
+  ...
+# Subtest: major US scripted networks and streamers are in Phase 1B scope
+ok 41 - major US scripted networks and streamers are in Phase 1B scope
+  ---
+  duration_ms: 0.287454
+  type: 'test'
+  ...
+# Subtest: non-target broad-discovery sources do not enter the MVP catalog
+ok 42 - non-target broad-discovery sources do not enter the MVP catalog
+  ---
+  duration_ms: 0.22671
+  type: 'test'
+  ...
+# Subtest: non-scripted genres are excluded even when TMDB type says Scripted
+ok 43 - non-scripted genres are excluded even when TMDB type says Scripted
+  ---
+  duration_ms: 0.435398
+  type: 'test'
+  ...
+# Subtest: dedicated discovery covers major US groups while preserving the Worker request budget
+ok 44 - dedicated discovery covers major US groups while preserving the Worker request budget
+  ---
+  duration_ms: 0.333268
+  type: 'test'
+  ...
+# Subtest: rotating network discovery reaches every dedicated seed within three sync slots
+ok 45 - rotating network discovery reaches every dedicated seed within three sync slots
+  ---
+  duration_ms: 0.57647
+  type: 'test'
+  ...
+# Subtest: network discovery rotation is deterministic and wraps without duplicates inside one slot
+ok 46 - network discovery rotation is deterministic and wraps without duplicates inside one slot
+  ---
+  duration_ms: 0.961105
+  type: 'test'
+  ...
+# Subtest: Phase 7A.1 rotates each network through TMDB pages one to three without adding requests
+ok 47 - Phase 7A.1 rotates each network through TMDB pages one to three without adding requests
+  ---
+  duration_ms: 0.591077
+  type: 'test'
+  ...
+# Subtest: Phase 7A.1 active seed rotation covers every dedicated network on all three pages within 21 slots
+ok 48 - Phase 7A.1 active seed rotation covers every dedicated network on all three pages within 21 slots
+  ---
+  duration_ms: 1.139085
+  type: 'test'
+  ...
+# Subtest: FOX discovery uses a rolling three-year first-air window without changing request count
+ok 49 - FOX discovery uses a rolling three-year first-air window without changing request count
+  ---
+  duration_ms: 0.374215
+  type: 'test'
+  ...
+# Subtest: Phase 7D recent-window discovery prioritizes current streamer and cable catalogs
+ok 50 - Phase 7D recent-window discovery prioritizes current streamer and cable catalogs
+  ---
+  duration_ms: 0.284128
+  type: 'test'
+  ...
+# Subtest: legacy network discovery stays unbounded so long-running active series are not excluded
+ok 51 - legacy network discovery stays unbounded so long-running active series are not excluded
+  ---
+  duration_ms: 0.231881
+  type: 'test'
+  ...
+# Subtest: FOX rolling window advances with the calendar year
+ok 52 - FOX rolling window advances with the calendar year
+  ---
+  duration_ms: 0.161199
+  type: 'test'
+  ...
+# Subtest: round-robin candidate selection gives every discovery feed early representation
+ok 53 - round-robin candidate selection gives every discovery feed early representation
+  ---
+  duration_ms: 0.356802
+  type: 'test'
+  ...
+# Subtest: round-robin candidate selection de-duplicates IDs without starving later feeds
+ok 54 - round-robin candidate selection de-duplicates IDs without starving later feeds
+  ---
+  duration_ms: 0.178962
+  type: 'test'
+  ...
+# Subtest: candidate rotation advances page-one slices across six-hour sync slots
+ok 55 - candidate rotation advances page-one slices across six-hour sync slots
+  ---
+  duration_ms: 0.456066
+  type: 'test'
+  ...
+# Subtest: round-robin rotation starts from the requested feed offset and wraps safely
+ok 56 - round-robin rotation starts from the requested feed offset and wraps safely
+  ---
+  duration_ms: 0.289708
+  type: 'test'
+  ...
+# Subtest: Phase 7D gives each network page a fresh top-five slice at the rollout boundary
+ok 57 - Phase 7D gives each network page a fresh top-five slice at the rollout boundary
+  ---
+  duration_ms: 0.638866
+  type: 'test'
+  ...
+# Subtest: Phase 7D rotates a repeated network page through all four five-item slices
+ok 58 - Phase 7D rotates a repeated network page through all four five-item slices
+  ---
+  duration_ms: 0.596919
+  type: 'test'
+  ...
+# Subtest: round-robin candidate selection accepts independent offsets per feed
+ok 59 - round-robin candidate selection accepts independent offsets per feed
+  ---
+  duration_ms: 0.215269
+  type: 'test'
+  ...
+# Subtest: initial Phase 4A evidence fingerprints match the runtime editorial key contract
+ok 60 - initial Phase 4A evidence fingerprints match the runtime editorial key contract
+  ---
+  duration_ms: 16.453725
+  type: 'test'
+  ...
+# Subtest: Phase 4 and Phase 7 official source URLs match their registered HTTPS bases
+ok 61 - Phase 4 and Phase 7 official source URLs match their registered HTTPS bases
+  ---
+  duration_ms: 1.438271
+  type: 'test'
+  ...
+# Subtest: official source validation rejects lookalike hosts and out-of-scope paths
+ok 62 - official source validation rejects lookalike hosts and out-of-scope paths
+  ---
+  duration_ms: 0.382791
+  type: 'test'
+  ...
+# Subtest: source migrations and browser editorial workflow expose the same official source keys
+ok 63 - source migrations and browser editorial workflow expose the same official source keys
+  ---
+  duration_ms: 2.190299
+  type: 'test'
+  ...
+# Subtest: Phase 4B UI only treats official confidence from official sources as official
+ok 64 - Phase 4B UI only treats official confidence from official sources as official
+  ---
+  duration_ms: 1.320993
+  type: 'test'
+  ...
+# Subtest: official projection keeps decision and production facts independent
+ok 65 - official projection keeps decision and production facts independent
+  ---
+  duration_ms: 0.406624
+  type: 'test'
+  ...
+# Subtest: non-official newer evidence cannot replace an official UI badge
+ok 66 - non-official newer evidence cannot replace an official UI badge
+  ---
+  duration_ms: 0.278988
+  type: 'test'
+  ...
+# Subtest: lifecycle labels remain season-specific
+ok 67 - lifecycle labels remain season-specific
+  ---
+  duration_ms: 0.355871
+  type: 'test'
+  ...
+# Subtest: Phase 4 wrapper exposes lifecycle route without changing the core phase contract
+ok 68 - Phase 4 wrapper exposes lifecycle route without changing the core phase contract
+  ---
+  duration_ms: 26.668102
+  type: 'test'
+  ...
+# Subtest: Phase 4B lifecycle index groups active evidence by show and projects dimensions
+ok 69 - Phase 4B lifecycle index groups active evidence by show and projects dimensions
+  ---
+  duration_ms: 1.712931
+  type: 'test'
+  ...
+# Subtest: lifecycle editorial endpoint rejects requests without the internal key
+ok 70 - lifecycle editorial endpoint rejects requests without the internal key
+  ---
+  duration_ms: 12.383782
+  type: 'test'
+  ...
+# Subtest: Reacher season 5 Amazon evidence fingerprint matches the runtime editorial contract
+ok 71 - Reacher season 5 Amazon evidence fingerprint matches the runtime editorial contract
+  ---
+  duration_ms: 12.540621
+  type: 'test'
+  ...
+# Subtest: Reacher evidence URL is inside the registered Amazon Entertainment path
+ok 72 - Reacher evidence URL is inside the registered Amazon Entertainment path
+  ---
+  duration_ms: 0.463021
+  type: 'test'
+  ...
+# Subtest: Reacher seed remains production-identity guarded and official
+ok 73 - Reacher seed remains production-identity guarded and official
+  ---
+  duration_ms: 0.325784
+  type: 'test'
+  ...
+# Subtest: Phase 4E evidence fingerprints match the runtime editorial contract
+ok 74 - Phase 4E evidence fingerprints match the runtime editorial contract
+  ---
+  duration_ms: 11.544934
+  type: 'test'
+  ...
+# Subtest: Phase 4E evidence URLs stay inside their registered official sources
+ok 75 - Phase 4E evidence URLs stay inside their registered official sources
+  ---
+  duration_ms: 0.440447
+  type: 'test'
+  ...
+# Subtest: Phase 4E seeds remain production-identity guarded and official
+ok 76 - Phase 4E seeds remain production-identity guarded and official
+  ---
+  duration_ms: 0.467849
+  type: 'test'
+  ...
+# Subtest: Phase 4F keeps the FOX repair scoped to the FOX core-network seed
+ok 77 - Phase 4F keeps the FOX repair scoped to the FOX core-network seed
+  ---
+  duration_ms: 1.374312
+  type: 'test'
+  ...
+# Subtest: Phase 4F policy documents unchanged 48-request maximum
+ok 78 - Phase 4F policy documents unchanged 48-request maximum
+  ---
+  duration_ms: 0.22115
+  type: 'test'
+  ...
+# Subtest: Phase 4F keeps genre persistence wired to genre_id
+ok 79 - Phase 4F keeps genre persistence wired to genre_id
+  ---
+  duration_ms: 1.312817
+  type: 'test'
+  ...
+# Subtest: Phase 4F applies the recent first-air window only through network discovery params
+ok 80 - Phase 4F applies the recent first-air window only through network discovery params
+  ---
+  duration_ms: 0.282444
+  type: 'test'
+  ...
+# Subtest: Murder in a Small Town season 3 FOX evidence fingerprint matches runtime contract
+ok 81 - Murder in a Small Town season 3 FOX evidence fingerprint matches runtime contract
+  ---
+  duration_ms: 15.532617
+  type: 'test'
+  ...
+# Subtest: FOX evidence URL stays inside the registered FOXFLASH HTTPS base
+ok 82 - FOX evidence URL stays inside the registered FOXFLASH HTTPS base
+  ---
+  duration_ms: 0.554369
+  type: 'test'
+  ...
+# Subtest: FOX seed is production-identity guarded and official
+ok 83 - FOX seed is production-identity guarded and official
+  ---
+  duration_ms: 0.313723
+  type: 'test'
+  ...
+# Subtest: TMDB genre persistence uses the declared show_genres genre_id foreign key
+ok 84 - TMDB genre persistence uses the declared show_genres genre_id foreign key
+  ---
+  duration_ms: 1.277983
+  type: 'test'
+  ...
+# Subtest: default persistence cap follows the already-paid detail candidate limit
+ok 85 - default persistence cap follows the already-paid detail candidate limit
+  ---
+  duration_ms: 0.238974
+  type: 'test'
+  ...
+# Subtest: explicit maxShows override remains bounded by detailLimit
+ok 86 - explicit maxShows override remains bounded by detailLimit
+  ---
+  duration_ms: 0.227162
+  type: 'test'
+  ...
+# Subtest: Phase 5A exposes My Shows without making it a Phase 1-4 app filter
+ok 87 - Phase 5A exposes My Shows without making it a Phase 1-4 app filter
+  ---
+  duration_ms: 1.315573
+  type: 'test'
+  ...
+# Subtest: My Shows reuses active catalog APIs instead of adding a backend tracking endpoint
+ok 88 - My Shows reuses active catalog APIs instead of adding a backend tracking endpoint
+  ---
+  duration_ms: 0.389273
+  type: 'test'
+  ...
+# Subtest: tracking controls are accessible and local-browser scoped
+ok 89 - tracking controls are accessible and local-browser scoped
+  ---
+  duration_ms: 1.529289
+  type: 'test'
+  ...
+# Subtest: Phase 5A keeps Phase 3 region state authoritative while My Shows is active
+ok 90 - Phase 5A keeps Phase 3 region state authoritative while My Shows is active
+  ---
+  duration_ms: 0.308162
+  type: 'test'
+  ...
+# Subtest: tracking decoration cannot create a MutationObserver feedback loop
+ok 91 - tracking decoration cannot create a MutationObserver feedback loop
+  ---
+  duration_ms: 0.347515
+  type: 'test'
+  ...
+# Subtest: tracked schedule filtering uses stable show_id membership
+ok 92 - tracked schedule filtering uses stable show_id membership
+  ---
+  duration_ms: 2.101401
+  type: 'test'
+  ...
+# Subtest: Phase 5B remains loaded as a frontend-only layer after later Phase 5 additions
+ok 93 - Phase 5B remains loaded as a frontend-only layer after later Phase 5 additions
+  ---
+  duration_ms: 0.356973
+  type: 'test'
+  ...
+# Subtest: tracked schedule reuses the existing schedule API and local storage
+ok 94 - tracked schedule reuses the existing schedule API and local storage
+  ---
+  duration_ms: 0.292914
+  type: 'test'
+  ...
+# Subtest: schedule observer only watches root child replacement to avoid feedback loops
+ok 95 - schedule observer only watches root child replacement to avoid feedback loops
+  ---
+  duration_ms: 0.286262
+  type: 'test'
+  ...
+# Subtest: Phase 5C viewing-state assets remain loaded after later Phase 5 additions
+ok 96 - Phase 5C viewing-state assets remain loaded after later Phase 5 additions
+  ---
+  duration_ms: 1.183457
+  type: 'test'
+  ...
+# Subtest: Phase 5C provides the four planned local viewing states
+ok 97 - Phase 5C provides the four planned local viewing states
+  ---
+  duration_ms: 0.259552
+  type: 'test'
+  ...
+# Subtest: Phase 5C state controls are limited to My Shows and support local filtering
+ok 98 - Phase 5C state controls are limited to My Shows and support local filtering
+  ---
+  duration_ms: 0.27466
+  type: 'test'
+  ...
+# Subtest: Phase 5C layer itself does not add accounts, backend user state, or notification infrastructure
+ok 99 - Phase 5C layer itself does not add accounts, backend user state, or notification infrastructure
+  ---
+  duration_ms: 0.401365
+  type: 'test'
+  ...
+# Subtest: Phase 5D-B helper remains deny-by-default while accepted production config explicitly enables it
+ok 100 - Phase 5D-B helper remains deny-by-default while accepted production config explicitly enables it
+  ---
+  duration_ms: 3.123869
+  type: 'test'
+  ...
+# Subtest: Phase 5D-B validates only bounded stable show IDs and title regions
+ok 101 - Phase 5D-B validates only bounded stable show IDs and title regions
+  ---
+  duration_ms: 1.370164
+  type: 'test'
+  ...
+# Subtest: Phase 5D-B validates timezone and Push subscription shape
+ok 102 - Phase 5D-B validates timezone and Push subscription shape
+  ---
+  duration_ms: 25.753533
+  type: 'test'
+  ...
+# Subtest: Phase 5D-B hashes endpoint and capability tokens before server lookup
+ok 103 - Phase 5D-B hashes endpoint and capability tokens before server lookup
+  ---
+  duration_ms: 13.781206
+  type: 'test'
+  ...
+# Subtest: Phase 5D-B schema stores no viewing state, search history, account or user profile
+ok 104 - Phase 5D-B schema stores no viewing state, search history, account or user profile
+  ---
+  duration_ms: 0.531728
+  type: 'test'
+  ...
+# Subtest: Phase 5D-B browser management token uses a separate versioned local key
+ok 105 - Phase 5D-B browser management token uses a separate versioned local key
+  ---
+  duration_ms: 0.695491
+  type: 'test'
+  ...
+# Subtest: Phase 5D-C reminder window is the hourly 23-to-24-hour slice
+ok 106 - Phase 5D-C reminder window is the hourly 23-to-24-hour slice
+  ---
+  duration_ms: 1.70232
+  type: 'test'
+  ...
+# Subtest: Phase 5D-C production gate is explicit and enabled only after implementation validation
+ok 107 - Phase 5D-C production gate is explicit and enabled only after implementation validation
+  ---
+  duration_ms: 0.395324
+  type: 'test'
+  ...
+# Subtest: Phase 5D-C Worker keeps reminder cron isolated from TMDB and TVmaze sync
+ok 108 - Phase 5D-C Worker keeps reminder cron isolated from TMDB and TVmaze sync
+  ---
+  duration_ms: 0.346233
+  type: 'test'
+  ...
+# Subtest: delivery candidates require precise TVmaze timestamps and stable show mappings
+ok 109 - delivery candidates require precise TVmaze timestamps and stable show mappings
+  ---
+  duration_ms: 0.233242
+  type: 'test'
+  ...
+# Subtest: delivery identity is stable and the existing unique D1 constraint remains the dedup guard
+ok 110 - delivery identity is stable and the existing unique D1 constraint remains the dedup guard
+  ---
+  duration_ms: 0.626523
+  type: 'test'
+  ...
+# Subtest: Push errors distinguish stale subscriptions from bounded retry failures
+ok 111 - Push errors distinguish stale subscriptions from bounded retry failures
+  ---
+  duration_ms: 1.138213
+  type: 'test'
+  ...
+# Subtest: notification payload uses the subscription title region and precise local timestamp
+ok 112 - notification payload uses the subscription title region and precise local timestamp
+  ---
+  duration_ms: 23.062076
+  type: 'test'
+  ...
+# Subtest: production sender uses the already-proven Worker-compatible web-push package
+ok 113 - production sender uses the already-proven Worker-compatible web-push package
+  ---
+  duration_ms: 0.334501
+  type: 'test'
+  ...
+# Subtest: internal reminder execution remains protected and default invocation is dry-run
+ok 114 - internal reminder execution remains protected and default invocation is dry-run
+  ---
+  duration_ms: 0.573635
+  type: 'test'
+  ...
+# Subtest: Phase 5D notification assets remain loaded with a safe registration fallback
+ok 115 - Phase 5D notification assets remain loaded with a safe registration fallback
+  ---
+  duration_ms: 1.224132
+  type: 'test'
+  ...
+# Subtest: notification permission is requested only inside the explicit settings button click
+ok 116 - notification permission is requested only inside the explicit settings button click
+  ---
+  duration_ms: 1.252886
+  type: 'test'
+  ...
+# Subtest: Phase 5D-B sync uploads tracked show IDs but not viewing states
+ok 117 - Phase 5D-B sync uploads tracked show IDs but not viewing states
+  ---
+  duration_ms: 0.411314
+  type: 'test'
+  ...
+# Subtest: Phase 5D-C UI explains the narrow 24-hour episode reminder behavior
+ok 118 - Phase 5D-C UI explains the narrow 24-hour episode reminder behavior
+  ---
+  duration_ms: 0.194822
+  type: 'test'
+  ...
+# Subtest: disable flow deletes server state before clearing local management
+ok 119 - disable flow deletes server state before clearing local management
+  ---
+  duration_ms: 0.198529
+  type: 'test'
+  ...
+# Subtest: shared PWA service worker preserves notification behavior without owning live data state
+ok 120 - shared PWA service worker preserves notification behavior without owning live data state
+  ---
+  duration_ms: 0.277104
+  type: 'test'
+  ...
+# Subtest: Phase 5D-B production gate is explicit and VAPID provisioning runs only on main pushes
+ok 121 - Phase 5D-B production gate is explicit and VAPID provisioning runs only on main pushes
+  ---
+  duration_ms: 1.303259
+  type: 'test'
+  ...
+# Subtest: production VAPID private material is generated at runtime and stored only as a Cloudflare secret
+ok 122 - production VAPID private material is generated at runtime and stored only as a Cloudflare secret
+  ---
+  duration_ms: 0.276122
+  type: 'test'
+  ...
+# Subtest: VAPID bootstrap preserves an existing pair and refuses rotation once subscriptions exist
+ok 123 - VAPID bootstrap preserves an existing pair and refuses rotation once subscriptions exist
+  ---
+  duration_ms: 0.327989
+  type: 'test'
+  ...
+# Subtest: live readiness requires the enabled production capability to expose the provisioned public key
+ok 124 - live readiness requires the enabled production capability to expose the provisioned public key
+  ---
+  duration_ms: 1.772411
+  type: 'test'
+  ...
+# Subtest: D4 landing flow starts with the active Today/Week content instead of the long hero explainer
+ok 125 - D4 landing flow starts with the active Today/Week content instead of the long hero explainer
+  ---
+  duration_ms: 2.171041
+  type: 'test'
+  ...
+# Subtest: same-show episodes are grouped into one schedule card while preserving per-episode rows
+ok 126 - same-show episodes are grouped into one schedule card while preserving per-episode rows
+  ---
+  duration_ms: 0.265994
+  type: 'test'
+  ...
+# Subtest: tracked schedule filtering hides or restores whole grouped show cards
+ok 127 - tracked schedule filtering hides or restores whole grouped show cards
+  ---
+  duration_ms: 0.216172
+  type: 'test'
+  ...
+# Subtest: airing catalog cards expose confirmed next-episode timestamps without inventing missing time
+ok 128 - airing catalog cards expose confirmed next-episode timestamps without inventing missing time
+  ---
+  duration_ms: 0.15652
+  type: 'test'
+  ...
+# Subtest: Phase 5E-D4 keeps the Push settings action at a 44px minimum touch target
+ok 129 - Phase 5E-D4 keeps the Push settings action at a 44px minimum touch target
+  ---
+  duration_ms: 1.072131
+  type: 'test'
+  ...
+# Subtest: internal authorization derivation is rotated away from historical v1 context
+ok 130 - internal authorization derivation is rotated away from historical v1 context
+  ---
+  duration_ms: 1.669399
+  type: 'test'
+  ...
+# Subtest: every workflow deriving the internal key masks it before later use or output
+ok 131 - every workflow deriving the internal key masks it before later use or output
+  ---
+  duration_ms: 0.547857
+  type: 'test'
+  ...
+# Subtest: the old one-shot reminder verification no longer races every workflow edit
+ok 132 - the old one-shot reminder verification no longer races every workflow edit
+  ---
+  duration_ms: 0.333469
+  type: 'test'
+  ...
+# Subtest: source freshness degrades after missed six-hour sync cycles
+ok 133 - source freshness degrades after missed six-hour sync cycles
+  ---
+  duration_ms: 0.593802
+  type: 'test'
+  ...
+# Subtest: an active sync reports in-progress while freshness comes from the latest completed run
+ok 134 - an active sync reports in-progress while freshness comes from the latest completed run
+  ---
+  duration_ms: 0.478058
+  type: 'test'
+  ...
+# Subtest: operational query separates the newest run from the newest completed run
+ok 135 - operational query separates the newest run from the newest completed run
+  ---
+  duration_ms: 0.243181
+  type: 'test'
+  ...
+# Subtest: Push readiness is assessed independently from TMDB and TVmaze
+ok 136 - Push readiness is assessed independently from TMDB and TVmaze
+  ---
+  duration_ms: 0.537879
+  type: 'test'
+  ...
+# Subtest: operational endpoint exposes aggregate source health without Push credentials
+ok 137 - operational endpoint exposes aggregate source health without Push credentials
+  ---
+  duration_ms: 0.296511
+  type: 'test'
+  ...
+# Subtest: homepage renders TMDB, TVmaze and Push as separate operational indicators
+ok 138 - homepage renders TMDB, TVmaze and Push as separate operational indicators
+  ---
+  duration_ms: 0.617557
+  type: 'test'
+  ...
+# Subtest: production runtime smoke stores large API payloads in files instead of process environment
+ok 139 - production runtime smoke stores large API payloads in files instead of process environment
+  ---
+  duration_ms: 2.049204
+  type: 'test'
+  ...
+# Subtest: PR production smoke is also safe as the catalog grows
+ok 140 - PR production smoke is also safe as the catalog grows
+  ---
+  duration_ms: 0.45239
+  type: 'test'
+  ...
+# Subtest: Phase 5E-C bounded TVmaze convergence survives later Worker wrappers without cadence changes
+ok 141 - Phase 5E-C bounded TVmaze convergence survives later Worker wrappers without cadence changes
+  ---
+  duration_ms: 1.354554
+  type: 'test'
+  ...
+# Subtest: Phase 5E-C keeps each TVmaze invocation capped at ten shows
+ok 142 - Phase 5E-C keeps each TVmaze invocation capped at ten shows
+  ---
+  duration_ms: 0.300127
+  type: 'test'
+  ...
+# Subtest: Phase 5E-C still delegates core fetch and non-TVmaze cron behavior after D4 catalog enrichment
+ok 143 - Phase 5E-C still delegates core fetch and non-TVmaze cron behavior after D4 catalog enrichment
+  ---
+  duration_ms: 0.245435
+  type: 'test'
+  ...
+# Subtest: accepted Phase 5E-D visible product baseline remains loaded under later Phase 8
+ok 144 - accepted Phase 5E-D visible product baseline remains loaded under later Phase 8
+  ---
+  duration_ms: 1.724792
+  type: 'test'
+  ...
+# Subtest: base views expose bounded loading, explicit error and retry behavior
+ok 145 - base views expose bounded loading, explicit error and retry behavior
+  ---
+  duration_ms: 0.353827
+  type: 'test'
+  ...
+# Subtest: My Shows has bounded loading, busy state and the same in-place retry control
+ok 146 - My Shows has bounded loading, busy state and the same in-place retry control
+  ---
+  duration_ms: 0.2371
+  type: 'test'
+  ...
+# Subtest: tracked-only schedule also has bounded loading and in-place retry
+ok 147 - tracked-only schedule also has bounded loading and in-place retry
+  ---
+  duration_ms: 0.213166
+  type: 'test'
+  ...
+# Subtest: notification My Shows deep-link waits once for the base request before activation
+ok 148 - notification My Shows deep-link waits once for the base request before activation
+  ---
+  duration_ms: 0.266625
+  type: 'test'
+  ...
+# Subtest: mobile controls have visible keyboard focus and minimum touch height
+ok 149 - mobile controls have visible keyboard focus and minimum touch height
+  ---
+  duration_ms: 0.333108
+  type: 'test'
+  ...
+# Subtest: content-first mobile catalog tools keep the horizontal filter strip inside its viewport
+ok 150 - content-first mobile catalog tools keep the horizontal filter strip inside its viewport
+  ---
+  duration_ms: 0.372421
+  type: 'test'
+  ...
+# Subtest: Phase 5E-D4 acceptance is preserved while Phase 6 is redefined around show details
+ok 151 - Phase 5E-D4 acceptance is preserved while Phase 6 is redefined around show details
+  ---
+  duration_ms: 0.309385
+  type: 'test'
+  ...
+# Subtest: Phase 6A prefers official YouTube trailers and rejects unsupported video sites
+ok 152 - Phase 6A prefers official YouTube trailers and rejects unsupported video sites
+  ---
+  duration_ms: 1.89066
+  type: 'test'
+  ...
+# Subtest: Phase 6A deduplicates TMDB images and keeps high-ranked media first
+ok 153 - Phase 6A deduplicates TMDB images and keeps high-ranked media first
+  ---
+  duration_ms: 0.727682
+  type: 'test'
+  ...
+# Subtest: Phase 6A keeps stored detail usable when live TMDB media is unavailable
+ok 154 - Phase 6A keeps stored detail usable when live TMDB media is unavailable
+  ---
+  duration_ms: 3.098683
+  type: 'test'
+  ...
+# Subtest: Phase 6A detail page contains the required product surfaces
+ok 155 - Phase 6A detail page contains the required product surfaces
+  ---
+  duration_ms: 1.187044
+  type: 'test'
+  ...
+# Subtest: Phase 6A detail UI keeps TMDB credentials server-side and lazy-loads privacy-enhanced trailer playback
+ok 156 - Phase 6A detail UI keeps TMDB credentials server-side and lazy-loads privacy-enhanced trailer playback
+  ---
+  duration_ms: 0.316578
+  type: 'test'
+  ...
+# Subtest: Phase 6A catalog navigation uses stable show ids without mutating card contents
+ok 157 - Phase 6A catalog navigation uses stable show ids without mutating card contents
+  ---
+  duration_ms: 0.25254
+  type: 'test'
+  ...
+# Subtest: Phase 6A mobile detail layout and worker route remain present under later Phase wrappers
+ok 158 - Phase 6A mobile detail layout and worker route remain present under later Phase wrappers
+  ---
+  duration_ms: 0.314814
+  type: 'test'
+  ...
+# Subtest: Phase 6A.1 loads its polish layer and promotes official status ahead of media
+ok 159 - Phase 6A.1 loads its polish layer and promotes official status ahead of media
+  ---
+  duration_ms: 1.442438
+  type: 'test'
+  ...
+# Subtest: Phase 6A.1 groups upcoming and recent episodes instead of mixing both timelines
+ok 160 - Phase 6A.1 groups upcoming and recent episodes instead of mixing both timelines
+  ---
+  duration_ms: 0.358716
+  type: 'test'
+  ...
+# Subtest: Phase 6A.1 condenses seasons and localizes common metadata labels
+ok 161 - Phase 6A.1 condenses seasons and localizes common metadata labels
+  ---
+  duration_ms: 0.460665
+  type: 'test'
+  ...
+# Subtest: Phase 6A.1 keeps one primary trailer and treats the remainder as other videos
+ok 162 - Phase 6A.1 keeps one primary trailer and treats the remainder as other videos
+  ---
+  duration_ms: 0.306569
+  type: 'test'
+  ...
+# Subtest: Phase 6A.1 initially limits the media wall to six curated images
+ok 163 - Phase 6A.1 initially limits the media wall to six curated images
+  ---
+  duration_ms: 0.264551
+  type: 'test'
+  ...
+# Subtest: Phase 6A.1 localizes synopsis text on demand without changing scheduled Phase 5 behavior
+ok 164 - Phase 6A.1 localizes synopsis text on demand without changing scheduled Phase 5 behavior
+  ---
+  duration_ms: 0.237731
+  type: 'test'
+  ...
+# Subtest: Phase 6B show detail keeps the media-browser layer after 6A.1
+ok 165 - Phase 6B show detail keeps the media-browser layer after 6A.1
+  ---
+  duration_ms: 3.125864
+  type: 'test'
+  ...
+# Subtest: Phase 6B groups gallery media into all, backdrop and poster filters
+ok 166 - Phase 6B groups gallery media into all, backdrop and poster filters
+  ---
+  duration_ms: 0.233884
+  type: 'test'
+  ...
+# Subtest: Phase 6B lightbox supports keyboard and mobile swipe navigation
+ok 167 - Phase 6B lightbox supports keyboard and mobile swipe navigation
+  ---
+  duration_ms: 0.385095
+  type: 'test'
+  ...
+# Subtest: Phase 6B loads original-resolution media only after the viewer opens
+ok 168 - Phase 6B loads original-resolution media only after the viewer opens
+  ---
+  duration_ms: 0.286111
+  type: 'test'
+  ...
+# Subtest: Phase 6B lightbox is full-screen and accounts for mobile safe areas
+ok 169 - Phase 6B lightbox is full-screen and accounts for mobile safe areas
+  ---
+  duration_ms: 0.244915
+  type: 'test'
+  ...
+# Subtest: Phase 6C remains loaded after 6B and beneath later Phase 7 detail layers
+ok 170 - Phase 6C remains loaded after 6B and beneath later Phase 7 detail layers
+  ---
+  duration_ms: 1.361257
+  type: 'test'
+  ...
+# Subtest: Phase 6C exposes a read-only per-season episode route without a schema change
+ok 171 - Phase 6C exposes a read-only per-season episode route without a schema change
+  ---
+  duration_ms: 0.30702
+  type: 'test'
+  ...
+# Subtest: Phase 6C season navigation works by cards and a compact selector
+ok 172 - Phase 6C season navigation works by cards and a compact selector
+  ---
+  duration_ms: 0.208838
+  type: 'test'
+  ...
+# Subtest: Phase 6C episode cards surface image, overview, runtime and schedule state
+ok 173 - Phase 6C episode cards surface image, overview, runtime and schedule state
+  ---
+  duration_ms: 0.337577
+  type: 'test'
+  ...
+# Subtest: Phase 6C reuses existing local My Shows and viewing-state modules
+ok 174 - Phase 6C reuses existing local My Shows and viewing-state modules
+  ---
+  duration_ms: 0.221451
+  type: 'test'
+  ...
+# Subtest: Phase 6C remains usable on narrow mobile detail pages
+ok 175 - Phase 6C remains usable on narrow mobile detail pages
+  ---
+  duration_ms: 0.189402
+  type: 'test'
+  ...
+# Subtest: Phase 6C.1 loads after the existing Phase 6C detail styles
+ok 176 - Phase 6C.1 loads after the existing Phase 6C detail styles
+  ---
+  duration_ms: 1.431948
+  type: 'test'
+  ...
+# Subtest: potentially long season, episode and secondary-video lists are horizontal rails
+ok 177 - potentially long season, episode and secondary-video lists are horizontal rails
+  ---
+  duration_ms: 0.346493
+  type: 'test'
+  ...
+# Subtest: season and episode cards expose a next-card peek on mobile instead of filling an endless vertical list
+ok 178 - season and episode cards expose a next-card peek on mobile instead of filling an endless vertical list
+  ---
+  duration_ms: 2.026542
+  type: 'test'
+  ...
+# Subtest: episode rail preserves complete image-first cards while keeping text-heavy lifecycle evidence vertical
+ok 179 - episode rail preserves complete image-first cards while keeping text-heavy lifecycle evidence vertical
+  ---
+  duration_ms: 0.392008
+  type: 'test'
+  ...
+# Subtest: Phase 7B.1 evidence fingerprints match the runtime editorial contract
+ok 180 - Phase 7B.1 evidence fingerprints match the runtime editorial contract
+  ---
+  duration_ms: 12.645798
+  type: 'test'
+  ...
+# Subtest: Phase 7B.1 evidence stays inside each registered official source
+ok 181 - Phase 7B.1 evidence stays inside each registered official source
+  ---
+  duration_ms: 0.469061
+  type: 'test'
+  ...
+# Subtest: Phase 7B.1 seeds remain fixed-production-identity guarded and official
+ok 182 - Phase 7B.1 seeds remain fixed-production-identity guarded and official
+  ---
+  duration_ms: 0.410812
+  type: 'test'
+  ...
+# Subtest: Phase 7B.1 does not misstate Shogun development as filming
+ok 183 - Phase 7B.1 does not misstate Shogun development as filming
+  ---
+  duration_ms: 0.339951
+  type: 'test'
+  ...
+# Subtest: Phase 7B.2 accepts dated AMC Global Media press permalinks without whitelisting the site root
+ok 184 - Phase 7B.2 accepts dated AMC Global Media press permalinks without whitelisting the site root
+  ---
+  duration_ms: 1.300534
+  type: 'test'
+  ...
+# Subtest: Phase 7B.2 keeps the archival AMC Networks source separate from the current AMC Global Media source
+ok 185 - Phase 7B.2 keeps the archival AMC Networks source separate from the current AMC Global Media source
+  ---
+  duration_ms: 0.85647
+  type: 'test'
+  ...
+# Subtest: Phase 7B.2 Dead City season 3 fingerprint matches the runtime editorial key contract
+ok 186 - Phase 7B.2 Dead City season 3 fingerprint matches the runtime editorial key contract
+  ---
+  duration_ms: 13.181031
+  type: 'test'
+  ...
+# Subtest: browser editorial workflow exposes both current and archival AMC source identities
+ok 187 - browser editorial workflow exposes both current and archival AMC source identities
+  ---
+  duration_ms: 1.395431
+  type: 'test'
+  ...
+# Subtest: Phase 7C normalizes HK and US JustWatch provider groups without inventing deep links
+ok 188 - Phase 7C normalizes HK and US JustWatch provider groups without inventing deep links
+  ---
+  duration_ms: 2.729728
+  type: 'test'
+  ...
+# Subtest: Phase 7C availability is a safe empty layer when TMDB credentials are unavailable
+ok 189 - Phase 7C availability is a safe empty layer when TMDB credentials are unavailable
+  ---
+  duration_ms: 0.721109
+  type: 'test'
+  ...
+# Subtest: Phase 7C Worker route stays isolated from the accepted Phase 6 detail route
+ok 190 - Phase 7C Worker route stays isolated from the accepted Phase 6 detail route
+  ---
+  duration_ms: 29.574166
+  type: 'test'
+  ...
+# Subtest: Phase 7C detail UI keeps availability region separate and visibly attributes JustWatch under later wrappers
+ok 191 - Phase 7C detail UI keeps availability region separate and visibly attributes JustWatch under later wrappers
+  ---
+  duration_ms: 0.360168
+  type: 'test'
+  ...
+# Subtest: Phase 8B exposes bounded allowlisted filters and sorts
+not ok 192 - Phase 8B exposes bounded allowlisted filters and sorts
+  ---
+  duration_ms: 4.332413
+  type: 'test'
+  location: '/home/runner/work/Series-Hub/Series-Hub/test/phase8-browse.test.js:78:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      {
+        genre: 'Drama',
+    +   market: 'all',
+        network: 'HBO',
+        sort: 'rating',
+        status: 'airing',
+        year: '2026'
+      }
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    network: 'HBO'
+    genre: 'Drama'
+    status: 'airing'
+    year: '2026'
+    sort: 'rating'
+  actual:
+    market: 'all'
+    network: 'HBO'
+    genre: 'Drama'
+    status: 'airing'
+    year: '2026'
+    sort: 'rating'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/Series-Hub/Series-Hub/test/phase8-browse.test.js:83:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: Phase 8B binds network, genre, status and year instead of interpolating facet values
+ok 193 - Phase 8B binds network, genre, status and year instead of interpolating facet values
+  ---
+  duration_ms: 2.342699
+  type: 'test'
+  ...
+# Subtest: Phase 8 worker keeps featured discovery and faceted browse on the same endpoint
+ok 194 - Phase 8 worker keeps featured discovery and faceted browse on the same endpoint
+  ---
+  duration_ms: 29.304688
+  type: 'test'
+  ...
+# Subtest: Phase 8B UI remains available under later Phase 8 labels
+ok 195 - Phase 8B UI remains available under later Phase 8 labels
+  ---
+  duration_ms: 0.819441
+  type: 'test'
+  ...
+# Subtest: Phase 8A defines four catalog-only discovery rails
+ok 196 - Phase 8A defines four catalog-only discovery rails
+  ---
+  duration_ms: 2.339384
+  type: 'test'
+  ...
+# Subtest: discovery limit is bounded for horizontal rails
+ok 197 - discovery limit is bounded for horizontal rails
+  ---
+  duration_ms: 0.494358
+  type: 'test'
+  ...
+# Subtest: discovery resolves regional Chinese titles without external requests
+ok 198 - discovery resolves regional Chinese titles without external requests
+  ---
+  duration_ms: 1.042044
+  type: 'test'
+  ...
+# Subtest: Phase 8 worker serves the discovery endpoint through the current wrapper
+ok 199 - Phase 8 worker serves the discovery endpoint through the current wrapper
+  ---
+  duration_ms: 29.420521
+  type: 'test'
+  ...
+# Subtest: Phase 8 worker and homepage expose discovery without replacing existing views
+ok 200 - Phase 8 worker and homepage expose discovery without replacing existing views
+  ---
+  duration_ms: 0.80267
+  type: 'test'
+  ...
+# Subtest: discovery and global search use an explicit handoff contract
+ok 201 - discovery and global search use an explicit handoff contract
+  ---
+  duration_ms: 0.567985
+  type: 'test'
+  ...
+# Subtest: Phase 8D weights active viewing states more strongly than paused history
+ok 202 - Phase 8D weights active viewing states more strongly than paused history
+  ---
+  duration_ms: 16.806443
+  type: 'test'
+  ...
+# Subtest: Phase 8D excludes already tracked shows and puts strong local taste matches first
+ok 203 - Phase 8D excludes already tracked shows and puts strong local taste matches first
+  ---
+  duration_ms: 1.122975
+  type: 'test'
+  ...
+# Subtest: Phase 8D is explicit when local preference signals are insufficient
+ok 204 - Phase 8D is explicit when local preference signals are insufficient
+  ---
+  duration_ms: 0.357274
+  type: 'test'
+  ...
+# Subtest: local catalog signals remain minimal, bounded and browser-local
+ok 205 - local catalog signals remain minimal, bounded and browser-local
+  ---
+  duration_ms: 5.584508
+  type: 'test'
+  ...
+# Subtest: Phase 8D UI requests only a generic candidate pool and never serializes local tracking state
+not ok 206 - Phase 8D UI requests only a generic candidate pool and never serializes local tracking state
+  ---
+  duration_ms: 3.193509
+  type: 'test'
+  location: '/home/runner/work/Series-Hub/Series-Hub/test/phase8-personal.test.js:98:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /new URLSearchParams\(\{ region, mode: "browse", limit: "100", sort: "popular" \}\)/. Input:
+    
+    'import { loadTrackedShowIds } from "./tracking.js";\n' +
+      'import { loadViewingStates } from "./viewing-state.js";\n' +
+      'import {\n' +
+      '  catalogSignalValues,\n' +
+      '  loadCatalogSignals,\n' +
+      '  rememberCatalogSignals\n' +
+      '} from "./local-catalog-signals.js";\n' +
+      'import { rankPersonalCandidates } from "./personal-discovery.js";\n' +
+      '\n' +
+      'const discoverButton = document.querySelector("#discover-filter");\n' +
+      'const searchInput = document.querySelector("#search-input");\n' +
+      'const regionSelect = document.querySelector("#title-region-select");\n' +
+      'const marketSelect = document.querySelector("#market-select");\n' +
+      'const contentPanel = document.querySelector(".content-panel");\n' +
+      'const viewTitle = document.querySelector("#view-title");\n' +
+      'const viewKicker = document.querySelector("#view-kicker");\n' +
+      'const viewContext = document.querySelector("#view-context");\n' +
+      'const showCount = document.querySelector("#show-count");\n' +
+      'const showGrid = document.querySelector("#show-grid");\n' +
+      'const scheduleList = document.querySelector("#schedule-list");\n' +
+      'const emptyState = document.querySelector("#empty-state");\n' +
+      'const emptyTitle = document.querySelector("#empty-title");\n' +
+      'const emptyCopy = document.querySelector("#empty-copy");\n' +
+      'const emptyActions = document.querySelector("#empty-actions");\n' +
+      'const retryViewButton = document.querySelector("#retry-view-button");\n' +
+      'const exploreTools = document.querySelector("#phase8-explore-tools");\n' +
+      'const featuredToggle = document.querySelector("#phase8-featured-toggle");\n' +
+      'const personalToggle = document.querySelector("#phase8-personal-toggle");\n' +
+      'const browseToggle = document.querySelector("#phase8-browse-toggle");\n' +
+      'const browseControls = document.querySelector("#phase8-browse-controls");\n' +
+      'const networkFilter = document.querySelector("#phase8-network-filter");\n' +
+      'const genreFilter = document.querySelector("#phase8-genre-filter");\n' +
+      'const statusFilter = document.querySelector("#phase8-status-filter");\n' +
+      'const yearFilter = document.querySelector("#phase8-year-filter");\n' +
+      'const sortFilter = document.querySelector("#phase8-sort-filter");\n' +
+      'const resetFilters = document.querySelector("#phase8-reset-filters");\n' +
+      '\n' +
+      'const MARKET_LABELS = Object.freeze({ all: "全部地區", US: "美國", KR: "韓國" });\n' +
+      '\n' +
+      'const STATUS_LABELS = Object.freeze({\n' +
+      '  airing: "播映中",\n' +
+      '  upcoming: "即將播映",\n' +
+      '  planned: "計劃播出",\n' +
+      '  completed: "已完結",\n' +
+      '  unknown: "狀態待確認"\n' +
+      '});\n' +
+      '\n' +
+      'let active = false;\n' +
+      'let mode = "featured";\n' +
+      'let requestId = 0;\n' +
+      'let personalPool = [];\n' +
+      '\n' +
+      'function currentRegion() {\n' +
+      '  return new Set(["HK", "TW", "CN"]).has(regionSelect?.value) ? regionSelect.value : "HK";\n' +
+      '}\n' +
+      '\n' +
+      'function saveRegion(region) {\n' +
+      '  try {\n' +
+      '    window.localStorage.setItem("series-hub-title-region", region);\n' +
+      '  } catch {\n' +
+      '    // Optional preference only.\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function currentMarket() {\n' +
+      '  return Object.hasOwn(MARKET_LABELS, marketSelect?.value) ? marketSelect.value : "all";\n' +
+      '}\n' +
+      '\n' +
+      'function saveMarket(market) {\n' +
+      '  try {\n' +
+      '    window.localStorage.setItem("series-hub-catalog-market", market);\n' +
+      '  } catch {\n' +
+      '    // Optional preference only.\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function chineseTitle(show) {\n' +
+      '  if (show.display_title_zh) return show.display_title_zh;\n' +
+      '  const region = currentRegion().toLowerCase();\n' +
+      '  return show[`title_zh_${region}`] || show.title_zh_hk || show.title_zh_tw || show.title_zh_cn || "";\n' +
+      '}\n' +
+      '\n' +
+      'function formatDate(value) {\n' +
+      '  if (!value || !/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return null;\n' +
+      '  try {\n' +
+      '    return new Intl.DateTimeFormat("zh-HK", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })\n' +
+      '      .format(new Date(`${value}T00:00:00Z`));\n' +
+      '  } catch {\n' +
+      '    return value;\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function createCard(show) {\n' +
+      '  const card = document.createElement("article");\n' +
+      '  card.className = "show-card discovery-card";\n' +
+      '  card.dataset.showId = String(show.id);\n' +
+      '\n' +
+      '  const imageWrap = document.createElement("div");\n' +
+      '  imageWrap.className = "poster-wrap";\n' +
+      '  if (show.poster_url) {\n' +
+      '    const image = document.createElement("img");\n' +
+      '    image.className = "poster";\n' +
+      '    image.src = show.poster_url;\n' +
+      '    image.alt = `${show.english_title || show.original_title || "Series Hub"} poster`;\n' +
+      '    image.loading = "lazy";\n' +
+      '    image.decoding = "async";\n' +
+      '    imageWrap.append(image);\n' +
+      '  } else {\n' +
+      '    const placeholder = document.createElement("div");\n' +
+      '    placeholder.className = "poster poster-placeholder";\n' +
+      '    placeholder.textContent = "Series Hub";\n' +
+      '    imageWrap.append(placeholder);\n' +
+      '  }\n' +
+      '\n' +
+      '  const status = document.createElement("span");\n' +
+      '  status.className = `status-badge status-${show.status || "unknown"}`;\n' +
+      '  status.textContent = STATUS_LABELS[show.status] || show.tmdb_status || STATUS_LABELS.unknown;\n' +
+      '  imageWrap.append(status);\n' +
+      '\n' +
+      '  const body = document.createElement("div");\n' +
+      '  body.className = "show-card-body";\n' +
+      '\n' +
+      '  const title = document.createElement("h4");\n' +
+      '  title.textContent = show.english_title || show.original_title || "劇名待補";\n' +
+      '  const zh = document.createElement("p");\n' +
+      '  zh.className = "chinese-title";\n' +
+      '  zh.textContent = chineseTitle(show) || "中文譯名待補";\n' +
+      '\n' +
+      '  const meta = document.createElement("div");\n' +
+      '  meta.className = "show-meta";\n' +
+      '  const date = show.status === "upcoming"\n' +
+      '    ? formatDate(show.next_air_date || show.first_air_date)\n' +
+      '    : formatDate(show.first_air_date);\n' +
+      '  meta.textContent = [show.latest_season_number ? `Season ${show.latest_season_number}` : null, show.networks, date]\n' +
+      '    .filter(Boolean)\n' +
+      '    .join(" · ") || "平台資料待補";\n' +
+      '\n' +
+      '  const footer = document.createElement("div");\n' +
+      '  footer.className = "show-card-footer";\n' +
+      '  if (Number(show.vote_average) > 0) {\n' +
+      '    const rating = document.createElement("span");\n' +
+      '    rating.textContent = `★ ${Number(show.vote_average).toFixed(1)}`;\n' +
+      '    footer.append(rating);\n' +
+      '  }\n' +
+      '  if (show.genres) {\n' +
+      '    const genre = document.createElement("span");\n' +
+      '    genre.textContent = String(show.genres).split(" · ").slice(0, 2).join(" · ");\n' +
+      '    footer.append(genre);\n' +
+      '  }\n' +
+      '\n' +
+      '  body.append(title, zh, meta);\n' +
+      '  if (show.personal_reason) {\n' +
+      '    const reason = document.createElement("p");\n' +
+      '    reason.className = "personal-reason";\n' +
+      '    reason.textContent = show.personal_reason;\n' +
+      '    body.append(reason);\n' +
+      '  }\n' +
+      '  body.append(footer);\n' +
+      '  card.append(imageWrap, body);\n' +
+      '  return card;\n' +
+      '}\n' +
+      '\n' +
+      'function createSkeletonCard() {\n' +
+      '  const card = document.createElement("article");\n' +
+      '  card.className = "loading-skeleton-card discovery-card";\n' +
+      '  card.setAttribute("aria-hidden", "true");\n' +
+      '  const poster = document.createElement("div");\n' +
+      '  poster.className = "loading-skeleton-poster";\n' +
+      '  const lines = document.createElement("div");\n' +
+      '  lines.className = "loading-skeleton-lines";\n' +
+      '  for (const className of ["loading-skeleton-line", "loading-skeleton-line short", "loading-skeleton-line tiny"]) {\n' +
+      '    const line = document.createElement("div");\n' +
+      '    line.className = className;\n' +
+      '    lines.append(line);\n' +
+      '  }\n' +
+      '  card.append(poster, lines);\n' +
+      '  return card;\n' +
+      '}\n' +
+      '\n' +
+      'function createRail(section) {\n' +
+      '  const wrapper = document.createElement("section");\n' +
+      '  wrapper.className = "discovery-section";\n' +
+      '  wrapper.dataset.discoverySection = section.key;\n' +
+      '\n' +
+      '  const heading = document.createElement("div");\n' +
+      '  heading.className = "discovery-section-heading";\n' +
+      '  const copy = document.createElement("div");\n' +
+      '  const title = document.createElement("h4");\n' +
+      '  title.textContent = section.title;\n' +
+      '  const description = document.createElement("p");\n' +
+      '  description.textContent = section.description || "";\n' +
+      '  copy.append(title, description);\n' +
+      '\n' +
+      '  const count = document.createElement("span");\n' +
+      '  count.textContent = `${section.items.length} 套`;\n' +
+      '  heading.append(copy, count);\n' +
+      '\n' +
+      '  const rail = document.createElement("div");\n' +
+      '  rail.className = "discovery-rail";\n' +
+      '  rail.append(...section.items.map(createCard));\n' +
+      '  wrapper.append(heading, rail);\n' +
+      '  return wrapper;\n' +
+      '}\n' +
+      '\n' +
+      'function renderFeaturedSkeleton() {\n' +
+      '  const sections = ["熱門追看", "近一年新劇", "即將開播", "高評分"].map((title) => {\n' +
+      '    const wrapper = document.createElement("section");\n' +
+      '    wrapper.className = "discovery-section";\n' +
+      '    const heading = document.createElement("div");\n' +
+      '    heading.className = "discovery-section-heading";\n' +
+      '    const h4 = document.createElement("h4");\n' +
+      '    h4.textContent = title;\n' +
+      '    heading.append(h4);\n' +
+      '    const rail = document.createElement("div");\n' +
+      '    rail.className = "discovery-rail";\n' +
+      '    rail.append(...Array.from({ length: 5 }, createSkeletonCard));\n' +
+      '    wrapper.append(heading, rail);\n' +
+      '    return wrapper;\n' +
+      '  });\n' +
+      '  showGrid.replaceChildren(...sections);\n' +
+      '}\n' +
+      '\n' +
+      'function renderGridSkeleton() {\n' +
+      '  showGrid.replaceChildren(...Array.from({ length: 12 }, createSkeletonCard));\n' +
+      '}\n' +
+      '\n' +
+      'function setModeVisuals(nextMode) {\n' +
+      '  mode = nextMode;\n' +
+      '  document.querySelectorAll(".filter.active, #my-shows-filter.active").forEach((button) => button.classList.remove("active"));\n' +
+      '  discoverButton?.classList.add("active");\n' +
+      '  featuredToggle?.classList.toggle("active", mode === "featured");\n' +
+      '  personalToggle?.classList.toggle("active", mode === "personal");\n' +
+      '  browseToggle?.classList.toggle("active", mode === "browse");\n' +
+      '  if (exploreTools) exploreTools.hidden = false;\n' +
+      '  if (browseControls) browseControls.hidden = mode !== "browse";\n' +
+      '  if (regionSelect) regionSelect.disabled = false;\n' +
+      '  showGrid.hidden = false;\n' +
+      '  showGrid.classList.toggle("is-discovery", mode === "featured");\n' +
+      '  showGrid.classList.toggle("is-personal", mode === "personal");\n' +
+      '  showGrid.classList.toggle("is-browse", mode === "browse");\n' +
+      '  scheduleList.hidden = true;\n' +
+      '  emptyState.hidden = true;\n' +
+      '  emptyState.removeAttribute("data-state");\n' +
+      '  if (emptyActions) emptyActions.hidden = true;\n' +
+      '  if (retryViewButton) retryViewButton.hidden = true;\n' +
+      '  viewKicker.textContent = mode === "personal" ? "FOR YOU" : "DISCOVER";\n' +
+      '  const marketLabel = MARKET_LABELS[currentMarket()] || MARKET_LABELS.all;\n' +
+      '\n' +
+      '  if (mode === "browse") {\n' +
+      '    viewTitle.textContent = "瀏覽全部劇集";\n' +
+      '    viewContext.textContent = `目前顯示${marketLabel}劇集；按原始平台、類型、狀態及首播年份篩選 Series Hub catalog；地區觀看供應仍由劇集詳情頁獨立顯示。`;\n' +
+      '  } else if (mode === "personal") {\n' +
+      '    viewTitle.textContent = "為你推薦";\n' +
+      '    viewContext.textContent = `目前顯示${marketLabel}劇集；推薦排序只使用這個瀏覽器內的追蹤與追劇狀態；伺服器只收到通用 catalog request。`;\n' +
+      '  } else {\n' +
+      '    viewTitle.textContent = "探索劇集";\n' +
+      '    viewContext.textContent = `從已收錄的${marketLabel} catalog 即時整理熱門、新劇、即將開播與高評分內容；不額外呼叫 TMDB discovery。`;\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function leaveDiscoveryMode() {\n' +
+      '  if (!active) return;\n' +
+      '  active = false;\n' +
+      '  requestId'... 11420 more characters
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    import { loadTrackedShowIds } from "./tracking.js";
+    import { loadViewingStates } from "./viewing-state.js";
+    import {
+      catalogSignalValues,
+      loadCatalogSignals,
+      rememberCatalogSignals
+    } from "./local-catalog-signals.js";
+    import { rankPersonalCandidates } from "./personal-discovery.js";
+    
+    const discoverButton = document.querySelector("#discover-filter");
+    const searchInput = document.querySelector("#search-input");
+    const regionSelect = document.querySelector("#title-region-select");
+    const marketSelect = document.querySelector("#market-select");
+    const contentPanel = document.querySelector(".content-panel");
+    const viewTitle = document.querySelector("#view-title");
+    const viewKicker = document.querySelector("#view-kicker");
+    const viewContext = document.querySelector("#view-context");
+    const showCount = document.querySelector("#show-count");
+    const showGrid = document.querySelector("#show-grid");
+    const scheduleList = document.querySelector("#schedule-list");
+    const emptyState = document.querySelector("#empty-state");
+    const emptyTitle = document.querySelector("#empty-title");
+    const emptyCopy = document.querySelector("#empty-copy");
+    const emptyActions = document.querySelector("#empty-actions");
+    const retryViewButton = document.querySelector("#retry-view-button");
+    const exploreTools = document.querySelector("#phase8-explore-tools");
+    const featuredToggle = document.querySelector("#phase8-featured-toggle");
+    const personalToggle = document.querySelector("#phase8-personal-toggle");
+    const browseToggle = document.querySelector("#phase8-browse-toggle");
+    const browseControls = document.querySelector("#phase8-browse-controls");
+    const networkFilter = document.querySelector("#phase8-network-filter");
+    const genreFilter = document.querySelector("#phase8-genre-filter");
+    const statusFilter = document.querySelector("#phase8-status-filter");
+    const yearFilter = document.querySelector("#phase8-year-filter");
+    const sortFilter = document.querySelector("#phase8-sort-filter");
+    const resetFilters = document.querySelector("#phase8-reset-filters");
+    
+    const MARKET_LABELS = Object.freeze({ all: "全部地區", US: "美國", KR: "韓國" });
+    
+    const STATUS_LABELS = Object.freeze({
+      airing: "播映中",
+      upcoming: "即將播映",
+      planned: "計劃播出",
+      completed: "已完結",
+      unknown: "狀態待確認"
+    });
+    
+    let active = false;
+    let mode = "featured";
+    let requestId = 0;
+    let personalPool = [];
+    
+    function currentRegion() {
+      return new Set(["HK", "TW", "CN"]).has(regionSelect?.value) ? regionSelect.value : "HK";
+    }
+    
+    function saveRegion(region) {
+      try {
+        window.localStorage.setItem("series-hub-title-region", region);
+      } catch {
+        // Optional preference only.
+      }
+    }
+    
+    function currentMarket() {
+      return Object.hasOwn(MARKET_LABELS, marketSelect?.value) ? marketSelect.value : "all";
+    }
+    
+    function saveMarket(market) {
+      try {
+        window.localStorage.setItem("series-hub-catalog-market", market);
+      } catch {
+        // Optional preference only.
+      }
+    }
+    
+    function chineseTitle(show) {
+      if (show.display_title_zh) return show.display_title_zh;
+      const region = currentRegion().toLowerCase();
+      return show[`title_zh_${region}`] || show.title_zh_hk || show.title_zh_tw || show.title_zh_cn || "";
+    }
+    
+    function formatDate(value) {
+      if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+      try {
+        return new Intl.DateTimeFormat("zh-HK", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
+          .format(new Date(`${value}T00:00:00Z`));
+      } catch {
+        return value;
+      }
+    }
+    
+    function createCard(show) {
+      const card = document.createElement("article");
+      card.className = "show-card discovery-card";
+      card.dataset.showId = String(show.id);
+    
+      const imageWrap = document.createElement("div");
+      imageWrap.className = "poster-wrap";
+      if (show.poster_url) {
+        const image = document.createElement("img");
+        image.className = "poster";
+        image.src = show.poster_url;
+        image.alt = `${show.english_title || show.original_title || "Series Hub"} poster`;
+        image.loading = "lazy";
+        image.decoding = "async";
+        imageWrap.append(image);
+      } else {
+        const placeholder = document.createElement("div");
+        placeholder.className = "poster poster-placeholder";
+        placeholder.textContent = "Series Hub";
+        imageWrap.append(placeholder);
+      }
+    
+      const status = document.createElement("span");
+      status.className = `status-badge status-${show.status || "unknown"}`;
+      status.textContent = STATUS_LABELS[show.status] || show.tmdb_status || STATUS_LABELS.unknown;
+      imageWrap.append(status);
+    
+      const body = document.createElement("div");
+      body.className = "show-card-body";
+    
+      const title = document.createElement("h4");
+      title.textContent = show.english_title || show.original_title || "劇名待補";
+      const zh = document.createElement("p");
+      zh.className = "chinese-title";
+      zh.textContent = chineseTitle(show) || "中文譯名待補";
+    
+      const meta = document.createElement("div");
+      meta.className = "show-meta";
+      const date = show.status === "upcoming"
+        ? formatDate(show.next_air_date || show.first_air_date)
+        : formatDate(show.first_air_date);
+      meta.textContent = [show.latest_season_number ? `Season ${show.latest_season_number}` : null, show.networks, date]
+        .filter(Boolean)
+        .join(" · ") || "平台資料待補";
+    
+      const footer = document.createElement("div");
+      footer.className = "show-card-footer";
+      if (Number(show.vote_average) > 0) {
+        const rating = document.createElement("span");
+        rating.textContent = `★ ${Number(show.vote_average).toFixed(1)}`;
+        footer.append(rating);
+      }
+      if (show.genres) {
+        const genre = document.createElement("span");
+        genre.textContent = String(show.genres).split(" · ").slice(0, 2).join(" · ");
+        footer.append(genre);
+      }
+    
+      body.append(title, zh, meta);
+      if (show.personal_reason) {
+        const reason = document.createElement("p");
+        reason.className = "personal-reason";
+        reason.textContent = show.personal_reason;
+        body.append(reason);
+      }
+      body.append(footer);
+      card.append(imageWrap, body);
+      return card;
+    }
+    
+    function createSkeletonCard() {
+      const card = document.createElement("article");
+      card.className = "loading-skeleton-card discovery-card";
+      card.setAttribute("aria-hidden", "true");
+      const poster = document.createElement("div");
+      poster.className = "loading-skeleton-poster";
+      const lines = document.createElement("div");
+      lines.className = "loading-skeleton-lines";
+      for (const className of ["loading-skeleton-line", "loading-skeleton-line short", "loading-skeleton-line tiny"]) {
+        const line = document.createElement("div");
+        line.className = className;
+        lines.append(line);
+      }
+      card.append(poster, lines);
+      return card;
+    }
+    
+    function createRail(section) {
+      const wrapper = document.createElement("section");
+      wrapper.className = "discovery-section";
+      wrapper.dataset.discoverySection = section.key;
+    
+      const heading = document.createElement("div");
+      heading.className = "discovery-section-heading";
+      const copy = document.createElement("div");
+      const title = document.createElement("h4");
+      title.textContent = section.title;
+      const description = document.createElement("p");
+      description.textContent = section.description || "";
+      copy.append(title, description);
+    
+      const count = document.createElement("span");
+      count.textContent = `${section.items.length} 套`;
+      heading.append(copy, count);
+    
+      const rail = document.createElement("div");
+      rail.className = "discovery-rail";
+      rail.append(...section.items.map(createCard));
+      wrapper.append(heading, rail);
+      return wrapper;
+    }
+    
+    function renderFeaturedSkeleton() {
+      const sections = ["熱門追看", "近一年新劇", "即將開播", "高評分"].map((title) => {
+        const wrapper = document.createElement("section");
+        wrapper.className = "discovery-section";
+        const heading = document.createElement("div");
+        heading.className = "discovery-section-heading";
+        const h4 = document.createElement("h4");
+        h4.textContent = title;
+        heading.append(h4);
+        const rail = document.createElement("div");
+        rail.className = "discovery-rail";
+        rail.append(...Array.from({ length: 5 }, createSkeletonCard));
+        wrapper.append(heading, rail);
+        return wrapper;
+      });
+      showGrid.replaceChildren(...sections);
+    }
+    
+    function renderGridSkeleton() {
+      showGrid.replaceChildren(...Array.from({ length: 12 }, createSkeletonCard));
+    }
+    
+    function setModeVisuals(nextMode) {
+      mode = nextMode;
+      document.querySelectorAll(".filter.active, #my-shows-filter.active").forEach((button) => button.classList.remove("active"));
+      discoverButton?.classList.add("active");
+      featuredToggle?.classList.toggle("active", mode === "featured");
+      personalToggle?.classList.toggle("active", mode === "personal");
+      browseToggle?.classList.toggle("active", mode === "browse");
+      if (exploreTools) exploreTools.hidden = false;
+      if (browseControls) browseControls.hidden = mode !== "browse";
+      if (regionSelect) regionSelect.disabled = false;
+      showGrid.hidden = false;
+      showGrid.classList.toggle("is-discovery", mode === "featured");
+      showGrid.classList.toggle("is-personal", mode === "personal");
+      showGrid.classList.toggle("is-browse", mode === "browse");
+      scheduleList.hidden = true;
+      emptyState.hidden = true;
+      emptyState.removeAttribute("data-state");
+      if (emptyActions) emptyActions.hidden = true;
+      if (retryViewButton) retryViewButton.hidden = true;
+      viewKicker.textContent = mode === "personal" ? "FOR YOU" : "DISCOVER";
+      const marketLabel = MARKET_LABELS[currentMarket()] || MARKET_LABELS.all;
+    
+      if (mode === "browse") {
+        viewTitle.textContent = "瀏覽全部劇集";
+        viewContext.textContent = `目前顯示${marketLabel}劇集；按原始平台、類型、狀態及首播年份篩選 Series Hub catalog；地區觀看供應仍由劇集詳情頁獨立顯示。`;
+      } else if (mode === "personal") {
+        viewTitle.textContent = "為你推薦";
+        viewContext.textContent = `目前顯示${marketLabel}劇集；推薦排序只使用這個瀏覽器內的追蹤與追劇狀態；伺服器只收到通用 catalog request。`;
+      } else {
+        viewTitle.textContent = "探索劇集";
+        viewContext.textContent = `從已收錄的${marketLabel} catalog 即時整理熱門、新劇、即將開播與高評分內容；不額外呼叫 TMDB discovery。`;
+      }
+    }
+    
+    function leaveDiscoveryMode() {
+      if (!active) return;
+      active = false;
+      requestId += 1;
+      discoverButton?.classList.remove("active");
+      showGrid?.classList.remove("is-discovery", "is-personal", "is-browse");
+      if (exploreTools) exploreTools.hidden = true;
+      if (browseControls) browseControls.hidden = true;
+    }
+    
+    function releaseGlobalSearch() {
+      if (!searchInput?.value) return;
+      window.dispatchEvent(new CustomEvent("series-hub:leave-global-search"));
+    }
+    
+    async function fetchFeatured(region, market, timeoutMs = 12000) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const params = new URLSearchParams({ region, market, limit: "12" });
+        const response = await fetch(`/api/discover?${params}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error(`Discover ${response.status}`);
+        return await response.json();
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+    
+    function browseFilterValues() {
+      return {
+        network: networkFilter?.value || "",
+        genre: genreFilter?.value || "",
+        status: statusFilter?.value || "",
+        year: yearFilter?.value || "",
+        sort: sortFilter?.value || "popular"
+      };
+    }
+    
+    async function fetchBrowse(region, market, timeoutMs = 12000) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const filters = browseFilterValues();
+        const params = new URLSearchParams({ region, market, mode: "browse", limit: "80", sort: filters.sort });
+        for (const key of ["network", "genre", "status", "year"]) {
+          if (filters[key]) params.set(key, filters[key]);
+        }
+        const response = await fetch(`/api/discover?${params}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error(`Browse ${response.status}`);
+        return await response.json();
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+    
+    async function fetchPersonalPool(region, market, timeoutMs = 12000) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const params = new URLSearchParams({ region, market, mode: "browse", limit: "100", sort: "popular" });
+        const response = await fetch(`/api/discover?${params}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error(`Personal pool ${response.status}`);
+        return await response.json();
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+    
+    function populateFacetSelect(select, options, firstLabel) {
+      if (!select || !Array.isArray(options)) return;
+      const selected = select.value;
+      const nodes = [new Option(firstLabel, "")];
+      for (const item of options) {
+        if (!item?.value) continue;
+        nodes.push(new Option(`${item.label || item.value} (${Number(item.count) || 0})`, item.value));
+      }
+      select.replaceChildren(...nodes);
+      if ([...select.options].some((option) => option.value === selected)) select.value = selected;
+    }
+    
+    function populateFacets(facets) {
+      populateFacetSelect(networkFilter, facets?.networks, "全部平台");
+      populateFacetSelect(genreFilter, facets?.genres, "全部類型");
+      populateFacetSelect(statusFilter, facets?.statuses, "全部狀態");
+      populateFacetSelect(yearFilter, facets?.years, "全部年份");
+    }
+    
+    async function loadFeatured() {
+      active = true;
+      setModeVisuals("featured");
+      const activeRequest = ++requestId;
+      const region = currentRegion();
+      const market = currentMarket();
+      contentPanel?.setAttribute("aria-busy", "true");
+      showCount.textContent = "整理中…";
+      renderFeaturedSkeleton();
+    
+      try {
+        const payload = await fetchFeatured(region, market);
+        if (!active || mode !== "featured" || activeRequest !== requestId || currentRegion() !== region || currentMarket() !== market) return;
+        const sections = (Array.isArray(payload?.data?.sections) ? payload.data.sections : [])
+          .filter((section) => Array.isArray(section?.items) && section.items.length > 0);
+        rememberCatalogSignals(sections.flatMap((section) => section.items));
+    
+        showGrid.replaceChildren(...sections.map(createRail));
+        showCount.textContent = `${sections.length} 組精選`;
+        emptyState.hidden = sections.length !== 0;
+        if (sections.length === 0) {
+          emptyTitle.textContent = "暫未能整理探索內容";
+          emptyCopy.textContent = "目前 catalog 沒有足夠資料建立探索分類；可切換至「全部劇集」瀏覽現有收錄。";
+        }
+      } catch (error) {
+        if (!active || mode !== "featured" || activeRequest !== requestId) return;
+        console.error(error);
+        showGrid.replaceChildren();
+        showCount.textContent = "載入失敗";
+        emptyState.hidden = false;
+        emptyState.dataset.state = "error";
+        emptyTitle.textContent = "探索內容暫時無法使用";
+        emptyCopy.textContent = error?.name === "AbortError"
+          ? "探索資料等候超過 12 秒，請稍後再試。"
+          : "探索 API 暫時無法回應；其他 Series Hub 功能不受影響。";
+      } finally {
+        if (active && mode === "featured" && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");
+      }
+    }
+    
+    function renderPersonalPool() {
+      const marketLabel = MARKET_LABELS[currentMarket()] || MARKET_LABELS.all;
+      const trackedIds = loadTrackedShowIds();
+      const viewingStates = loadViewingStates();
+      const cachedSignals = catalogSignalValues(loadCatalogSignals());
+      const byId = new Map();
+      for (const show of [...cachedSignals, ...personalPool]) byId.set(Number(show.id), show);
+      const ranked = rankPersonalCandidates(personalPool, [...byId.values()], trackedIds, viewingStates, 18);
+    
+      showGrid.replaceChildren(...ranked.items.map(createCard));
+      showCount.textContent = `${ranked.items.length} 套推薦`;
+      emptyState.hidden = ranked.items.length !== 0;
+    
+      if (ranked.profile.personalized) {
+        const preferenceLabels = [
+          ...ranked.profile.topGenres.slice(0, 2).map((item) => item.value),
+          ...ranked.profile.topNetworks.slice(0, 1).map((item) => item.value)
+        ];
+        viewContext.textContent = `目前顯示${marketLabel}劇集；只在這個瀏覽器用 ${ranked.profile.matchedTrackedShows} 套已追蹤劇集建立偏好${preferenceLabels.length ? `（${preferenceLabels.join(" · ")}）` : ""}；伺服器只收到通用 catalog request。`;
+      } else if (ranked.profile.trackedCount > 0) {
+        viewContext.textContent = `目前顯示${marketLabel}劇集；本機已有 ${ranked.profile.trackedCount} 套追蹤劇集，但暫未累積足夠類型／平台訊號；目前以熱門與評分排序，使用「我的劇集」後會逐步補齊。`;
+      } else {
+        viewContext.textContent = `目前顯示${marketLabel}劇集；尚未有本機追蹤偏好；目前以熱門與評分排序。加入「我的劇集」後，推薦會只在這個瀏覽器內逐步個人化。`;
+      }
+    
+      if (ranked.items.length === 0) {
+        emptyTitle.textContent = "暫未有可推薦劇集";
+        emptyCopy.textContent = "可先到精選或全部劇集加入追蹤；推薦資料只會保留在這個瀏覽器。";
+      }
+    }
+    
+    async function loadPersonal() {
+      active = true;
+      setModeVisuals("personal");
+      const activeRequest = ++requestId;
+      const region = currentRegion();
+      const market = currentMarket();
+      contentPanel?.setAttribute("aria-busy", "true");
+      showCount.textContent = "本機排序中…";
+      renderGridSkeleton();
+    
+      try {
+        const payload = await fetchPersonalPool(region, market);
+        if (!active || mode !== "personal" || activeRequest !== requestId || currentRegion() !== region || currentMarket() !== market) return;
+        personalPool = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+        rememberCatalogSignals(personalPool);
+        renderPersonalPool();
+      } catch (error) {
+        if (!active || mode !== "personal" || activeRequest !== requestId) return;
+        console.error(error);
+        personalPool = [];
+        showGrid.replaceChildren();
+        showCount.textContent = "載入失敗";
+        emptyState.hidden = false;
+        emptyState.dataset.state = "error";
+        emptyTitle.textContent = "為你推薦暫時無法使用";
+        emptyCopy.textContent = error?.name === "AbortError"
+          ? "通用 catalog 等候超過 12 秒；本機追蹤資料沒有上傳，可稍後再試。"
+          : "Catalog API 暫時無法回應；本機追蹤與追劇狀態沒有上傳。";
+      } finally {
+        if (active && mode === "personal" && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");
+      }
+    }
+    
+    async function loadBrowse() {
+      active = true;
+      setModeVisuals("browse");
+      const activeRequest = ++requestId;
+      const region = currentRegion();
+      const market = currentMarket();
+      contentPanel?.setAttribute("aria-busy", "true");
+      showCount.textContent = "篩選中…";
+      renderGridSkeleton();
+    
+      try {
+        const payload = await fetchBrowse(region, market);
+        if (!active || mode !== "browse" || activeRequest !== requestId || currentRegion() !== region || currentMarket() !== market) return;
+        const items = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+        rememberCatalogSignals(items);
+        populateFacets(payload?.data?.facets);
+        showGrid.replaceChildren(...items.map(createCard));
+    
+        const total = Number(payload?.meta?.totalCount);
+        const totalCount = Number.isFinite(total) ? total : items.length;
+        showCount.textContent = payload?.meta?.truncated ? `顯示 ${items.length} / ${totalCount} 套` : `${totalCount} 套`;
+        emptyState.hidden = items.length !== 0;
+        if (items.length === 0) {
+          emptyTitle.textContent = "沒有符合條件的劇集";
+          emptyCopy.textContent = "可清除部分平台、類型、狀態或年份篩選，再查看目前 catalog。";
+        }
+      } catch (error) {
+        if (!active || mode !== "browse" || activeRequest !== requestId) return;
+        console.error(error);
+        showGrid.replaceChildren();
+        showCount.textContent = "篩選失敗";
+        emptyState.hidden = false;
+        emptyState.dataset.state = "error";
+        emptyTitle.textContent = "劇集瀏覽暫時無法使用";
+        emptyCopy.textContent = error?.name === "AbortError"
+          ? "篩選等候超過 12 秒，請稍後再試。"
+          : "Browse API 暫時無法回應；精選探索及其他 Series Hub 功能不受影響。";
+      } finally {
+        if (active && mode === "browse" && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");
+      }
+    }
+    
+    function clearBrowseFilters() {
+      if (networkFilter) networkFilter.value = "";
+      if (genreFilter) genreFilter.value = "";
+      if (statusFilter) statusFilter.value = "";
+      if (yearFilter) yearFilter.value = "";
+      if (sortFilter) sortFilter.value = "popular";
+    }
+    
+    if (discoverButton && regionSelect && marketSelect && contentPanel && showGrid && scheduleList && emptyState) {
+      discoverButton.addEventListener("click", () => {
+        releaseGlobalSearch();
+        loadFeatured();
+      });
+    
+      featuredToggle?.addEventListener("click", () => loadFeatured());
+      personalToggle?.addEventListener("click", () => loadPersonal());
+      browseToggle?.addEventListener("click", () => loadBrowse());
+      resetFilters?.addEventListener("click", () => {
+        clearBrowseFilters();
+        loadBrowse();
+      });
+    
+      for (const select of [networkFilter, genreFilter, statusFilter, yearFilter, sortFilter]) {
+        select?.addEventListener("change", () => {
+          if (active && mode === "browse") loadBrowse();
+        });
+      }
+    
+      window.addEventListener("series-hub-tracking-changed", () => {
+        if (active && mode === "personal" && personalPool.length > 0) renderPersonalPool();
+      });
+    
+      window.addEventListener("input", (event) => {
+        if (event.target === searchInput && active) leaveDiscoveryMode();
+      }, true);
+    
+      window.addEventListener("change", (event) => {
+        if (!active || (event.target !== regionSelect && event.target !== marketSelect)) return;
+        event.stopImmediatePropagation();
+        if (event.target === regionSelect) saveRegion(currentRegion());
+        if (event.target === marketSelect) saveMarket(currentMarket());
+        if (mode === "browse") loadBrowse();
+        else if (mode === "personal") loadPersonal();
+        else loadFeatured();
+      }, true);
+    
+      document.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const regularControl = target?.closest(".filter[data-view], #my-shows-filter");
+        if (regularControl && active) leaveDiscoveryMode();
+      }, true);
+    }
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/Series-Hub/Series-Hub/test/phase8-personal.test.js:106:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: Phase 8C ranks exact primary titles ahead of popularity-driven partial matches
+ok 207 - Phase 8C ranks exact primary titles ahead of popularity-driven partial matches
+  ---
+  duration_ms: 3.765571
+  type: 'test'
+  ...
+# Subtest: requested regional Chinese title is primary while other aliases remain searchable
+ok 208 - requested regional Chinese title is primary while other aliases remain searchable
+  ---
+  duration_ms: 0.401276
+  type: 'test'
+  ...
+# Subtest: search relevance uses exact, prefix, contains, then episode tiers
+ok 209 - search relevance uses exact, prefix, contains, then episode tiers
+  ---
+  duration_ms: 0.443854
+  type: 'test'
+  ...
+# Subtest: normalization is case-insensitive and NFKC-stable
+ok 210 - normalization is case-insensitive and NFKC-stable
+  ---
+  duration_ms: 0.282795
+  type: 'test'
+  ...
+# Subtest: same relevance tier falls back to popularity without changing the search universe
+ok 211 - same relevance tier falls back to popularity without changing the search universe
+  ---
+  duration_ms: 0.423136
+  type: 'test'
+  ...
+# Subtest: Phase 8C payload preserves existing search metadata and adds explainable ranking metadata
+ok 212 - Phase 8C payload preserves existing search metadata and adds explainable ranking metadata
+  ---
+  duration_ms: 0.440438
+  type: 'test'
+  ...
+# Subtest: Phase 8 wrapper intercepts search only to rerank the existing Phase 6 result
+ok 213 - Phase 8 wrapper intercepts search only to rerank the existing Phase 6 result
+  ---
+  duration_ms: 0.410833
+  type: 'test'
+  ...
+# Subtest: Phase 8E exposes accessible Explore mode state without changing the three-mode product model
+ok 214 - Phase 8E exposes accessible Explore mode state without changing the three-mode product model
+  ---
+  duration_ms: 1.761611
+  type: 'test'
+  ...
+# Subtest: clearing global search restores the exact originating Explore mode
+ok 215 - clearing global search restores the exact originating Explore mode
+  ---
+  duration_ms: 0.398449
+  type: 'test'
+  ...
+# Subtest: all Phase 8 network-backed views retain bounded loading and explicit failure states
+not ok 216 - all Phase 8 network-backed views retain bounded loading and explicit failure states
+  ---
+  duration_ms: 5.27856
+  type: 'test'
+  location: '/home/runner/work/Series-Hub/Series-Hub/test/phase8e-acceptance.test.js:37:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /async function fetchFeatured\(region, timeoutMs = 12000\)/. Input:
+    
+    'import { loadTrackedShowIds } from "./tracking.js";\n' +
+      'import { loadViewingStates } from "./viewing-state.js";\n' +
+      'import {\n' +
+      '  catalogSignalValues,\n' +
+      '  loadCatalogSignals,\n' +
+      '  rememberCatalogSignals\n' +
+      '} from "./local-catalog-signals.js";\n' +
+      'import { rankPersonalCandidates } from "./personal-discovery.js";\n' +
+      '\n' +
+      'const discoverButton = document.querySelector("#discover-filter");\n' +
+      'const searchInput = document.querySelector("#search-input");\n' +
+      'const regionSelect = document.querySelector("#title-region-select");\n' +
+      'const marketSelect = document.querySelector("#market-select");\n' +
+      'const contentPanel = document.querySelector(".content-panel");\n' +
+      'const viewTitle = document.querySelector("#view-title");\n' +
+      'const viewKicker = document.querySelector("#view-kicker");\n' +
+      'const viewContext = document.querySelector("#view-context");\n' +
+      'const showCount = document.querySelector("#show-count");\n' +
+      'const showGrid = document.querySelector("#show-grid");\n' +
+      'const scheduleList = document.querySelector("#schedule-list");\n' +
+      'const emptyState = document.querySelector("#empty-state");\n' +
+      'const emptyTitle = document.querySelector("#empty-title");\n' +
+      'const emptyCopy = document.querySelector("#empty-copy");\n' +
+      'const emptyActions = document.querySelector("#empty-actions");\n' +
+      'const retryViewButton = document.querySelector("#retry-view-button");\n' +
+      'const exploreTools = document.querySelector("#phase8-explore-tools");\n' +
+      'const featuredToggle = document.querySelector("#phase8-featured-toggle");\n' +
+      'const personalToggle = document.querySelector("#phase8-personal-toggle");\n' +
+      'const browseToggle = document.querySelector("#phase8-browse-toggle");\n' +
+      'const browseControls = document.querySelector("#phase8-browse-controls");\n' +
+      'const networkFilter = document.querySelector("#phase8-network-filter");\n' +
+      'const genreFilter = document.querySelector("#phase8-genre-filter");\n' +
+      'const statusFilter = document.querySelector("#phase8-status-filter");\n' +
+      'const yearFilter = document.querySelector("#phase8-year-filter");\n' +
+      'const sortFilter = document.querySelector("#phase8-sort-filter");\n' +
+      'const resetFilters = document.querySelector("#phase8-reset-filters");\n' +
+      '\n' +
+      'const MARKET_LABELS = Object.freeze({ all: "全部地區", US: "美國", KR: "韓國" });\n' +
+      '\n' +
+      'const STATUS_LABELS = Object.freeze({\n' +
+      '  airing: "播映中",\n' +
+      '  upcoming: "即將播映",\n' +
+      '  planned: "計劃播出",\n' +
+      '  completed: "已完結",\n' +
+      '  unknown: "狀態待確認"\n' +
+      '});\n' +
+      '\n' +
+      'let active = false;\n' +
+      'let mode = "featured";\n' +
+      'let requestId = 0;\n' +
+      'let personalPool = [];\n' +
+      '\n' +
+      'function currentRegion() {\n' +
+      '  return new Set(["HK", "TW", "CN"]).has(regionSelect?.value) ? regionSelect.value : "HK";\n' +
+      '}\n' +
+      '\n' +
+      'function saveRegion(region) {\n' +
+      '  try {\n' +
+      '    window.localStorage.setItem("series-hub-title-region", region);\n' +
+      '  } catch {\n' +
+      '    // Optional preference only.\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function currentMarket() {\n' +
+      '  return Object.hasOwn(MARKET_LABELS, marketSelect?.value) ? marketSelect.value : "all";\n' +
+      '}\n' +
+      '\n' +
+      'function saveMarket(market) {\n' +
+      '  try {\n' +
+      '    window.localStorage.setItem("series-hub-catalog-market", market);\n' +
+      '  } catch {\n' +
+      '    // Optional preference only.\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function chineseTitle(show) {\n' +
+      '  if (show.display_title_zh) return show.display_title_zh;\n' +
+      '  const region = currentRegion().toLowerCase();\n' +
+      '  return show[`title_zh_${region}`] || show.title_zh_hk || show.title_zh_tw || show.title_zh_cn || "";\n' +
+      '}\n' +
+      '\n' +
+      'function formatDate(value) {\n' +
+      '  if (!value || !/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return null;\n' +
+      '  try {\n' +
+      '    return new Intl.DateTimeFormat("zh-HK", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })\n' +
+      '      .format(new Date(`${value}T00:00:00Z`));\n' +
+      '  } catch {\n' +
+      '    return value;\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function createCard(show) {\n' +
+      '  const card = document.createElement("article");\n' +
+      '  card.className = "show-card discovery-card";\n' +
+      '  card.dataset.showId = String(show.id);\n' +
+      '\n' +
+      '  const imageWrap = document.createElement("div");\n' +
+      '  imageWrap.className = "poster-wrap";\n' +
+      '  if (show.poster_url) {\n' +
+      '    const image = document.createElement("img");\n' +
+      '    image.className = "poster";\n' +
+      '    image.src = show.poster_url;\n' +
+      '    image.alt = `${show.english_title || show.original_title || "Series Hub"} poster`;\n' +
+      '    image.loading = "lazy";\n' +
+      '    image.decoding = "async";\n' +
+      '    imageWrap.append(image);\n' +
+      '  } else {\n' +
+      '    const placeholder = document.createElement("div");\n' +
+      '    placeholder.className = "poster poster-placeholder";\n' +
+      '    placeholder.textContent = "Series Hub";\n' +
+      '    imageWrap.append(placeholder);\n' +
+      '  }\n' +
+      '\n' +
+      '  const status = document.createElement("span");\n' +
+      '  status.className = `status-badge status-${show.status || "unknown"}`;\n' +
+      '  status.textContent = STATUS_LABELS[show.status] || show.tmdb_status || STATUS_LABELS.unknown;\n' +
+      '  imageWrap.append(status);\n' +
+      '\n' +
+      '  const body = document.createElement("div");\n' +
+      '  body.className = "show-card-body";\n' +
+      '\n' +
+      '  const title = document.createElement("h4");\n' +
+      '  title.textContent = show.english_title || show.original_title || "劇名待補";\n' +
+      '  const zh = document.createElement("p");\n' +
+      '  zh.className = "chinese-title";\n' +
+      '  zh.textContent = chineseTitle(show) || "中文譯名待補";\n' +
+      '\n' +
+      '  const meta = document.createElement("div");\n' +
+      '  meta.className = "show-meta";\n' +
+      '  const date = show.status === "upcoming"\n' +
+      '    ? formatDate(show.next_air_date || show.first_air_date)\n' +
+      '    : formatDate(show.first_air_date);\n' +
+      '  meta.textContent = [show.latest_season_number ? `Season ${show.latest_season_number}` : null, show.networks, date]\n' +
+      '    .filter(Boolean)\n' +
+      '    .join(" · ") || "平台資料待補";\n' +
+      '\n' +
+      '  const footer = document.createElement("div");\n' +
+      '  footer.className = "show-card-footer";\n' +
+      '  if (Number(show.vote_average) > 0) {\n' +
+      '    const rating = document.createElement("span");\n' +
+      '    rating.textContent = `★ ${Number(show.vote_average).toFixed(1)}`;\n' +
+      '    footer.append(rating);\n' +
+      '  }\n' +
+      '  if (show.genres) {\n' +
+      '    const genre = document.createElement("span");\n' +
+      '    genre.textContent = String(show.genres).split(" · ").slice(0, 2).join(" · ");\n' +
+      '    footer.append(genre);\n' +
+      '  }\n' +
+      '\n' +
+      '  body.append(title, zh, meta);\n' +
+      '  if (show.personal_reason) {\n' +
+      '    const reason = document.createElement("p");\n' +
+      '    reason.className = "personal-reason";\n' +
+      '    reason.textContent = show.personal_reason;\n' +
+      '    body.append(reason);\n' +
+      '  }\n' +
+      '  body.append(footer);\n' +
+      '  card.append(imageWrap, body);\n' +
+      '  return card;\n' +
+      '}\n' +
+      '\n' +
+      'function createSkeletonCard() {\n' +
+      '  const card = document.createElement("article");\n' +
+      '  card.className = "loading-skeleton-card discovery-card";\n' +
+      '  card.setAttribute("aria-hidden", "true");\n' +
+      '  const poster = document.createElement("div");\n' +
+      '  poster.className = "loading-skeleton-poster";\n' +
+      '  const lines = document.createElement("div");\n' +
+      '  lines.className = "loading-skeleton-lines";\n' +
+      '  for (const className of ["loading-skeleton-line", "loading-skeleton-line short", "loading-skeleton-line tiny"]) {\n' +
+      '    const line = document.createElement("div");\n' +
+      '    line.className = className;\n' +
+      '    lines.append(line);\n' +
+      '  }\n' +
+      '  card.append(poster, lines);\n' +
+      '  return card;\n' +
+      '}\n' +
+      '\n' +
+      'function createRail(section) {\n' +
+      '  const wrapper = document.createElement("section");\n' +
+      '  wrapper.className = "discovery-section";\n' +
+      '  wrapper.dataset.discoverySection = section.key;\n' +
+      '\n' +
+      '  const heading = document.createElement("div");\n' +
+      '  heading.className = "discovery-section-heading";\n' +
+      '  const copy = document.createElement("div");\n' +
+      '  const title = document.createElement("h4");\n' +
+      '  title.textContent = section.title;\n' +
+      '  const description = document.createElement("p");\n' +
+      '  description.textContent = section.description || "";\n' +
+      '  copy.append(title, description);\n' +
+      '\n' +
+      '  const count = document.createElement("span");\n' +
+      '  count.textContent = `${section.items.length} 套`;\n' +
+      '  heading.append(copy, count);\n' +
+      '\n' +
+      '  const rail = document.createElement("div");\n' +
+      '  rail.className = "discovery-rail";\n' +
+      '  rail.append(...section.items.map(createCard));\n' +
+      '  wrapper.append(heading, rail);\n' +
+      '  return wrapper;\n' +
+      '}\n' +
+      '\n' +
+      'function renderFeaturedSkeleton() {\n' +
+      '  const sections = ["熱門追看", "近一年新劇", "即將開播", "高評分"].map((title) => {\n' +
+      '    const wrapper = document.createElement("section");\n' +
+      '    wrapper.className = "discovery-section";\n' +
+      '    const heading = document.createElement("div");\n' +
+      '    heading.className = "discovery-section-heading";\n' +
+      '    const h4 = document.createElement("h4");\n' +
+      '    h4.textContent = title;\n' +
+      '    heading.append(h4);\n' +
+      '    const rail = document.createElement("div");\n' +
+      '    rail.className = "discovery-rail";\n' +
+      '    rail.append(...Array.from({ length: 5 }, createSkeletonCard));\n' +
+      '    wrapper.append(heading, rail);\n' +
+      '    return wrapper;\n' +
+      '  });\n' +
+      '  showGrid.replaceChildren(...sections);\n' +
+      '}\n' +
+      '\n' +
+      'function renderGridSkeleton() {\n' +
+      '  showGrid.replaceChildren(...Array.from({ length: 12 }, createSkeletonCard));\n' +
+      '}\n' +
+      '\n' +
+      'function setModeVisuals(nextMode) {\n' +
+      '  mode = nextMode;\n' +
+      '  document.querySelectorAll(".filter.active, #my-shows-filter.active").forEach((button) => button.classList.remove("active"));\n' +
+      '  discoverButton?.classList.add("active");\n' +
+      '  featuredToggle?.classList.toggle("active", mode === "featured");\n' +
+      '  personalToggle?.classList.toggle("active", mode === "personal");\n' +
+      '  browseToggle?.classList.toggle("active", mode === "browse");\n' +
+      '  if (exploreTools) exploreTools.hidden = false;\n' +
+      '  if (browseControls) browseControls.hidden = mode !== "browse";\n' +
+      '  if (regionSelect) regionSelect.disabled = false;\n' +
+      '  showGrid.hidden = false;\n' +
+      '  showGrid.classList.toggle("is-discovery", mode === "featured");\n' +
+      '  showGrid.classList.toggle("is-personal", mode === "personal");\n' +
+      '  showGrid.classList.toggle("is-browse", mode === "browse");\n' +
+      '  scheduleList.hidden = true;\n' +
+      '  emptyState.hidden = true;\n' +
+      '  emptyState.removeAttribute("data-state");\n' +
+      '  if (emptyActions) emptyActions.hidden = true;\n' +
+      '  if (retryViewButton) retryViewButton.hidden = true;\n' +
+      '  viewKicker.textContent = mode === "personal" ? "FOR YOU" : "DISCOVER";\n' +
+      '  const marketLabel = MARKET_LABELS[currentMarket()] || MARKET_LABELS.all;\n' +
+      '\n' +
+      '  if (mode === "browse") {\n' +
+      '    viewTitle.textContent = "瀏覽全部劇集";\n' +
+      '    viewContext.textContent = `目前顯示${marketLabel}劇集；按原始平台、類型、狀態及首播年份篩選 Series Hub catalog；地區觀看供應仍由劇集詳情頁獨立顯示。`;\n' +
+      '  } else if (mode === "personal") {\n' +
+      '    viewTitle.textContent = "為你推薦";\n' +
+      '    viewContext.textContent = `目前顯示${marketLabel}劇集；推薦排序只使用這個瀏覽器內的追蹤與追劇狀態；伺服器只收到通用 catalog request。`;\n' +
+      '  } else {\n' +
+      '    viewTitle.textContent = "探索劇集";\n' +
+      '    viewContext.textContent = `從已收錄的${marketLabel} catalog 即時整理熱門、新劇、即將開播與高評分內容；不額外呼叫 TMDB discovery。`;\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function leaveDiscoveryMode() {\n' +
+      '  if (!active) return;\n' +
+      '  active = false;\n' +
+      '  requestId'... 11420 more characters
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    import { loadTrackedShowIds } from "./tracking.js";
+    import { loadViewingStates } from "./viewing-state.js";
+    import {
+      catalogSignalValues,
+      loadCatalogSignals,
+      rememberCatalogSignals
+    } from "./local-catalog-signals.js";
+    import { rankPersonalCandidates } from "./personal-discovery.js";
+    
+    const discoverButton = document.querySelector("#discover-filter");
+    const searchInput = document.querySelector("#search-input");
+    const regionSelect = document.querySelector("#title-region-select");
+    const marketSelect = document.querySelector("#market-select");
+    const contentPanel = document.querySelector(".content-panel");
+    const viewTitle = document.querySelector("#view-title");
+    const viewKicker = document.querySelector("#view-kicker");
+    const viewContext = document.querySelector("#view-context");
+    const showCount = document.querySelector("#show-count");
+    const showGrid = document.querySelector("#show-grid");
+    const scheduleList = document.querySelector("#schedule-list");
+    const emptyState = document.querySelector("#empty-state");
+    const emptyTitle = document.querySelector("#empty-title");
+    const emptyCopy = document.querySelector("#empty-copy");
+    const emptyActions = document.querySelector("#empty-actions");
+    const retryViewButton = document.querySelector("#retry-view-button");
+    const exploreTools = document.querySelector("#phase8-explore-tools");
+    const featuredToggle = document.querySelector("#phase8-featured-toggle");
+    const personalToggle = document.querySelector("#phase8-personal-toggle");
+    const browseToggle = document.querySelector("#phase8-browse-toggle");
+    const browseControls = document.querySelector("#phase8-browse-controls");
+    const networkFilter = document.querySelector("#phase8-network-filter");
+    const genreFilter = document.querySelector("#phase8-genre-filter");
+    const statusFilter = document.querySelector("#phase8-status-filter");
+    const yearFilter = document.querySelector("#phase8-year-filter");
+    const sortFilter = document.querySelector("#phase8-sort-filter");
+    const resetFilters = document.querySelector("#phase8-reset-filters");
+    
+    const MARKET_LABELS = Object.freeze({ all: "全部地區", US: "美國", KR: "韓國" });
+    
+    const STATUS_LABELS = Object.freeze({
+      airing: "播映中",
+      upcoming: "即將播映",
+      planned: "計劃播出",
+      completed: "已完結",
+      unknown: "狀態待確認"
+    });
+    
+    let active = false;
+    let mode = "featured";
+    let requestId = 0;
+    let personalPool = [];
+    
+    function currentRegion() {
+      return new Set(["HK", "TW", "CN"]).has(regionSelect?.value) ? regionSelect.value : "HK";
+    }
+    
+    function saveRegion(region) {
+      try {
+        window.localStorage.setItem("series-hub-title-region", region);
+      } catch {
+        // Optional preference only.
+      }
+    }
+    
+    function currentMarket() {
+      return Object.hasOwn(MARKET_LABELS, marketSelect?.value) ? marketSelect.value : "all";
+    }
+    
+    function saveMarket(market) {
+      try {
+        window.localStorage.setItem("series-hub-catalog-market", market);
+      } catch {
+        // Optional preference only.
+      }
+    }
+    
+    function chineseTitle(show) {
+      if (show.display_title_zh) return show.display_title_zh;
+      const region = currentRegion().toLowerCase();
+      return show[`title_zh_${region}`] || show.title_zh_hk || show.title_zh_tw || show.title_zh_cn || "";
+    }
+    
+    function formatDate(value) {
+      if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+      try {
+        return new Intl.DateTimeFormat("zh-HK", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
+          .format(new Date(`${value}T00:00:00Z`));
+      } catch {
+        return value;
+      }
+    }
+    
+    function createCard(show) {
+      const card = document.createElement("article");
+      card.className = "show-card discovery-card";
+      card.dataset.showId = String(show.id);
+    
+      const imageWrap = document.createElement("div");
+      imageWrap.className = "poster-wrap";
+      if (show.poster_url) {
+        const image = document.createElement("img");
+        image.className = "poster";
+        image.src = show.poster_url;
+        image.alt = `${show.english_title || show.original_title || "Series Hub"} poster`;
+        image.loading = "lazy";
+        image.decoding = "async";
+        imageWrap.append(image);
+      } else {
+        const placeholder = document.createElement("div");
+        placeholder.className = "poster poster-placeholder";
+        placeholder.textContent = "Series Hub";
+        imageWrap.append(placeholder);
+      }
+    
+      const status = document.createElement("span");
+      status.className = `status-badge status-${show.status || "unknown"}`;
+      status.textContent = STATUS_LABELS[show.status] || show.tmdb_status || STATUS_LABELS.unknown;
+      imageWrap.append(status);
+    
+      const body = document.createElement("div");
+      body.className = "show-card-body";
+    
+      const title = document.createElement("h4");
+      title.textContent = show.english_title || show.original_title || "劇名待補";
+      const zh = document.createElement("p");
+      zh.className = "chinese-title";
+      zh.textContent = chineseTitle(show) || "中文譯名待補";
+    
+      const meta = document.createElement("div");
+      meta.className = "show-meta";
+      const date = show.status === "upcoming"
+        ? formatDate(show.next_air_date || show.first_air_date)
+        : formatDate(show.first_air_date);
+      meta.textContent = [show.latest_season_number ? `Season ${show.latest_season_number}` : null, show.networks, date]
+        .filter(Boolean)
+        .join(" · ") || "平台資料待補";
+    
+      const footer = document.createElement("div");
+      footer.className = "show-card-footer";
+      if (Number(show.vote_average) > 0) {
+        const rating = document.createElement("span");
+        rating.textContent = `★ ${Number(show.vote_average).toFixed(1)}`;
+        footer.append(rating);
+      }
+      if (show.genres) {
+        const genre = document.createElement("span");
+        genre.textContent = String(show.genres).split(" · ").slice(0, 2).join(" · ");
+        footer.append(genre);
+      }
+    
+      body.append(title, zh, meta);
+      if (show.personal_reason) {
+        const reason = document.createElement("p");
+        reason.className = "personal-reason";
+        reason.textContent = show.personal_reason;
+        body.append(reason);
+      }
+      body.append(footer);
+      card.append(imageWrap, body);
+      return card;
+    }
+    
+    function createSkeletonCard() {
+      const card = document.createElement("article");
+      card.className = "loading-skeleton-card discovery-card";
+      card.setAttribute("aria-hidden", "true");
+      const poster = document.createElement("div");
+      poster.className = "loading-skeleton-poster";
+      const lines = document.createElement("div");
+      lines.className = "loading-skeleton-lines";
+      for (const className of ["loading-skeleton-line", "loading-skeleton-line short", "loading-skeleton-line tiny"]) {
+        const line = document.createElement("div");
+        line.className = className;
+        lines.append(line);
+      }
+      card.append(poster, lines);
+      return card;
+    }
+    
+    function createRail(section) {
+      const wrapper = document.createElement("section");
+      wrapper.className = "discovery-section";
+      wrapper.dataset.discoverySection = section.key;
+    
+      const heading = document.createElement("div");
+      heading.className = "discovery-section-heading";
+      const copy = document.createElement("div");
+      const title = document.createElement("h4");
+      title.textContent = section.title;
+      const description = document.createElement("p");
+      description.textContent = section.description || "";
+      copy.append(title, description);
+    
+      const count = document.createElement("span");
+      count.textContent = `${section.items.length} 套`;
+      heading.append(copy, count);
+    
+      const rail = document.createElement("div");
+      rail.className = "discovery-rail";
+      rail.append(...section.items.map(createCard));
+      wrapper.append(heading, rail);
+      return wrapper;
+    }
+    
+    function renderFeaturedSkeleton() {
+      const sections = ["熱門追看", "近一年新劇", "即將開播", "高評分"].map((title) => {
+        const wrapper = document.createElement("section");
+        wrapper.className = "discovery-section";
+        const heading = document.createElement("div");
+        heading.className = "discovery-section-heading";
+        const h4 = document.createElement("h4");
+        h4.textContent = title;
+        heading.append(h4);
+        const rail = document.createElement("div");
+        rail.className = "discovery-rail";
+        rail.append(...Array.from({ length: 5 }, createSkeletonCard));
+        wrapper.append(heading, rail);
+        return wrapper;
+      });
+      showGrid.replaceChildren(...sections);
+    }
+    
+    function renderGridSkeleton() {
+      showGrid.replaceChildren(...Array.from({ length: 12 }, createSkeletonCard));
+    }
+    
+    function setModeVisuals(nextMode) {
+      mode = nextMode;
+      document.querySelectorAll(".filter.active, #my-shows-filter.active").forEach((button) => button.classList.remove("active"));
+      discoverButton?.classList.add("active");
+      featuredToggle?.classList.toggle("active", mode === "featured");
+      personalToggle?.classList.toggle("active", mode === "personal");
+      browseToggle?.classList.toggle("active", mode === "browse");
+      if (exploreTools) exploreTools.hidden = false;
+      if (browseControls) browseControls.hidden = mode !== "browse";
+      if (regionSelect) regionSelect.disabled = false;
+      showGrid.hidden = false;
+      showGrid.classList.toggle("is-discovery", mode === "featured");
+      showGrid.classList.toggle("is-personal", mode === "personal");
+      showGrid.classList.toggle("is-browse", mode === "browse");
+      scheduleList.hidden = true;
+      emptyState.hidden = true;
+      emptyState.removeAttribute("data-state");
+      if (emptyActions) emptyActions.hidden = true;
+      if (retryViewButton) retryViewButton.hidden = true;
+      viewKicker.textContent = mode === "personal" ? "FOR YOU" : "DISCOVER";
+      const marketLabel = MARKET_LABELS[currentMarket()] || MARKET_LABELS.all;
+    
+      if (mode === "browse") {
+        viewTitle.textContent = "瀏覽全部劇集";
+        viewContext.textContent = `目前顯示${marketLabel}劇集；按原始平台、類型、狀態及首播年份篩選 Series Hub catalog；地區觀看供應仍由劇集詳情頁獨立顯示。`;
+      } else if (mode === "personal") {
+        viewTitle.textContent = "為你推薦";
+        viewContext.textContent = `目前顯示${marketLabel}劇集；推薦排序只使用這個瀏覽器內的追蹤與追劇狀態；伺服器只收到通用 catalog request。`;
+      } else {
+        viewTitle.textContent = "探索劇集";
+        viewContext.textContent = `從已收錄的${marketLabel} catalog 即時整理熱門、新劇、即將開播與高評分內容；不額外呼叫 TMDB discovery。`;
+      }
+    }
+    
+    function leaveDiscoveryMode() {
+      if (!active) return;
+      active = false;
+      requestId += 1;
+      discoverButton?.classList.remove("active");
+      showGrid?.classList.remove("is-discovery", "is-personal", "is-browse");
+      if (exploreTools) exploreTools.hidden = true;
+      if (browseControls) browseControls.hidden = true;
+    }
+    
+    function releaseGlobalSearch() {
+      if (!searchInput?.value) return;
+      window.dispatchEvent(new CustomEvent("series-hub:leave-global-search"));
+    }
+    
+    async function fetchFeatured(region, market, timeoutMs = 12000) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const params = new URLSearchParams({ region, market, limit: "12" });
+        const response = await fetch(`/api/discover?${params}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error(`Discover ${response.status}`);
+        return await response.json();
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+    
+    function browseFilterValues() {
+      return {
+        network: networkFilter?.value || "",
+        genre: genreFilter?.value || "",
+        status: statusFilter?.value || "",
+        year: yearFilter?.value || "",
+        sort: sortFilter?.value || "popular"
+      };
+    }
+    
+    async function fetchBrowse(region, market, timeoutMs = 12000) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const filters = browseFilterValues();
+        const params = new URLSearchParams({ region, market, mode: "browse", limit: "80", sort: filters.sort });
+        for (const key of ["network", "genre", "status", "year"]) {
+          if (filters[key]) params.set(key, filters[key]);
+        }
+        const response = await fetch(`/api/discover?${params}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error(`Browse ${response.status}`);
+        return await response.json();
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+    
+    async function fetchPersonalPool(region, market, timeoutMs = 12000) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const params = new URLSearchParams({ region, market, mode: "browse", limit: "100", sort: "popular" });
+        const response = await fetch(`/api/discover?${params}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error(`Personal pool ${response.status}`);
+        return await response.json();
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+    
+    function populateFacetSelect(select, options, firstLabel) {
+      if (!select || !Array.isArray(options)) return;
+      const selected = select.value;
+      const nodes = [new Option(firstLabel, "")];
+      for (const item of options) {
+        if (!item?.value) continue;
+        nodes.push(new Option(`${item.label || item.value} (${Number(item.count) || 0})`, item.value));
+      }
+      select.replaceChildren(...nodes);
+      if ([...select.options].some((option) => option.value === selected)) select.value = selected;
+    }
+    
+    function populateFacets(facets) {
+      populateFacetSelect(networkFilter, facets?.networks, "全部平台");
+      populateFacetSelect(genreFilter, facets?.genres, "全部類型");
+      populateFacetSelect(statusFilter, facets?.statuses, "全部狀態");
+      populateFacetSelect(yearFilter, facets?.years, "全部年份");
+    }
+    
+    async function loadFeatured() {
+      active = true;
+      setModeVisuals("featured");
+      const activeRequest = ++requestId;
+      const region = currentRegion();
+      const market = currentMarket();
+      contentPanel?.setAttribute("aria-busy", "true");
+      showCount.textContent = "整理中…";
+      renderFeaturedSkeleton();
+    
+      try {
+        const payload = await fetchFeatured(region, market);
+        if (!active || mode !== "featured" || activeRequest !== requestId || currentRegion() !== region || currentMarket() !== market) return;
+        const sections = (Array.isArray(payload?.data?.sections) ? payload.data.sections : [])
+          .filter((section) => Array.isArray(section?.items) && section.items.length > 0);
+        rememberCatalogSignals(sections.flatMap((section) => section.items));
+    
+        showGrid.replaceChildren(...sections.map(createRail));
+        showCount.textContent = `${sections.length} 組精選`;
+        emptyState.hidden = sections.length !== 0;
+        if (sections.length === 0) {
+          emptyTitle.textContent = "暫未能整理探索內容";
+          emptyCopy.textContent = "目前 catalog 沒有足夠資料建立探索分類；可切換至「全部劇集」瀏覽現有收錄。";
+        }
+      } catch (error) {
+        if (!active || mode !== "featured" || activeRequest !== requestId) return;
+        console.error(error);
+        showGrid.replaceChildren();
+        showCount.textContent = "載入失敗";
+        emptyState.hidden = false;
+        emptyState.dataset.state = "error";
+        emptyTitle.textContent = "探索內容暫時無法使用";
+        emptyCopy.textContent = error?.name === "AbortError"
+          ? "探索資料等候超過 12 秒，請稍後再試。"
+          : "探索 API 暫時無法回應；其他 Series Hub 功能不受影響。";
+      } finally {
+        if (active && mode === "featured" && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");
+      }
+    }
+    
+    function renderPersonalPool() {
+      const marketLabel = MARKET_LABELS[currentMarket()] || MARKET_LABELS.all;
+      const trackedIds = loadTrackedShowIds();
+      const viewingStates = loadViewingStates();
+      const cachedSignals = catalogSignalValues(loadCatalogSignals());
+      const byId = new Map();
+      for (const show of [...cachedSignals, ...personalPool]) byId.set(Number(show.id), show);
+      const ranked = rankPersonalCandidates(personalPool, [...byId.values()], trackedIds, viewingStates, 18);
+    
+      showGrid.replaceChildren(...ranked.items.map(createCard));
+      showCount.textContent = `${ranked.items.length} 套推薦`;
+      emptyState.hidden = ranked.items.length !== 0;
+    
+      if (ranked.profile.personalized) {
+        const preferenceLabels = [
+          ...ranked.profile.topGenres.slice(0, 2).map((item) => item.value),
+          ...ranked.profile.topNetworks.slice(0, 1).map((item) => item.value)
+        ];
+        viewContext.textContent = `目前顯示${marketLabel}劇集；只在這個瀏覽器用 ${ranked.profile.matchedTrackedShows} 套已追蹤劇集建立偏好${preferenceLabels.length ? `（${preferenceLabels.join(" · ")}）` : ""}；伺服器只收到通用 catalog request。`;
+      } else if (ranked.profile.trackedCount > 0) {
+        viewContext.textContent = `目前顯示${marketLabel}劇集；本機已有 ${ranked.profile.trackedCount} 套追蹤劇集，但暫未累積足夠類型／平台訊號；目前以熱門與評分排序，使用「我的劇集」後會逐步補齊。`;
+      } else {
+        viewContext.textContent = `目前顯示${marketLabel}劇集；尚未有本機追蹤偏好；目前以熱門與評分排序。加入「我的劇集」後，推薦會只在這個瀏覽器內逐步個人化。`;
+      }
+    
+      if (ranked.items.length === 0) {
+        emptyTitle.textContent = "暫未有可推薦劇集";
+        emptyCopy.textContent = "可先到精選或全部劇集加入追蹤；推薦資料只會保留在這個瀏覽器。";
+      }
+    }
+    
+    async function loadPersonal() {
+      active = true;
+      setModeVisuals("personal");
+      const activeRequest = ++requestId;
+      const region = currentRegion();
+      const market = currentMarket();
+      contentPanel?.setAttribute("aria-busy", "true");
+      showCount.textContent = "本機排序中…";
+      renderGridSkeleton();
+    
+      try {
+        const payload = await fetchPersonalPool(region, market);
+        if (!active || mode !== "personal" || activeRequest !== requestId || currentRegion() !== region || currentMarket() !== market) return;
+        personalPool = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+        rememberCatalogSignals(personalPool);
+        renderPersonalPool();
+      } catch (error) {
+        if (!active || mode !== "personal" || activeRequest !== requestId) return;
+        console.error(error);
+        personalPool = [];
+        showGrid.replaceChildren();
+        showCount.textContent = "載入失敗";
+        emptyState.hidden = false;
+        emptyState.dataset.state = "error";
+        emptyTitle.textContent = "為你推薦暫時無法使用";
+        emptyCopy.textContent = error?.name === "AbortError"
+          ? "通用 catalog 等候超過 12 秒；本機追蹤資料沒有上傳，可稍後再試。"
+          : "Catalog API 暫時無法回應；本機追蹤與追劇狀態沒有上傳。";
+      } finally {
+        if (active && mode === "personal" && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");
+      }
+    }
+    
+    async function loadBrowse() {
+      active = true;
+      setModeVisuals("browse");
+      const activeRequest = ++requestId;
+      const region = currentRegion();
+      const market = currentMarket();
+      contentPanel?.setAttribute("aria-busy", "true");
+      showCount.textContent = "篩選中…";
+      renderGridSkeleton();
+    
+      try {
+        const payload = await fetchBrowse(region, market);
+        if (!active || mode !== "browse" || activeRequest !== requestId || currentRegion() !== region || currentMarket() !== market) return;
+        const items = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+        rememberCatalogSignals(items);
+        populateFacets(payload?.data?.facets);
+        showGrid.replaceChildren(...items.map(createCard));
+    
+        const total = Number(payload?.meta?.totalCount);
+        const totalCount = Number.isFinite(total) ? total : items.length;
+        showCount.textContent = payload?.meta?.truncated ? `顯示 ${items.length} / ${totalCount} 套` : `${totalCount} 套`;
+        emptyState.hidden = items.length !== 0;
+        if (items.length === 0) {
+          emptyTitle.textContent = "沒有符合條件的劇集";
+          emptyCopy.textContent = "可清除部分平台、類型、狀態或年份篩選，再查看目前 catalog。";
+        }
+      } catch (error) {
+        if (!active || mode !== "browse" || activeRequest !== requestId) return;
+        console.error(error);
+        showGrid.replaceChildren();
+        showCount.textContent = "篩選失敗";
+        emptyState.hidden = false;
+        emptyState.dataset.state = "error";
+        emptyTitle.textContent = "劇集瀏覽暫時無法使用";
+        emptyCopy.textContent = error?.name === "AbortError"
+          ? "篩選等候超過 12 秒，請稍後再試。"
+          : "Browse API 暫時無法回應；精選探索及其他 Series Hub 功能不受影響。";
+      } finally {
+        if (active && mode === "browse" && activeRequest === requestId) contentPanel?.setAttribute("aria-busy", "false");
+      }
+    }
+    
+    function clearBrowseFilters() {
+      if (networkFilter) networkFilter.value = "";
+      if (genreFilter) genreFilter.value = "";
+      if (statusFilter) statusFilter.value = "";
+      if (yearFilter) yearFilter.value = "";
+      if (sortFilter) sortFilter.value = "popular";
+    }
+    
+    if (discoverButton && regionSelect && marketSelect && contentPanel && showGrid && scheduleList && emptyState) {
+      discoverButton.addEventListener("click", () => {
+        releaseGlobalSearch();
+        loadFeatured();
+      });
+    
+      featuredToggle?.addEventListener("click", () => loadFeatured());
+      personalToggle?.addEventListener("click", () => loadPersonal());
+      browseToggle?.addEventListener("click", () => loadBrowse());
+      resetFilters?.addEventListener("click", () => {
+        clearBrowseFilters();
+        loadBrowse();
+      });
+    
+      for (const select of [networkFilter, genreFilter, statusFilter, yearFilter, sortFilter]) {
+        select?.addEventListener("change", () => {
+          if (active && mode === "browse") loadBrowse();
+        });
+      }
+    
+      window.addEventListener("series-hub-tracking-changed", () => {
+        if (active && mode === "personal" && personalPool.length > 0) renderPersonalPool();
+      });
+    
+      window.addEventListener("input", (event) => {
+        if (event.target === searchInput && active) leaveDiscoveryMode();
+      }, true);
+    
+      window.addEventListener("change", (event) => {
+        if (!active || (event.target !== regionSelect && event.target !== marketSelect)) return;
+        event.stopImmediatePropagation();
+        if (event.target === regionSelect) saveRegion(currentRegion());
+        if (event.target === marketSelect) saveMarket(currentMarket());
+        if (mode === "browse") loadBrowse();
+        else if (mode === "personal") loadPersonal();
+        else loadFeatured();
+      }, true);
+    
+      document.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const regularControl = target?.closest(".filter[data-view], #my-shows-filter");
+        if (regularControl && active) leaveDiscoveryMode();
+      }, true);
+    }
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/Series-Hub/Series-Hub/test/phase8e-acceptance.test.js:38:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: mobile acceptance keeps featured rails horizontal and browse/personal grids compact
+ok 217 - mobile acceptance keeps featured rails horizontal and browse/personal grids compact
+  ---
+  duration_ms: 0.417054
+  type: 'test'
+  ...
+# Subtest: personal discovery privacy boundary remains browser-local during Phase 8 closeout
+ok 218 - personal discovery privacy boundary remains browser-local during Phase 8 closeout
+  ---
+  duration_ms: 1.095174
+  type: 'test'
+  ...
+# Subtest: PWA manifest satisfies the Series Hub standalone install contract
+ok 219 - PWA manifest satisfies the Series Hub standalone install contract
+  ---
+  duration_ms: 2.998376
+  type: 'test'
+  ...
+# Subtest: main and detail documents share manifest standalone and safe-area metadata
+ok 220 - main and detail documents share manifest standalone and safe-area metadata
+  ---
+  duration_ms: 0.351793
+  type: 'test'
+  ...
+# Subtest: PWA and Push reuse one root-scoped service worker
+ok 221 - PWA and Push reuse one root-scoped service worker
+  ---
+  duration_ms: 0.246307
+  type: 'test'
+  ...
+# Subtest: every declared PWA precache URL resolves to a real first-party asset
+ok 222 - every declared PWA precache URL resolves to a real first-party asset
+  ---
+  duration_ms: 1.282361
+  type: 'test'
+  ...
+# Subtest: service worker never intercepts or caches live API and health data
+ok 223 - service worker never intercepts or caches live API and health data
+  ---
+  duration_ms: 0.294968
+  type: 'test'
+  ...
+# Subtest: offline behavior is shell-only network-first with cached navigation fallback
+ok 224 - offline behavior is shell-only network-first with cached navigation fallback
+  ---
+  duration_ms: 0.389814
+  type: 'test'
+  ...
+# Subtest: PWA client exposes explicit install and user-controlled update lifecycle
+ok 225 - PWA client exposes explicit install and user-controlled update lifecycle
+  ---
+  duration_ms: 0.413056
+  type: 'test'
+  ...
+# Subtest: standalone UI accounts for mobile safe areas and minimum action target
+ok 226 - standalone UI accounts for mobile safe areas and minimum action target
+  ---
+  duration_ms: 0.211011
+  type: 'test'
+  ...
+# Subtest: a US evening airstamp rolls into the next Hong Kong calendar day
+ok 227 - a US evening airstamp rolls into the next Hong Kong calendar day
+  ---
+  duration_ms: 23.756746
+  type: 'test'
+  ...
+# Subtest: episodes without an airstamp preserve the TVmaze source air date
+ok 228 - episodes without an airstamp preserve the TVmaze source air date
+  ---
+  duration_ms: 0.302091
+  type: 'test'
+  ...
+# Subtest: episode code is consistently padded
+ok 229 - episode code is consistently padded
+  ---
+  duration_ms: 0.237661
+  type: 'test'
+  ...
+# Subtest: seven-day local schedule window includes timezone-shifted episodes only inside the local range
+ok 230 - seven-day local schedule window includes timezone-shifted episodes only inside the local range
+  ---
+  duration_ms: 4.764305
+  type: 'test'
+  ...
+# Subtest: date-key arithmetic is stable across month boundaries
+ok 231 - date-key arithmetic is stable across month boundaries
+  ---
+  duration_ms: 0.337136
+  type: 'test'
+  ...
+# Subtest: title override input is normalized and constrained
+ok 232 - title override input is normalized and constrained
+  ---
+  duration_ms: 2.033976
+  type: 'test'
+  ...
+# Subtest: set-preferred uses one D1 batch for the three related mutations
+ok 233 - set-preferred uses one D1 batch for the three related mutations
+  ---
+  duration_ms: 36.091859
+  type: 'test'
+  ...
+# Subtest: title regions normalize to HK by default
+ok 234 - title regions normalize to HK by default
+  ---
+  duration_ms: 1.374311
+  type: 'test'
+  ...
+# Subtest: regional fallback order preserves the requested market first
+ok 235 - regional fallback order preserves the requested market first
+  ---
+  duration_ms: 1.075917
+  type: 'test'
+  ...
+# Subtest: manual preferred aliases outrank TMDB preferred aliases
+ok 236 - manual preferred aliases outrank TMDB preferred aliases
+  ---
+  duration_ms: 0.351232
+  type: 'test'
+  ...
+# Subtest: a non-preferred manual alias does not silently replace a preferred source title
+ok 237 - a non-preferred manual alias does not silently replace a preferred source title
+  ---
+  duration_ms: 0.234215
+  type: 'test'
+  ...
+# Subtest: HK display title falls back to TW without losing provenance
+ok 238 - HK display title falls back to TW without losing provenance
+  ---
+  duration_ms: 0.35507
+  type: 'test'
+  ...
+# Subtest: resolved title metadata is added without removing original regional fields
+ok 239 - resolved title metadata is added without removing original regional fields
+  ---
+  duration_ms: 0.302281
+  type: 'test'
+  ...
+# Subtest: image URLs use TMDB CDN sizes
+ok 240 - image URLs use TMDB CDN sizes
+  ---
+  duration_ms: 1.528879
+  type: 'test'
+  ...
+# Subtest: US scripted and miniseries are included while reality and animation are excluded
+ok 241 - US scripted and miniseries are included while reality and animation are excluded
+  ---
+  duration_ms: 0.585817
+  type: 'test'
+  ...
+# Subtest: a scheduled next episode is classified as airing
+ok 242 - a scheduled next episode is classified as airing
+  ---
+  duration_ms: 0.815944
+  type: 'test'
+  ...
+# Subtest: a future new season without a next episode is classified as upcoming
+ok 243 - a future new season without a next episode is classified as upcoming
+  ---
+  duration_ms: 0.294006
+  type: 'test'
+  ...
+# Subtest: a returning show between seasons is classified as planned
+ok 244 - a returning show between seasons is classified as planned
+  ---
+  duration_ms: 0.427253
+  type: 'test'
+  ...
+# Subtest: an ended show is classified as completed
+ok 245 - an ended show is classified as completed
+  ---
+  duration_ms: 0.244795
+  type: 'test'
+  ...
+# Subtest: recently aired non-terminal shows remain airing even when TMDB has no next episode
+ok 246 - recently aired non-terminal shows remain airing even when TMDB has no next episode
+  ---
+  duration_ms: 0.349559
+  type: 'test'
+  ...
+# Subtest: Chinese aliases preserve HK, TW and CN independently
+ok 247 - Chinese aliases preserve HK, TW and CN independently
+  ---
+  duration_ms: 1.433521
+  type: 'test'
+  ...
+# Subtest: normalization keeps source status while generating Series Hub lifecycle and season state
+ok 248 - normalization keeps source status while generating Series Hub lifecycle and season state
+  ---
+  duration_ms: 1.078522
+  type: 'test'
+  ...
+# Subtest: tracked show IDs are positive unique integers
+ok 249 - tracked show IDs are positive unique integers
+  ---
+  duration_ms: 2.040138
+  type: 'test'
+  ...
+# Subtest: tracking storage loads safely and ignores corrupt data
+ok 250 - tracking storage loads safely and ignores corrupt data
+  ---
+  duration_ms: 0.408849
+  type: 'test'
+  ...
+# Subtest: toggle adds and removes one show without disturbing the rest
+ok 251 - toggle adds and removes one show without disturbing the rest
+  ---
+  duration_ms: 0.429107
+  type: 'test'
+  ...
+# Subtest: save writes the normalized versioned payload
+ok 252 - save writes the normalized versioned payload
+  ---
+  duration_ms: 0.35567
+  type: 'test'
+  ...
+# Subtest: TVmaze episode normalization keeps schedule facts and strips summary HTML
+ok 253 - TVmaze episode normalization keeps schedule facts and strips summary HTML
+  ---
+  duration_ms: 2.951059
+  type: 'test'
+  ...
+# Subtest: episode retention keeps recent/future episodes plus the latest historical episode
+ok 254 - episode retention keeps recent/future episodes plus the latest historical episode
+  ---
+  duration_ms: 12.525614
+  type: 'test'
+  ...
+# Subtest: latest historical episode is retained when a show has been off air for more than 90 days
+ok 255 - latest historical episode is retained when a show has been off air for more than 90 days
+  ---
+  duration_ms: 0.460365
+  type: 'test'
+  ...
+# Subtest: exact TVmaze lookup prefers IMDb and falls back to TheTVDB
+ok 256 - exact TVmaze lookup prefers IMDb and falls back to TheTVDB
+  ---
+  duration_ms: 0.46907
+  type: 'test'
+  ...
+# Subtest: invalid specials or undated episodes are not normalized into the numbered schedule
+ok 257 - invalid specials or undated episodes are not normalized into the numbered schedule
+  ---
+  duration_ms: 0.237711
+  type: 'test'
+  ...
+# Subtest: Phase 5C viewing states accept only positive show IDs and supported states
+ok 258 - Phase 5C viewing states accept only positive show IDs and supported states
+  ---
+  duration_ms: 1.445815
+  type: 'test'
+  ...
+# Subtest: Phase 5C viewing states persist locally and can be cleared without touching tracking
+ok 259 - Phase 5C viewing states persist locally and can be cleared without touching tracking
+  ---
+  duration_ms: 0.480391
+  type: 'test'
+  ...
+# Subtest: invalid or unavailable local storage falls back safely
+ok 260 - invalid or unavailable local storage falls back safely
+  ---
+  duration_ms: 0.228725
+  type: 'test'
+  ...
+1..260
+# tests 260
+# suites 0
+# pass 256
+# fail 4
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1919.479224
+EXIT_CODE=1
