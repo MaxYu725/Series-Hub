@@ -1,0 +1,76 @@
+name: Phase10C UI fix one-shot
+
+on:
+  push:
+    branches:
+      - phase10c-market-selector
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase10c-market-selector
+          fetch-depth: 0
+
+      - name: Apply Phase 10C UI boundary fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, before, after, label):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(before)
+              if count != 1:
+                  raise SystemExit(f"{path}: {label} anchor count {count}")
+              p.write_text(text.replace(before, after, 1))
+
+          replace_once(
+              'public/phase5-ui.js',
+              '  const regionSelect = document.querySelector("#title-region-select");\n  if (!myButton || !showGrid || !scheduleList || !viewTitle || !searchInput || !regionSelect) return;\n',
+              '  const regionSelect = document.querySelector("#title-region-select");\n  const marketSelect = document.querySelector("#market-select");\n  if (!myButton || !showGrid || !scheduleList || !viewTitle || !searchInput || !regionSelect || !marketSelect) return;\n',
+              'my shows market element'
+          )
+          replace_once(
+              'public/phase5-ui.js',
+              '    myActive = true;\n    regionSelect.disabled = true;\n',
+              '    myActive = true;\n    regionSelect.disabled = true;\n    marketSelect.disabled = true;\n',
+              'disable market in my shows'
+          )
+          replace_once(
+              'public/phase5-ui.js',
+              '      myActive = false;\n      regionSelect.disabled = false;\n',
+              '      myActive = false;\n      regionSelect.disabled = false;\n      marketSelect.disabled = false;\n',
+              'restore market after my shows'
+          )
+
+          p = Path('public/phase8-ui.js')
+          text = p.read_text()
+          before = 'function renderPersonalPool() {\n  const trackedIds = loadTrackedShowIds();\n'
+          after = 'function renderPersonalPool() {\n  const marketLabel = MARKET_LABELS[currentMarket()] || MARKET_LABELS.all;\n  const trackedIds = loadTrackedShowIds();\n'
+          if text.count(before) != 1:
+              raise SystemExit('phase8 personal market label anchor mismatch')
+          text = text.replace(before, after, 1)
+          text = text.replace('viewContext.textContent = `只在這個瀏覽器用 ${ranked.profile.matchedTrackedShows}', 'viewContext.textContent = `目前顯示${marketLabel}劇集；只在這個瀏覽器用 ${ranked.profile.matchedTrackedShows}', 1)
+          text = text.replace('viewContext.textContent = `本機已有 ${ranked.profile.trackedCount}', 'viewContext.textContent = `目前顯示${marketLabel}劇集；本機已有 ${ranked.profile.trackedCount}', 1)
+          text = text.replace('viewContext.textContent = "尚未有本機追蹤偏好；', 'viewContext.textContent = `目前顯示${marketLabel}劇集；尚未有本機追蹤偏好；', 1)
+          text = text.replace('逐步個人化。";', '逐步個人化。`;', 1)
+          p.write_text(text)
+
+      - name: Commit fixes and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/phase10c-ui-fix-one-shot.yml
+          git add public/phase5-ui.js public/phase8-ui.js
+          git commit -m "Fix Phase 10C market selector UI boundaries"
+          git push origin HEAD:phase10c-market-selector
