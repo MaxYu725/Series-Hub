@@ -2,15 +2,22 @@ name: Phase 10A Korea catalog sync
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 env:
   PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+  PRODUCTION_DB_NAME: "series-hub-db"
+  WRANGLER_VERSION: "4.125.0"
 
 jobs:
   sync:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -64,4 +71,108 @@ jobs:
             const payload = JSON.parse(process.env.STATUS_JSON);
             if (payload.meta?.source !== "tmdb_kr" || payload.meta?.market !== "KR") process.exit(1);
             if (!payload.data || !["success", "success_with_warnings"].includes(payload.data.status)) process.exit(1);
+          '
+
+  production-acceptance:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+
+    steps:
+      - name: Validate production diagnostic credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+
+      - name: Verify post-migration Korean baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASELINE_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
+            "SELECT s.id, s.tmdb_id, s.english_title, s.original_title, s.status, (SELECT COUNT(*) FROM show_genres sg JOIN genres g ON g.id = sg.genre_id WHERE sg.show_id = s.id AND g.tmdb_genre_id IN (18,35,37,80,9648,10751,10759,10765,10766,10768)) AS fiction_genre_count FROM shows s WHERE (',' || COALESCE(s.origin_country, '') || ',') LIKE '%,KR,%' ORDER BY s.id;")"
+          printf '%s\n' "${BASELINE_JSON}"
+          BASELINE_JSON="${BASELINE_JSON}" node -e '
+            const payload = JSON.parse(process.env.BASELINE_JSON);
+            const groups = Array.isArray(payload) ? payload : [payload];
+            const rows = groups.flatMap((group) => Array.isArray(group?.results) ? group.results : []);
+            if (rows.length < 1) throw new Error("Expected at least one Korean catalog row after migration 0020");
+            const invalid = rows.filter((row) => Number(row.fiction_genre_count || 0) < 1);
+            if (invalid.length) throw new Error(`Post-migration Korean rows without fiction genre: ${JSON.stringify(invalid)}`);
+            console.log(`Post-migration Korean baseline: ${rows.length} rows, all fiction-qualified`);
+          '
+
+      - name: Derive internal sync key
+        id: sync_key
+        shell: bash
+        run: |
+          set -euo pipefail
+          SYNC_KEY="$(node -e '
+            const crypto = require("crypto");
+            process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v2:" + process.env.TMDB_API_TOKEN).digest("hex"));
+          ')"
+          echo "::add-mask::${SYNC_KEY}"
+          echo "key=${SYNC_KEY}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run Phase 10A.1 production Korean sync
+        env:
+          SYNC_KEY: ${{ steps.sync_key.outputs.key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SYNC_JSON="$(curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 \
+            -X POST \
+            -H "x-series-hub-sync-key: ${SYNC_KEY}" \
+            "${PRODUCTION_URL}/api/internal/tmdb-sync-kr")"
+          printf '%s\n' "${SYNC_JSON}"
+          SYNC_JSON="${SYNC_JSON}" node -e '
+            const data = JSON.parse(process.env.SYNC_JSON);
+            if (data.ok !== true || data.source !== "tmdb_kr" || data.market !== "KR") throw new Error("KR sync identity mismatch");
+            if (Number(data.discoveryRequests || 0) > 6) throw new Error("KR discovery request ceiling exceeded");
+            if (Number(data.externalRequestBudget || 0) > 24) throw new Error("KR external request ceiling exceeded");
+            if (Number(data.recordsSelected || 0) < 1) throw new Error("KR sync selected no records");
+            if (data.qualityPolicy !== "kr_scripted_with_fiction_genre") throw new Error(`Unexpected quality policy: ${data.qualityPolicy}`);
+            if (!Number.isFinite(Number(data.recordsPruned))) throw new Error("recordsPruned missing from Phase 10A.1 response");
+            console.log(`Phase 10A.1 sync: selected=${data.recordsSelected}, changed=${data.recordsChanged}, pruned=${data.recordsPruned}, accepted=${data.recordsAccepted}`);
+          '
+
+      - name: Verify post-sync Korean catalog quality
+        shell: bash
+        run: |
+          set -euo pipefail
+          KR_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
+            "SELECT s.id, s.tmdb_id, s.english_title, s.original_title, s.status, s.last_synced_at, (SELECT COUNT(*) FROM show_genres sg JOIN genres g ON g.id = sg.genre_id WHERE sg.show_id = s.id AND g.tmdb_genre_id IN (18,35,37,80,9648,10751,10759,10765,10766,10768)) AS fiction_genre_count FROM shows s WHERE (',' || COALESCE(s.origin_country, '') || ',') LIKE '%,KR,%' ORDER BY s.last_synced_at DESC, s.id ASC LIMIT 50;")"
+          printf '%s\n' "${KR_JSON}"
+          KR_JSON="${KR_JSON}" node -e '
+            const payload = JSON.parse(process.env.KR_JSON);
+            const groups = Array.isArray(payload) ? payload : [payload];
+            const rows = groups.flatMap((group) => Array.isArray(group?.results) ? group.results : []);
+            if (rows.length < 1) throw new Error("No Korean catalog rows remain after Phase 10A.1 sync");
+            const invalid = rows.filter((row) => Number(row.fiction_genre_count || 0) < 1);
+            if (invalid.length) throw new Error(`Out-of-policy Korean rows remain: ${JSON.stringify(invalid)}`);
+            console.log(`Production Korean catalog: ${rows.length} recent rows, 0 out-of-policy rows`);
+          '
+
+      - name: Verify US and Korean sync health remain separate
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS_ROWS="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
+            "SELECT s.source_key, sr.run_type, sr.status, sr.records_seen, sr.records_changed, sr.finished_at FROM sync_runs sr JOIN sources s ON s.id = sr.source_id WHERE s.source_key IN ('tmdb','tmdb_kr') ORDER BY sr.id DESC LIMIT 12;")"
+          printf '%s\n' "${STATUS_ROWS}"
+          STATUS_ROWS="${STATUS_ROWS}" node -e '
+            const payload = JSON.parse(process.env.STATUS_ROWS);
+            const groups = Array.isArray(payload) ? payload : [payload];
+            const rows = groups.flatMap((group) => Array.isArray(group?.results) ? group.results : []);
+            const kr = rows.find((row) => row.source_key === "tmdb_kr");
+            const us = rows.find((row) => row.source_key === "tmdb");
+            if (!kr || !["success", "success_with_warnings"].includes(kr.status)) throw new Error("tmdb_kr health failed");
+            if (!us || !["success", "success_with_warnings"].includes(us.status)) throw new Error("tmdb health failed");
+            console.log(`Separate sync health confirmed: tmdb_kr=${kr.status}, tmdb=${us.status}`);
           '
