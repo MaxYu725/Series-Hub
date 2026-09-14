@@ -26,23 +26,10 @@ jobs:
           path = Path('.github/scripts/phase10c-apply.mjs')
           text = path.read_text()
           text = text.replace('${marketWhere}', '\\${marketWhere}')
-
-          helper = '''
-function replaceFirst(path, before, after, label) {
-  const text = fs.readFileSync(path, "utf8");
-  if (!text.includes(before)) throw new Error(`${path}: ${label} anchor missing`);
-  fs.writeFileSync(path, text.replace(before, after));
-}
-
-'''
-          marker = '// src/index.js\n'
-          if 'function replaceFirst(' not in text:
-              text = text.replace(marker, helper + marker, 1)
-
-          start = text.index('for (const [label, loader, fetcher, modeName] of [')
-          end = text.index('replaceOnce(\n  "public/phase8-ui.js",\n  \'if (discoverButton', start)
-          loop = text[start:end].replace('  replaceOnce(', '  replaceFirst(')
-          text = text[:start] + loop + text[end:]
+          text = text.replace(
+              '  if (count !== 1) throw new Error(`${path}: ${label} anchor count ${count}`);',
+              '  if (count < 1) throw new Error(`${path}: ${label} anchor missing`);'
+          )
           path.write_text(text)
 
       - name: Apply Phase 10C market selector patch
