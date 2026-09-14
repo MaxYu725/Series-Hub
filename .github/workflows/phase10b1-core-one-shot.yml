@@ -1,0 +1,153 @@
+name: Phase10B1 core one-shot
+
+on:
+  push:
+    branches:
+      - phase10b1-korea-schedule-gap-priority
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase10b1-korea-schedule-gap-priority
+          fetch-depth: 0
+
+      - name: Apply bounded selector patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/tmdb-korea.js')
+          text = path.read_text()
+
+          anchor = '''function uniqueCandidateCount(feeds) {
+            const ids = new Set();
+            for (const feed of feeds || []) {
+              for (const item of feed || []) {
+                if (item?.id !== null && item?.id !== undefined) ids.add(item.id);
+              }
+            }
+            return ids.size;
+          }
+          '''
+          helper = anchor + '''
+          export async function selectKoreanScheduleGapCandidates(db, limit, now = new Date()) {
+            const boundedLimit = Math.min(
+              Math.max(Number(limit) || KOREA_TMDB_SYNC_BUDGET.detailRequests, 1),
+              KOREA_TMDB_SYNC_BUDGET.detailRequests
+            );
+            const today = todayUtc(now);
+            const result = await db
+              .prepare(
+                `SELECT s.tmdb_id AS id
+                 FROM shows s
+                 WHERE s.tmdb_id IS NOT NULL
+                   AND (',' || COALESCE(s.origin_country, '') || ',') LIKE '%,KR,%'
+                   AND s.status IN ('airing', 'upcoming', 'planned')
+                   AND NOT EXISTS (
+                     SELECT 1
+                     FROM seasons se
+                     JOIN episodes e ON e.season_id = se.id
+                     WHERE se.show_id = s.id
+                       AND e.tvmaze_id IS NOT NULL
+                       AND e.air_date >= ?1
+                   )
+                 ORDER BY
+                   CASE WHEN s.next_air_date IS NULL THEN 1 ELSE 0 END,
+                   s.next_air_date ASC,
+                   COALESCE(s.last_synced_at, '1970-01-01') ASC,
+                   s.id ASC
+                 LIMIT ?2`
+              )
+              .bind(today, boundedLimit)
+              .all();
+
+            return (result.results || [])
+              .map((row) => ({ id: Number(row.id), scheduleGapPriority: true }))
+              .filter((candidate) => Number.isInteger(candidate.id) && candidate.id > 0);
+          }
+
+          export function mergePriorityCandidates(priorityCandidates, discoveredCandidates, limit) {
+            const boundedLimit = Math.max(Number(limit) || 0, 0);
+            const merged = [];
+            const seen = new Set();
+            for (const candidate of [...(priorityCandidates || []), ...(discoveredCandidates || [])]) {
+              const id = Number(candidate?.id);
+              if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+              seen.add(id);
+              merged.push(candidate);
+              if (merged.length >= boundedLimit) break;
+            }
+            return merged;
+          }
+          '''
+          if text.count(anchor) != 1:
+              raise SystemExit('uniqueCandidateCount anchor mismatch')
+          text = text.replace(anchor, helper)
+
+          old = '''    const candidateFeeds = [...networkFeeds, ...scheduleFeeds, ...broadFeeds];
+            recordsSeen = uniqueCandidateCount(candidateFeeds);
+            const candidateOffset = candidateRotationOffset(candidateFeeds, detailLimit, now);
+          '''
+          new = '''    const candidateFeeds = [...networkFeeds, ...scheduleFeeds, ...broadFeeds];
+            const scheduleGapCandidates = await selectKoreanScheduleGapCandidates(env.DB, detailLimit, now);
+            recordsSeen = uniqueCandidateCount([...candidateFeeds, scheduleGapCandidates]);
+            const candidateOffset = candidateRotationOffset(candidateFeeds, detailLimit, now);
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('candidateFeeds anchor mismatch')
+          text = text.replace(old, new)
+
+          old = '''    const selectedCandidates = selectRoundRobinCandidates(
+              candidateFeeds,
+              detailLimit,
+              candidateOffsets
+            );
+            const detailsResults = await fetchDetailsInBatches(env, selectedCandidates);
+          '''
+          new = '''    const discoveredCandidates = selectRoundRobinCandidates(
+              candidateFeeds,
+              detailLimit,
+              candidateOffsets
+            );
+            const selectedCandidates = mergePriorityCandidates(
+              scheduleGapCandidates,
+              discoveredCandidates,
+              detailLimit
+            );
+            const detailsResults = await fetchDetailsInBatches(env, selectedCandidates);
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('selectedCandidates anchor mismatch')
+          text = text.replace(old, new)
+
+          old = '''      recordsSelected: selectedCandidates.length,
+              recordsChanged,
+          '''
+          new = '''      recordsSelected: selectedCandidates.length,
+              scheduleGapCandidates: scheduleGapCandidates.length,
+              recordsChanged,
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('return metrics anchor mismatch')
+          text = text.replace(old, new)
+
+          path.write_text(text)
+
+      - name: Commit core change and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/phase10b1-core-one-shot.yml
+          git add src/tmdb-korea.js
+          git commit -m "Prioritize Korean schedule gaps within detail budget"
+          git push origin HEAD:phase10b1-korea-schedule-gap-priority
