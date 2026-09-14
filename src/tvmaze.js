@@ -285,7 +285,7 @@ async function ensureSeason(db, show, seasonNumber) {
   return row.id;
 }
 
-async function replaceTvmazeEpisodes(db, show, normalizedEpisodes) {
+async function replaceTvmazeEpisodes(db, show, normalizedEpisodes, now = new Date()) {
   await db
     .prepare(
       `DELETE FROM episodes
@@ -294,6 +294,22 @@ async function replaceTvmazeEpisodes(db, show, normalizedEpisodes) {
     )
     .bind(show.id)
     .run();
+
+  const today = todayUtc(now);
+  const hasFutureTvmazeSchedule = normalizedEpisodes.some((episode) => episode.airDate >= today);
+  if (hasFutureTvmazeSchedule) {
+    await db
+      .prepare(
+        `DELETE FROM episodes
+         WHERE tvmaze_id IS NULL
+           AND tmdb_id IS NOT NULL
+           AND source_url LIKE 'https://www.themoviedb.org/tv/%'
+           AND air_date >= ?2
+           AND season_id IN (SELECT id FROM seasons WHERE show_id = ?1)`
+      )
+      .bind(show.id, today)
+      .run();
+  }
 
   let inserted = 0;
   for (const episode of normalizedEpisodes) {
@@ -354,6 +370,9 @@ export async function syncTvmazeEpisodes(env, options = {}) {
   if (!env.DB) throw new Error("D1 binding DB is required");
 
   const limit = Math.min(Math.max(Number(options.limit) || SHOWS_PER_SYNC, 1), SHOWS_PER_SYNC);
+  const now = options.now instanceof Date && Number.isFinite(options.now.getTime())
+    ? options.now
+    : new Date();
   const sourceId = await getSourceId(env.DB);
   const runId = await beginSyncRun(env.DB, sourceId);
   const warnings = [];
@@ -382,11 +401,11 @@ export async function syncTvmazeEpisodes(env, options = {}) {
         await markShowSync(env.DB, show.id, tvmazeId);
 
         const episodes = await tvmazeRequest(`/shows/${tvmazeId}/episodes`);
-        const relevant = selectRelevantEpisodes(episodes)
+        const relevant = selectRelevantEpisodes(episodes, now)
           .map(normalizeTvmazeEpisode)
           .filter(Boolean);
 
-        recordsChanged += await replaceTvmazeEpisodes(env.DB, show, relevant);
+        recordsChanged += await replaceTvmazeEpisodes(env.DB, show, relevant, now);
         showsProcessed += 1;
       } catch (error) {
         warnings.push(`${show.english_title || show.id}: ${error instanceof Error ? error.message : String(error)}`);
