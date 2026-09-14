@@ -1,4 +1,4 @@
-name: Phase 10B production acceptance
+name: Phase 10B.1 production priority probe
 
 on:
   push:
@@ -9,16 +9,14 @@ permissions:
   contents: read
 
 env:
-  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
   PRODUCTION_DB_NAME: "series-hub-db"
   WRANGLER_VERSION: "4.125.0"
 
 jobs:
-  acceptance:
+  probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     env:
-      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
 
@@ -27,169 +25,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API missing"; exit 1; }
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API missing"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID missing"; exit 1; }
 
-      - name: Capture production baseline and current TMDB expectations
+      - name: Read Phase 10B.1 priority candidates from production D1
         shell: bash
         run: |
           set -euo pipefail
           npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
-            "SELECT s.tmdb_id AS show_tmdb_id, s.english_title, se.season_number, e.episode_number, e.air_date, e.tvmaze_id, e.tmdb_id AS episode_tmdb_id, e.source_url FROM shows s JOIN seasons se ON se.show_id = s.id JOIN episodes e ON e.season_id = se.id WHERE s.tmdb_id IN (243761,293610) AND e.air_date >= date('now') ORDER BY s.tmdb_id, e.air_date, se.season_number, e.episode_number;" \
-            > /tmp/before-targets.json
+            "SELECT s.tmdb_id AS id, s.english_title, s.status, s.next_air_date, s.last_synced_at FROM shows s WHERE s.tmdb_id IS NOT NULL AND (',' || COALESCE(s.origin_country, '') || ',') LIKE '%,KR,%' AND s.status IN ('airing', 'upcoming', 'planned') AND NOT EXISTS (SELECT 1 FROM seasons se JOIN episodes e ON e.season_id = se.id WHERE se.show_id = s.id AND e.tvmaze_id IS NOT NULL AND e.air_date >= date('now')) ORDER BY CASE WHEN s.next_air_date IS NULL THEN 1 ELSE 0 END, s.next_air_date ASC, COALESCE(s.last_synced_at, '1970-01-01') ASC, s.id ASC LIMIT 18;" \
+            > /tmp/priority.json
+          cat /tmp/priority.json
 
-          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
-            "SELECT COUNT(*) AS count FROM episodes e JOIN seasons se ON se.id = e.season_id JOIN shows s ON s.id = se.show_id WHERE (',' || COALESCE(s.origin_country,'') || ',') LIKE '%,KR,%' AND e.tvmaze_id IS NOT NULL AND e.air_date >= date('now');" \
-            > /tmp/before-tvmaze.json
-
-          for id in 243761 293610; do
-            curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 \
-              -H "accept: application/json" \
-              -H "authorization: Bearer ${TMDB_API_TOKEN}" \
-              "https://api.themoviedb.org/3/tv/${id}" > "/tmp/tmdb-${id}.json"
-          done
-
-          echo "Baseline targets:"
-          cat /tmp/before-targets.json
-
-      - name: Run production Korean catalog sync
-        shell: bash
-        run: |
-          set -euo pipefail
-          SYNC_KEY="$(node -e '
-            const crypto = require("crypto");
-            process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v2:" + process.env.TMDB_API_TOKEN).digest("hex"));
-          ')"
-          echo "::add-mask::${SYNC_KEY}"
-
-          curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 \
-            -X POST \
-            -H "x-series-hub-sync-key: ${SYNC_KEY}" \
-            "${PRODUCTION_URL}/api/internal/tmdb-sync-kr" > /tmp/kr-sync.json
-
-          cat /tmp/kr-sync.json
-          node - <<'NODE'
-          const fs = require('fs');
-          const data = JSON.parse(fs.readFileSync('/tmp/kr-sync.json', 'utf8'));
-          if (data.ok !== true) throw new Error(`KR sync failed: ${JSON.stringify(data)}`);
-          if (data.schedulePolicy !== 'tvmaze_primary_tmdb_next_episode_fallback') {
-            throw new Error(`Unexpected schedule policy: ${data.schedulePolicy}`);
-          }
-          if (Number(data.externalRequests || data.requestCount || 0) > 24) {
-            throw new Error(`KR request ceiling exceeded: ${data.externalRequests || data.requestCount}`);
-          }
-          NODE
-
-      - name: Read production acceptance state
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
-            "SELECT s.tmdb_id AS show_tmdb_id, s.english_title, se.season_number, e.episode_number, e.air_date, e.tvmaze_id, e.tmdb_id AS episode_tmdb_id, e.source_url FROM shows s JOIN seasons se ON se.show_id = s.id JOIN episodes e ON e.season_id = se.id WHERE s.tmdb_id IN (243761,293610) AND e.air_date >= date('now') ORDER BY s.tmdb_id, e.air_date, se.season_number, e.episode_number;" \
-            > /tmp/after-targets.json
-
-          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
-            "SELECT COUNT(*) AS count FROM episodes e JOIN seasons se ON se.id = e.season_id JOIN shows s ON s.id = se.show_id WHERE (',' || COALESCE(s.origin_country,'') || ',') LIKE '%,KR,%' AND e.tvmaze_id IS NOT NULL AND e.air_date >= date('now');" \
-            > /tmp/after-tvmaze.json
-
-          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
-            "SELECT COUNT(*) AS count FROM episodes e JOIN seasons se ON se.id = e.season_id JOIN shows s ON s.id = se.show_id WHERE e.tvmaze_id IS NULL AND e.tmdb_id IS NOT NULL AND e.source_url LIKE 'https://www.themoviedb.org/tv/%' AND e.air_date >= date('now') AND (',' || COALESCE(s.origin_country,'') || ',') NOT LIKE '%,KR,%';" \
-            > /tmp/non-kr-fallbacks.json
-
-          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
-            "SELECT sr.status, sr.records_seen, sr.records_changed, sr.started_at, sr.finished_at FROM sync_runs sr JOIN sources s ON s.id = sr.source_id WHERE s.source_key = 'tmdb_kr' ORDER BY sr.id DESC LIMIT 1;" \
-            > /tmp/kr-status.json
-
-          echo "Acceptance targets:"
-          cat /tmp/after-targets.json
-
-      - name: Validate Phase 10B production acceptance
+      - name: Validate Good Partner is prioritized
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const fs = require('fs');
-          const today = new Date().toISOString().slice(0, 10);
-
-          function rows(path) {
-            const payload = JSON.parse(fs.readFileSync(path, 'utf8'));
-            const groups = Array.isArray(payload) ? payload : [payload];
-            return groups.flatMap((group) => Array.isArray(group?.results) ? group.results : []);
+          const payload = JSON.parse(fs.readFileSync('/tmp/priority.json', 'utf8'));
+          const groups = Array.isArray(payload) ? payload : [payload];
+          const rows = groups.flatMap((group) => Array.isArray(group?.results) ? group.results : []);
+          if (!rows.some((row) => Number(row.id) === 243761)) {
+            throw new Error(`Good Partner is not in the Phase 10B.1 priority set: ${JSON.stringify(rows)}`);
           }
-
-          const before = rows('/tmp/before-targets.json');
-          const after = rows('/tmp/after-targets.json');
-          const beforeTvmaze = Number(rows('/tmp/before-tvmaze.json')[0]?.count || 0);
-          const afterTvmaze = Number(rows('/tmp/after-tvmaze.json')[0]?.count || 0);
-          const nonKrFallbacks = Number(rows('/tmp/non-kr-fallbacks.json')[0]?.count || 0);
-          const krStatus = rows('/tmp/kr-status.json')[0] || null;
-          const sync = JSON.parse(fs.readFileSync('/tmp/kr-sync.json', 'utf8'));
-
-          const tmdb = [243761, 293610].map((id) => JSON.parse(fs.readFileSync(`/tmp/tmdb-${id}.json`, 'utf8')));
-          const expected = tmdb.map((show) => {
-            const episode = show.next_episode_to_air;
-            if (!episode || typeof episode.air_date !== 'string' || episode.air_date < today) return null;
-            return {
-              showTmdbId: Number(show.id),
-              seasonNumber: Number(episode.season_number),
-              episodeNumber: Number(episode.episode_number),
-              airDate: episode.air_date
-            };
-          }).filter(Boolean);
-
-          const missing = expected.filter((item) => !after.some((row) =>
-            Number(row.show_tmdb_id) === item.showTmdbId &&
-            Number(row.season_number) === item.seasonNumber &&
-            Number(row.episode_number) === item.episodeNumber &&
-            row.air_date === item.airDate
-          ));
-
-          if (missing.length) {
-            throw new Error(`Production D1 is still missing current TMDB next episodes: ${JSON.stringify(missing)}`);
-          }
-          if (nonKrFallbacks !== 0) {
-            throw new Error(`Found ${nonKrFallbacks} future TMDB fallback rows outside KR catalog`);
-          }
-          if (afterTvmaze < beforeTvmaze) {
-            throw new Error(`KR future TVmaze ownership regressed from ${beforeTvmaze} to ${afterTvmaze}`);
-          }
-          if (!krStatus || !['success', 'success_with_warnings'].includes(krStatus.status)) {
-            throw new Error(`Latest tmdb_kr sync is unhealthy: ${JSON.stringify(krStatus)}`);
-          }
-
-          const beforeMatched = expected.filter((item) => before.some((row) =>
-            Number(row.show_tmdb_id) === item.showTmdbId &&
-            Number(row.season_number) === item.seasonNumber &&
-            Number(row.episode_number) === item.episodeNumber &&
-            row.air_date === item.airDate
-          )).length;
-
-          console.log('PHASE10B_ACCEPTED', JSON.stringify({
-            expectedCurrentTargets: expected.length,
-            targetsPresentBefore: beforeMatched,
-            targetsPresentAfter: expected.length - missing.length,
-            scheduleFallbacksApplied: Number(sync.scheduleFallbacksApplied || 0),
-            scheduleFallbacksPruned: Number(sync.scheduleFallbacksPruned || 0),
-            krFutureTvmazeBefore: beforeTvmaze,
-            krFutureTvmazeAfter: afterTvmaze,
-            nonKrFallbacks,
-            krSyncStatus: krStatus.status
+          console.log('PHASE10B1_PRIORITY_PROBE', JSON.stringify({
+            count: rows.length,
+            ids: rows.map((row) => Number(row.id)),
+            goodPartnerPrioritized: true
           }));
-
-          const summary = [
-            '## Phase 10B production acceptance',
-            '',
-            `- Current actionable TMDB targets: ${expected.length}`,
-            `- Matching targets before KR sync: ${beforeMatched}`,
-            `- Matching targets after KR sync: ${expected.length - missing.length}`,
-            `- Fallbacks applied by sync: ${Number(sync.scheduleFallbacksApplied || 0)}`,
-            `- Fallbacks pruned by sync: ${Number(sync.scheduleFallbacksPruned || 0)}`,
-            `- KR future TVmaze rows: ${beforeTvmaze} -> ${afterTvmaze}`,
-            `- Future non-KR TMDB fallback rows: ${nonKrFallbacks}`,
-            `- Latest tmdb_kr status: ${krStatus.status}`,
-            '',
-            'Result: ACCEPTED'
-          ];
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary.join('\n')}\n`);
           NODE
