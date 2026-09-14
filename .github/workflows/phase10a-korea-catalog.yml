@@ -2,15 +2,22 @@ name: Phase 10A Korea catalog sync
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 env:
   PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+  PRODUCTION_DB_NAME: "series-hub-db"
+  WRANGLER_VERSION: "4.125.0"
 
 jobs:
   sync:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -65,3 +72,101 @@ jobs:
             if (payload.meta?.source !== "tmdb_kr" || payload.meta?.market !== "KR") process.exit(1);
             if (!payload.data || !["success", "success_with_warnings"].includes(payload.data.status)) process.exit(1);
           '
+
+  quality-diagnostic:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+
+    steps:
+      - name: Validate read-only diagnostic credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+
+      - name: Read current production Korean rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
+            "SELECT id, tmdb_id, english_title, original_title, original_language, origin_country, status, last_synced_at FROM shows WHERE origin_country LIKE '%KR%' ORDER BY last_synced_at DESC, id ASC LIMIT 30;" \
+            > kr-production.json
+
+      - name: Compare TMDB structure against known Korean dramas
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const token = process.env.TMDB_API_TOKEN;
+          const raw = JSON.parse(fs.readFileSync('kr-production.json', 'utf8'));
+          const groups = Array.isArray(raw) ? raw : [raw];
+          const rows = groups.flatMap((group) => Array.isArray(group?.results) ? group.results : []);
+
+          async function tmdb(path, params = {}) {
+            const url = new URL(`https://api.themoviedb.org/3${path}`);
+            for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
+            const response = await fetch(url, {
+              headers: { accept: 'application/json', authorization: `Bearer ${token}` }
+            });
+            if (!response.ok) throw new Error(`TMDB ${response.status} ${path}`);
+            return response.json();
+          }
+
+          function summary(details, label) {
+            return {
+              label,
+              id: details.id,
+              name: details.name,
+              original_name: details.original_name,
+              type: details.type,
+              origin_country: details.origin_country,
+              original_language: details.original_language,
+              genres: (details.genres || []).map((genre) => `${genre.id}:${genre.name}`),
+              networks: (details.networks || []).map((network) => `${network.id}:${network.name}`),
+              runtime: details.episode_run_time,
+              seasons: details.number_of_seasons,
+              episodes: details.number_of_episodes,
+              status: details.status,
+              keywords: (details.keywords?.results || []).map((keyword) => keyword.name).slice(0, 20)
+            };
+          }
+
+          const production = [];
+          for (const row of rows) {
+            const details = await tmdb(`/tv/${row.tmdb_id}`, {
+              language: 'en-US',
+              append_to_response: 'keywords'
+            });
+            production.push(summary(details, `production:${row.id}`));
+          }
+
+          const comparatorNames = [
+            'Queen of Tears',
+            'Crash Landing on You',
+            'Moving',
+            'The Glory',
+            'Lovely Runner',
+            'Hospital Playlist'
+          ];
+          const comparators = [];
+          for (const query of comparatorNames) {
+            const search = await tmdb('/search/tv', { language: 'en-US', query, page: 1 });
+            const match = (search.results || []).find((item) => Array.isArray(item.origin_country) && item.origin_country.includes('KR'));
+            if (!match) throw new Error(`No KR comparator match for ${query}`);
+            const details = await tmdb(`/tv/${match.id}`, {
+              language: 'en-US',
+              append_to_response: 'keywords'
+            });
+            comparators.push(summary(details, `known-drama:${query}`));
+          }
+
+          console.log(JSON.stringify({ production, comparators }, null, 2));
+          NODE
