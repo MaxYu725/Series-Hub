@@ -92,13 +92,16 @@ test("Phase 8 worker serves the discovery endpoint through the current wrapper",
 
 test("Phase 8 worker and homepage expose discovery without replacing existing views", () => {
   const worker = readFileSync(join(root, "src", "phase8-worker.js"), "utf8");
+  const phase10Worker = readFileSync(join(root, "src", "phase10-worker.js"), "utf8");
   const wrangler = readFileSync(join(root, "wrangler.jsonc"), "utf8");
   const html = readFileSync(join(root, "public", "index.html"), "utf8");
   const ui = readFileSync(join(root, "public", "phase8-ui.js"), "utf8");
 
   assert.match(worker, /url\.pathname === "\/api\/discover"/);
   assert.match(worker, /return phase7Worker\.fetch/);
-  assert.match(wrangler, /"main": "\.\/src\/phase8-worker\.js"/);
+  assert.match(wrangler, /"main": "\.\/src\/phase10-worker\.js"/);
+  assert.match(phase10Worker, /import phase8Worker from "\.\/phase8-worker\.js"/);
+  assert.match(phase10Worker, /return phase8Worker\.fetch\(request, env, ctx\);/);
   assert.match(html, /id="discover-filter"/);
   assert.match(html, /phase8\.css/);
   assert.match(html, /phase8-ui\.js/);
