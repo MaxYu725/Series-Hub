@@ -1,0 +1,162 @@
+name: Phase 10B Korea schedule baseline
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+env:
+  PRODUCTION_DB_NAME: "series-hub-db"
+  WRANGLER_VERSION: "4.125.0"
+
+jobs:
+  baseline:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
+
+    steps:
+      - name: Validate diagnostic credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
+
+      - name: Read production Korean schedule baseline
+        id: d1
+        shell: bash
+        run: |
+          set -euo pipefail
+          KR_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
+            "SELECT s.id, s.tmdb_id, s.english_title, s.original_title, s.origin_country, s.status, s.imdb_id, s.thetvdb_id, s.tvmaze_id, s.tvmaze_synced_at, (SELECT COUNT(*) FROM episodes e JOIN seasons se ON se.id = e.season_id WHERE se.show_id = s.id) AS episode_count, (SELECT COUNT(*) FROM episodes e JOIN seasons se ON se.id = e.season_id WHERE se.show_id = s.id AND e.air_date >= date('now')) AS future_episode_count, (SELECT MIN(e.air_date) FROM episodes e JOIN seasons se ON se.id = e.season_id WHERE se.show_id = s.id AND e.air_date >= date('now')) AS next_d1_air_date FROM shows s WHERE (',' || COALESCE(s.origin_country, '') || ',') LIKE '%,KR,%' ORDER BY s.id;")"
+          printf '%s\n' "${KR_JSON}"
+          node -e 'const p=JSON.parse(process.env.KR_JSON); const g=Array.isArray(p)?p:[p]; const rows=g.flatMap(x=>Array.isArray(x?.results)?x.results:[]); if(!rows.length) throw new Error("No Korean-origin production rows"); require("fs").writeFileSync("/tmp/phase10b-kr.json", JSON.stringify(rows)); console.log(`Loaded ${rows.length} Korean-origin rows`);' \
+            <<<"" 
+        env:
+          KR_JSON: ${{ env.KR_JSON }}
+
+      - name: Compare D1 with TMDB and TVmaze schedule coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const rows = JSON.parse(fs.readFileSync('/tmp/phase10b-kr.json', 'utf8'));
+          const tmdbToken = process.env.TMDB_API_TOKEN;
+          const today = new Date().toISOString().slice(0, 10);
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          async function fetchJson(url, options = {}) {
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+              const response = await fetch(url, options);
+              if (response.status === 404) return null;
+              if (response.status === 429 && attempt < 2) {
+                await sleep(1500 * (attempt + 1));
+                continue;
+              }
+              if (!response.ok) throw new Error(`${response.status} ${url}`);
+              return response.json();
+            }
+            throw new Error(`Retries exhausted: ${url}`);
+          }
+
+          async function tmdbDetails(tmdbId) {
+            return fetchJson(`https://api.themoviedb.org/3/tv/${tmdbId}?append_to_response=external_ids`, {
+              headers: { accept: 'application/json', authorization: `Bearer ${tmdbToken}` }
+            });
+          }
+
+          async function lookupTvmaze(imdbId, tvdbId) {
+            if (imdbId) {
+              const found = await fetchJson(`https://api.tvmaze.com/lookup/shows?imdb=${encodeURIComponent(imdbId)}`);
+              if (found?.id) return found;
+            }
+            if (tvdbId) {
+              const found = await fetchJson(`https://api.tvmaze.com/lookup/shows?thetvdb=${encodeURIComponent(tvdbId)}`);
+              if (found?.id) return found;
+            }
+            return null;
+          }
+
+          const output = [];
+          for (const row of rows) {
+            const details = await tmdbDetails(row.tmdb_id);
+            const ext = details?.external_ids || {};
+            const imdbId = row.imdb_id || ext.imdb_id || null;
+            const tvdbId = row.thetvdb_id || ext.tvdb_id || null;
+            let tvmazeId = row.tvmaze_id || null;
+            let mapped = null;
+            if (tvmazeId) mapped = { id: Number(tvmazeId) };
+            else mapped = await lookupTvmaze(imdbId, tvdbId);
+            if (mapped?.id) tvmazeId = Number(mapped.id);
+
+            let tvmazeFuture = [];
+            if (tvmazeId) {
+              const episodes = await fetchJson(`https://api.tvmaze.com/shows/${tvmazeId}/episodes`);
+              tvmazeFuture = (Array.isArray(episodes) ? episodes : [])
+                .filter((episode) => Number(episode?.season) > 0 && Number(episode?.number) > 0 && typeof episode?.airdate === 'string' && episode.airdate >= today)
+                .sort((a, b) => String(a.airdate).localeCompare(String(b.airdate)) || Number(a.season) - Number(b.season) || Number(a.number) - Number(b.number));
+            }
+
+            const tmdbNext = details?.next_episode_to_air?.air_date || null;
+            output.push({
+              id: row.id,
+              tmdbId: row.tmdb_id,
+              title: row.english_title,
+              status: row.status,
+              d1EpisodeCount: Number(row.episode_count || 0),
+              d1FutureCount: Number(row.future_episode_count || 0),
+              d1Next: row.next_d1_air_date || null,
+              tvmazeId,
+              tvmazeSyncedAt: row.tvmaze_synced_at || null,
+              tvmazeFutureCount: tvmazeFuture.length,
+              tvmazeNext: tvmazeFuture[0]?.airdate || null,
+              tmdbNext,
+              imdbId,
+              tvdbId
+            });
+          }
+
+          const count = (predicate) => output.filter(predicate).length;
+          const summary = {
+            koreanRows: output.length,
+            d1WithFuture: count((row) => row.d1FutureCount > 0),
+            tvmazeMapped: count((row) => Boolean(row.tvmazeId)),
+            tvmazeWithFuture: count((row) => row.tvmazeFutureCount > 0),
+            tmdbWithNext: count((row) => Boolean(row.tmdbNext)),
+            d1GapButTmdbHasNext: count((row) => row.d1FutureCount === 0 && Boolean(row.tmdbNext)),
+            d1GapButTvmazeHasFuture: count((row) => row.d1FutureCount === 0 && row.tvmazeFutureCount > 0),
+            noKnownFutureSchedule: count((row) => row.d1FutureCount === 0 && !row.tmdbNext && row.tvmazeFutureCount === 0)
+          };
+
+          console.log('PHASE10B_SUMMARY', JSON.stringify(summary));
+          for (const row of output) console.log('PHASE10B_ROW', JSON.stringify(row));
+
+          const lines = [
+            '## Phase 10B Korean schedule baseline',
+            '',
+            `- Korean rows: ${summary.koreanRows}`,
+            `- D1 with future episodes: ${summary.d1WithFuture}`,
+            `- TVmaze mapped: ${summary.tvmazeMapped}`,
+            `- TVmaze with future schedule: ${summary.tvmazeWithFuture}`,
+            `- TMDB with next_episode_to_air: ${summary.tmdbWithNext}`,
+            `- D1 gaps where TMDB has next episode: ${summary.d1GapButTmdbHasNext}`,
+            `- D1 gaps where TVmaze has future episode: ${summary.d1GapButTvmazeHasFuture}`,
+            `- No future schedule in either provider: ${summary.noKnownFutureSchedule}`,
+            '',
+            '| Show | D1 future | TVmaze future | TMDB next | TVmaze mapped |',
+            '|---|---:|---:|---|---|',
+            ...output.map((row) => `| ${String(row.title || row.tmdbId).replace(/\|/g, '\\|')} | ${row.d1FutureCount} | ${row.tvmazeFutureCount} | ${row.tmdbNext || '-'} | ${row.tvmazeId || '-'} |`)
+          ];
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
+          NODE
