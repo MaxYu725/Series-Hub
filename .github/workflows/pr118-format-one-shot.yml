@@ -20,24 +20,26 @@ jobs:
           fetch-depth: 0
 
       - name: Fix indentation only
-        shell: python
+        shell: bash
         run: |
+          python - <<'PY'
           from pathlib import Path
           path = Path("src/tmdb-korea.js")
           source = path.read_text()
           old = '''      if (!isIncludedKoreanScriptedSeries(details)) {
-recordsRejected += 1;
-if (onRejectedDetails) await onRejectedDetails(details, env.DB);
-continue;
-      }'''
+          recordsRejected += 1;
+          if (onRejectedDetails) await onRejectedDetails(details, env.DB);
+          continue;
+                }'''.replace("        ", "")
           new = '''      if (!isIncludedKoreanScriptedSeries(details)) {
-        recordsRejected += 1;
-        if (onRejectedDetails) await onRejectedDetails(details, env.DB);
-        continue;
-      }'''
+                recordsRejected += 1;
+                if (onRejectedDetails) await onRejectedDetails(details, env.DB);
+                continue;
+              }'''.replace("        ", "")
           if source.count(old) != 1:
               raise SystemExit("expected exactly one malformed indentation block")
           path.write_text(source.replace(old, new))
+          PY
 
       - name: Commit formatting and remove one-shot workflow
         shell: bash
