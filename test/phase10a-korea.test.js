@@ -45,8 +45,6 @@ test("Phase 10A uses verified Korean network seeds and a separate 24-request cei
   assert.equal(KOREA_TMDB_SYNC_BUDGET.networkDiscoveryRequests, 4);
   assert.equal(KOREA_TMDB_SYNC_BUDGET.detailRequests, 18);
   assert.equal(KOREA_TMDB_SYNC_BUDGET.totalExternalRequests, 24);
-
-  // The accepted US production ceiling is intentionally unchanged.
   assert.equal(TMDB_SYNC_BUDGET.totalExternalRequests, 48);
 });
 
@@ -70,15 +68,8 @@ test("Phase 10A defines Korean drama by KR origin rather than Korean language al
 test("Phase 10A.1 requires a real fiction genre instead of trusting Scripted alone", () => {
   assert.equal(hasKoreanFictionGenre(koreanSeries()), true);
   assert.equal(isIncludedKoreanCatalogSeries(koreanSeries()), true);
-
-  // Production diagnostics showed several Korean variety/lifestyle records marked
-  // Scripted by TMDB but carrying no genres at all. Sparse metadata stays out
-  // until TMDB supplies a fiction genre.
   assert.equal(isIncludedKoreanCatalogSeries(koreanSeries({ genres: [] })), false);
   assert.equal(isIncludedKoreanCatalogSeries(koreanSeries({ genres: null })), false);
-
-  // A drama does not need the literal Drama genre. Fantasy/comedy, crime,
-  // family, soap and other narrative genres remain valid.
   assert.equal(
     isIncludedKoreanCatalogSeries(koreanSeries({
       genres: [
@@ -91,17 +82,26 @@ test("Phase 10A.1 requires a real fiction genre instead of trusting Scripted alo
   assert.ok(KOREA_FICTION_GENRE_IDS.includes(10766), "Korean daily/soap fiction remains allowed");
 });
 
-test("Phase 10A.1 quality cleanup is metadata-based and contains no title blacklist", () => {
+test("Phase 10A.1 applies the quality gate before persistence and contains no title blacklist", () => {
   const quality = fs.readFileSync(new URL("../src/tmdb-korea-quality.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../src/tmdb-korea.js", import.meta.url), "utf8");
   const migration = fs.readFileSync(
     new URL("../migrations/0020_phase10a1_korea_catalog_quality.sql", import.meta.url),
     "utf8"
   );
   const wrapper = fs.readFileSync(new URL("../src/phase10-worker.js", import.meta.url), "utf8");
 
-  assert.match(quality, /NOT EXISTS/);
-  assert.match(quality, /show_genres/);
-  assert.match(quality, /tmdb_genre_id IN/);
+  assert.match(source, /typeof options\.includeDetails === "function"/);
+  assert.match(source, /recordsRejected \+= 1/);
+  const qualityGateIndex = source.indexOf("includeDetails && !includeDetails(details)");
+  const persistIndex = source.indexOf("await persistSeries(env.DB, normalized)");
+  assert.ok(qualityGateIndex > 0 && persistIndex > qualityGateIndex, "quality gate must run before D1 persistence");
+
+  assert.match(quality, /includeDetails/);
+  assert.match(quality, /recordsAccepted: Number\(result\.recordsChanged/);
+  assert.match(quality, /recordsPruned: 0/);
+  assert.doesNotMatch(quality, /DELETE FROM shows/);
+
   assert.match(migration, /NOT EXISTS/);
   assert.match(migration, /show_genres/);
   assert.match(migration, /tmdb_genre_id IN/);
