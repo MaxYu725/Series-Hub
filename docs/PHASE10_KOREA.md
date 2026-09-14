@@ -91,7 +91,9 @@ The run proved the Phase 10A ingestion architecture and budget isolation, but al
 
 A read-only follow-up diagnostic compared the production rows with Queen of Tears, Crash Landing on You, Moving, The Glory, Lovely Runner and Hospital Playlist. The useful invariant was not episode count, runtime, network or a particular title keyword; it was the presence of at least one fiction genre. This preserves long daily dramas and genre series while rejecting the observed sparse false positives.
 
-Phase 10A.1 therefore applies the fiction-genre requirement as a post-ingestion quality layer and uses migration `0020_phase10a1_korea_catalog_quality.sql` for the one-time cleanup of already-ingested rows that fail the same metadata rule. The cleanup is based only on country and genre relationships and contains no show-title or TMDB-ID blacklist.
+Migration `0020_phase10a1_korea_catalog_quality.sql` performs the one-time cleanup of already-ingested rows that fail the same metadata rule. The cleanup is based only on country and genre relationships and contains no show-title or TMDB-ID blacklist.
+
+The first post-migration production acceptance run confirmed that only three fiction-qualified rows remained, but also exposed avoidable write/delete churn in the initial quality wrapper: sparse detail records were persisted before being pruned. Phase 10A.1 therefore moves the fiction-genre admission check into the KR detail loop before `persistSeries()`. The base KR sync retains its accepted discovery/budget behavior and exposes an optional admission predicate; the Phase 10 quality wrapper supplies the stricter fiction policy. Runtime syncs no longer use delete-after-write cleanup.
 
 ### Product behavior
 
@@ -128,8 +130,9 @@ Phase 10A / 10A.1 is accepted only when:
 5. the Phase 10 wrapper delegates all non-Korean fetch and scheduled behavior to Phase 8;
 6. production D1 records `tmdb_kr` separately from `tmdb`;
 7. a production Korean sync inserts real active Korean scripted series without synthetic IDs or manual show seeds;
-8. the quality cleanup removes the observed false positives without title/TMDB-ID blacklists;
-9. a production re-run confirms accepted KR rows retain fiction genres and the US catalog remains healthy.
+8. migration 0020 removes the observed historical false positives without title/TMDB-ID blacklists;
+9. normal KR sync applies fiction admission before D1 persistence and does not rely on runtime delete-after-write pruning;
+10. a production re-run confirms accepted/rejected metrics, zero out-of-policy KR rows and healthy US catalog sync.
 
 ### Deferred
 

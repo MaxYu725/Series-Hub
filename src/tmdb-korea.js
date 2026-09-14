@@ -373,11 +373,15 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
   const now = options.now instanceof Date && Number.isFinite(options.now.getTime())
     ? options.now
     : new Date();
+  const includeDetails = typeof options.includeDetails === "function"
+    ? options.includeDetails
+    : null;
 
   const sourceId = await getSourceId(env.DB);
   const runId = await beginSyncRun(env.DB, sourceId);
   let recordsSeen = 0;
   let recordsChanged = 0;
+  let recordsRejected = 0;
   const warnings = [];
 
   try {
@@ -447,6 +451,10 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
 
       const details = entry.result.value;
       if (!isIncludedKoreanScriptedSeries(details)) continue;
+      if (includeDetails && !includeDetails(details)) {
+        recordsRejected += 1;
+        continue;
+      }
       const normalized = normalizeTmdbSeries(details, now);
       if (!ACTIVE_CATALOG_STATUSES.has(normalized.status)) continue;
 
@@ -471,6 +479,7 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
       recordsSeen,
       recordsSelected: selectedCandidates.length,
       recordsChanged,
+      recordsRejected,
       discoveryRequests: candidateFeeds.length,
       networkSeeds: activeNetworkSeeds.map((seed) => seed.name),
       networkPages: networkDiscoveries.map(({ seed, page }) => ({ name: seed.name, page })),
