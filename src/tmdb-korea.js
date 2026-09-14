@@ -454,10 +454,10 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
 
       const details = entry.result.value;
       if (!isIncludedKoreanScriptedSeries(details)) {
-      recordsRejected += 1;
-      if (onRejectedDetails) await onRejectedDetails(details, env.DB);
-      continue;
-    }
+        recordsRejected += 1;
+        if (onRejectedDetails) await onRejectedDetails(details, env.DB);
+        continue;
+      }
       if (includeDetails && !includeDetails(details)) {
         recordsRejected += 1;
         if (onRejectedDetails) await onRejectedDetails(details, env.DB);
