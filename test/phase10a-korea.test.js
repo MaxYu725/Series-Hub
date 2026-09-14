@@ -117,12 +117,15 @@ test("Phase 10A.1 rejects new sparse rows before persistence and cleans stale ro
   assert.match(source, /typeof options\.onRejectedDetails === "function"/);
   assert.match(source, /recordsRejected \+= 1/);
   assert.match(source, /await onRejectedDetails\(details, env\.DB\)/);
+  const basePolicyIndex = source.indexOf("if (!isIncludedKoreanScriptedSeries(details)) {");
+  const firstCleanupHookIndex = source.indexOf("await onRejectedDetails(details, env.DB)");
   const qualityGateIndex = source.indexOf("includeDetails && !includeDetails(details)");
-  const cleanupHookIndex = source.indexOf("await onRejectedDetails(details, env.DB)");
+  const qualityCleanupHookIndex = source.lastIndexOf("await onRejectedDetails(details, env.DB)");
   const persistIndex = source.indexOf("await persistSeries(env.DB, normalized)");
   const successIndex = source.indexOf('const status = warnings.length ? "success_with_warnings" : "success"');
+  assert.ok(basePolicyIndex > 0 && firstCleanupHookIndex > basePolicyIndex && qualityGateIndex > firstCleanupHookIndex, "base-policy rejection must reach stale cleanup before the quality gate");
   assert.ok(qualityGateIndex > 0 && persistIndex > qualityGateIndex, "quality gate must run before D1 persistence");
-  assert.ok(cleanupHookIndex > qualityGateIndex && successIndex > cleanupHookIndex, "cleanup must finish before sync success is recorded");
+  assert.ok(qualityCleanupHookIndex > qualityGateIndex && successIndex > qualityCleanupHookIndex, "cleanup must finish before sync success is recorded");
 
   assert.match(quality, /isEligibleForUsCatalog/);
   assert.match(quality, /isIncludedUsScriptedSeries/);
