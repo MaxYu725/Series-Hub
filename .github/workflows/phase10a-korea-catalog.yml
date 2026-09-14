@@ -2,26 +2,37 @@ name: Phase 10A Korea catalog sync
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 env:
   PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+  PRODUCTION_DB_NAME: "series-hub-db"
+  WRANGLER_VERSION: "4.125.0"
 
 jobs:
   sync:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ID }}
 
     steps:
-      - name: Validate TMDB credential
+      - name: Validate production credentials
         shell: bash
         run: |
           set -euo pipefail
           test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_API secret is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
 
       - name: Derive internal sync key
         id: sync_key
@@ -64,4 +75,37 @@ jobs:
             const payload = JSON.parse(process.env.STATUS_JSON);
             if (payload.meta?.source !== "tmdb_kr" || payload.meta?.market !== "KR") process.exit(1);
             if (!payload.data || !["success", "success_with_warnings"].includes(payload.data.status)) process.exit(1);
+          '
+
+      - name: Read production Korean catalog benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          KR_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
+            "SELECT id, tmdb_id, english_title, original_title, original_language, origin_country, status, last_synced_at FROM shows WHERE origin_country LIKE '%KR%' ORDER BY last_synced_at DESC, id ASC LIMIT 20;")"
+          printf '%s\n' "${KR_JSON}"
+          KR_JSON="${KR_JSON}" node -e '
+            const payload = JSON.parse(process.env.KR_JSON);
+            const groups = Array.isArray(payload) ? payload : [payload];
+            const rows = groups.flatMap((group) => Array.isArray(group?.results) ? group.results : []);
+            if (rows.length < 1) {
+              console.error("No production KR catalog rows were found after sync");
+              process.exit(1);
+            }
+            if (rows.some((row) => !String(row.origin_country || "").split(",").includes("KR"))) process.exit(1);
+            console.log(`Production Korean catalog benchmark: ${rows.length} recent rows`);
+          '
+
+          STATUS_ROWS="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
+            "SELECT s.source_key, sr.run_type, sr.status, sr.records_seen, sr.records_changed, sr.finished_at FROM sync_runs sr JOIN sources s ON s.id = sr.source_id WHERE s.source_key IN ('tmdb','tmdb_kr') ORDER BY sr.id DESC LIMIT 8;")"
+          printf '%s\n' "${STATUS_ROWS}"
+          STATUS_ROWS="${STATUS_ROWS}" node -e '
+            const payload = JSON.parse(process.env.STATUS_ROWS);
+            const groups = Array.isArray(payload) ? payload : [payload];
+            const rows = groups.flatMap((group) => Array.isArray(group?.results) ? group.results : []);
+            const kr = rows.find((row) => row.source_key === "tmdb_kr");
+            const us = rows.find((row) => row.source_key === "tmdb");
+            if (!kr || !["success", "success_with_warnings"].includes(kr.status)) process.exit(1);
+            if (!us || !["success", "success_with_warnings"].includes(us.status)) process.exit(1);
+            console.log(`Separate sync health confirmed: tmdb_kr=${kr.status}, tmdb=${us.status}`);
           '
