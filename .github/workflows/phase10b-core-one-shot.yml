@@ -24,115 +24,47 @@ jobs:
         run: |
           from pathlib import Path
 
-          def replace_once(path, old, new):
-              source = path.read_text()
-              if source.count(old) != 1:
-                  raise SystemExit(f"expected exactly one match in {path}: {old[:80]!r}")
-              path.write_text(source.replace(old, new))
+          def once(path, old, new):
+              text = path.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected exactly one match in {path}: {old[:100]!r}")
+              path.write_text(text.replace(old, new))
 
           korea = Path("src/tmdb-korea.js")
-          replace_once(
-              korea,
-              '''  const onRejectedDetails = typeof options.onRejectedDetails === "function"
-              ? options.onRejectedDetails
-              : null;
-          ''',
-              '''  const onRejectedDetails = typeof options.onRejectedDetails === "function"
-              ? options.onRejectedDetails
-              : null;
-            const onAcceptedDetails = typeof options.onAcceptedDetails === "function"
-              ? options.onAcceptedDetails
-              : null;
-          '''
-          )
-          replace_once(
-              korea,
-              '''      await persistSeries(env.DB, normalized);
-                recordsChanged += 1;
-          ''',
-              '''      const showId = await persistSeries(env.DB, normalized);
-                recordsChanged += 1;
-                if (onAcceptedDetails) {
-                  await onAcceptedDetails(details, env.DB, { showId, normalized, now });
-                }
-          '''
-          )
+          old = "  const onRejectedDetails = typeof options.onRejectedDetails === \"function\"\n    ? options.onRejectedDetails\n    : null;\n"
+          new = old + "  const onAcceptedDetails = typeof options.onAcceptedDetails === \"function\"\n    ? options.onAcceptedDetails\n    : null;\n"
+          once(korea, old, new)
+
+          old = "      await persistSeries(env.DB, normalized);\n      recordsChanged += 1;\n"
+          new = "      const showId = await persistSeries(env.DB, normalized);\n      recordsChanged += 1;\n      if (onAcceptedDetails) {\n        await onAcceptedDetails(details, env.DB, { showId, normalized, now });\n      }\n"
+          once(korea, old, new)
 
           tvmaze = Path("src/tvmaze.js")
-          replace_once(
+          once(
               tvmaze,
-              '''async function replaceTvmazeEpisodes(db, show, normalizedEpisodes) {
-            await db
-          ''',
-              '''async function replaceTvmazeEpisodes(db, show, normalizedEpisodes, now = new Date()) {
-            await db
-          '''
+              "async function replaceTvmazeEpisodes(db, show, normalizedEpisodes) {\n  await db\n",
+              "async function replaceTvmazeEpisodes(db, show, normalizedEpisodes, now = new Date()) {\n  await db\n"
           )
-          replace_once(
-              tvmaze,
-              '''    .bind(show.id)
-              .run();
 
-            let inserted = 0;
-          ''',
-              '''    .bind(show.id)
-              .run();
+          old = "    .bind(show.id)\n    .run();\n\n  let inserted = 0;\n"
+          new = "    .bind(show.id)\n    .run();\n\n  const today = todayUtc(now);\n  const hasFutureTvmazeSchedule = normalizedEpisodes.some((episode) => episode.airDate >= today);\n  if (hasFutureTvmazeSchedule) {\n    await db\n      .prepare(\n        `DELETE FROM episodes\n         WHERE tvmaze_id IS NULL\n           AND tmdb_id IS NOT NULL\n           AND source_url LIKE 'https://www.themoviedb.org/tv/%'\n           AND air_date >= ?2\n           AND season_id IN (SELECT id FROM seasons WHERE show_id = ?1)`\n      )\n      .bind(show.id, today)\n      .run();\n  }\n\n  let inserted = 0;\n"
+          once(tvmaze, old, new)
 
-            const today = todayUtc(now);
-            const hasFutureTvmazeSchedule = normalizedEpisodes.some((episode) => episode.airDate >= today);
-            if (hasFutureTvmazeSchedule) {
-              await db
-                .prepare(
-                  `DELETE FROM episodes
-                   WHERE tvmaze_id IS NULL
-                     AND tmdb_id IS NOT NULL
-                     AND source_url LIKE 'https://www.themoviedb.org/tv/%'
-                     AND air_date >= ?2
-                     AND season_id IN (SELECT id FROM seasons WHERE show_id = ?1)`
-                )
-                .bind(show.id, today)
-                .run();
-            }
+          old = "  const limit = Math.min(Math.max(Number(options.limit) || SHOWS_PER_SYNC, 1), SHOWS_PER_SYNC);\n  const sourceId = await getSourceId(env.DB);\n"
+          new = "  const limit = Math.min(Math.max(Number(options.limit) || SHOWS_PER_SYNC, 1), SHOWS_PER_SYNC);\n  const now = options.now instanceof Date && Number.isFinite(options.now.getTime())\n    ? options.now\n    : new Date();\n  const sourceId = await getSourceId(env.DB);\n"
+          once(tvmaze, old, new)
 
-            let inserted = 0;
-          '''
-          )
-          replace_once(
-              tvmaze,
-              '''  const limit = Math.min(Math.max(Number(options.limit) || SHOWS_PER_SYNC, 1), SHOWS_PER_SYNC);
-            const sourceId = await getSourceId(env.DB);
-          ''',
-              '''  const limit = Math.min(Math.max(Number(options.limit) || SHOWS_PER_SYNC, 1), SHOWS_PER_SYNC);
-            const now = options.now instanceof Date && Number.isFinite(options.now.getTime())
-              ? options.now
-              : new Date();
-            const sourceId = await getSourceId(env.DB);
-          '''
-          )
-          replace_once(
-              tvmaze,
-              '''        const relevant = selectRelevantEpisodes(episodes)
-                  .map(normalizeTvmazeEpisode)
-                  .filter(Boolean);
-
-                recordsChanged += await replaceTvmazeEpisodes(env.DB, show, relevant);
-          '''.replace("                .map", "          .map").replace("                .filter", "          .filter").replace("                recordsChanged", "        recordsChanged"),
-              '''        const relevant = selectRelevantEpisodes(episodes, now)
-          .map(normalizeTvmazeEpisode)
-          .filter(Boolean);
-
-        recordsChanged += await replaceTvmazeEpisodes(env.DB, show, relevant, now);
-          '''
-          )
+          old = "        const relevant = selectRelevantEpisodes(episodes)\n          .map(normalizeTvmazeEpisode)\n          .filter(Boolean);\n\n        recordsChanged += await replaceTvmazeEpisodes(env.DB, show, relevant);\n"
+          new = "        const relevant = selectRelevantEpisodes(episodes, now)\n          .map(normalizeTvmazeEpisode)\n          .filter(Boolean);\n\n        recordsChanged += await replaceTvmazeEpisodes(env.DB, show, relevant, now);\n"
+          once(tvmaze, old, new)
 
           worker = Path("src/phase10-worker.js")
-          source = worker.read_text()
-          source = source.replace('phase: "10a-korea-catalog"', 'phase: "10b-korea-schedule"')
-          if source.count('phase: "10b-korea-schedule"') != 2:
+          text = worker.read_text()
+          if text.count('phase: "10a-korea-catalog"') != 2:
               raise SystemExit("expected two Phase 10 status labels")
-          worker.write_text(source)
+          worker.write_text(text.replace('phase: "10a-korea-catalog"', 'phase: "10b-korea-schedule"'))
 
-      - name: Commit core integration and remove one-shot workflow
+      - name: Commit integration and remove one-shot workflow
         shell: bash
         run: |
           set -euo pipefail
