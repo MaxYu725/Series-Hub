@@ -2,7 +2,7 @@ import phase8Worker from "./phase8-worker.js";
 import { deriveTmdbSyncKey } from "./index.js";
 import { syncTmdbKoreanCatalog } from "./tmdb-korea.js";
 
-const KOREA_SYNC_CRON = "17 */6 * * *";
+const KOREA_SYNC_CRON = "37 */6 * * *";
 
 function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -48,7 +48,12 @@ async function runKoreanTmdbSync(request, env) {
 }
 
 async function koreanSyncStatus(env) {
-  if (!env.DB) return json({ data: null, meta: { source: "tmdb_kr", phase: "10a-korea-catalog" } });
+  if (!env.DB) {
+    return json({
+      data: null,
+      meta: { source: "tmdb_kr", market: "KR", phase: "10a-korea-catalog" }
+    });
+  }
 
   try {
     const row = await env.DB.prepare(
@@ -101,14 +106,19 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    await phase8Worker.scheduled(controller, env, ctx);
-
-    if (controller.cron === KOREA_SYNC_CRON && env.TMDB_API_TOKEN) {
+    if (controller.cron === KOREA_SYNC_CRON) {
+      if (!env.TMDB_API_TOKEN) {
+        console.warn("TMDB Korea scheduled sync skipped: TMDB_API_TOKEN is not configured");
+        return;
+      }
       ctx.waitUntil(
         syncTmdbKoreanCatalog(env).catch((error) =>
           console.error("TMDB Korea scheduled sync failed", error)
         )
       );
+      return;
     }
+
+    return phase8Worker.scheduled(controller, env, ctx);
   }
 };
