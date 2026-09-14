@@ -104,7 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           node <<'NODE'
-          const fs = require('fs');
+          const fs = (await import('node:fs')).default;
           const token = process.env.TMDB_API_TOKEN;
           const raw = JSON.parse(fs.readFileSync('kr-production.json', 'utf8'));
           const groups = Array.isArray(raw) ? raw : [raw];
