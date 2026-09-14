@@ -51,7 +51,7 @@ async function koreanSyncStatus(env) {
   if (!env.DB) {
     return json({
       data: null,
-      meta: { source: "tmdb_kr", market: "KR", phase: "10a-korea-catalog" }
+      meta: { source: "tmdb_kr", market: "KR", phase: "10b-korea-schedule" }
     });
   }
 
@@ -75,7 +75,7 @@ async function koreanSyncStatus(env) {
 
     return json({
       data: row || null,
-      meta: { source: "tmdb_kr", market: "KR", phase: "10a-korea-catalog" }
+      meta: { source: "tmdb_kr", market: "KR", phase: "10b-korea-schedule" }
     });
   } catch (error) {
     return json({

@@ -379,6 +379,9 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
   const onRejectedDetails = typeof options.onRejectedDetails === "function"
     ? options.onRejectedDetails
     : null;
+  const onAcceptedDetails = typeof options.onAcceptedDetails === "function"
+    ? options.onAcceptedDetails
+    : null;
 
   const sourceId = await getSourceId(env.DB);
   const runId = await beginSyncRun(env.DB, sourceId);
@@ -466,8 +469,11 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
       const normalized = normalizeTmdbSeries(details, now);
       if (!ACTIVE_CATALOG_STATUSES.has(normalized.status)) continue;
 
-      await persistSeries(env.DB, normalized);
+      const showId = await persistSeries(env.DB, normalized);
       recordsChanged += 1;
+      if (onAcceptedDetails) {
+        await onAcceptedDetails(details, env.DB, { showId, normalized, now });
+      }
     }
 
     const status = warnings.length ? "success_with_warnings" : "success";

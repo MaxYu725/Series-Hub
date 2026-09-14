@@ -7,6 +7,7 @@ import {
   isIncludedKoreanScriptedSeries,
   syncTmdbKoreanCatalog as syncBaseKoreanCatalog
 } from "./tmdb-korea.js";
+import { syncKoreanTmdbNextEpisodeFallback } from "./tmdb-korea-schedule.js";
 
 export const KOREA_FICTION_GENRE_IDS = Object.freeze([
   18,    // Drama
@@ -64,10 +65,15 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
   const callerOnRejectedDetails = typeof options.onRejectedDetails === "function"
     ? options.onRejectedDetails
     : null;
+  const callerOnAcceptedDetails = typeof options.onAcceptedDetails === "function"
+    ? options.onAcceptedDetails
+    : null;
   const qualityNow = options.now instanceof Date && Number.isFinite(options.now.getTime())
     ? options.now
     : new Date();
   let recordsPruned = 0;
+  let scheduleFallbacksApplied = 0;
+  let scheduleFallbacksPruned = 0;
 
   const includeDetails = (details) =>
     isIncludedKoreanCatalogSeries(details) &&
@@ -80,10 +86,25 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
     if (callerOnRejectedDetails) await callerOnRejectedDetails(details, db);
   };
 
+  const onAcceptedDetails = async (details, db, context) => {
+    const scheduleResult = await syncKoreanTmdbNextEpisodeFallback(db, {
+      showId: context?.showId,
+      details,
+      now: qualityNow
+    });
+    scheduleFallbacksApplied += Number(scheduleResult?.applied || 0);
+    scheduleFallbacksPruned += Number(scheduleResult?.pruned || 0);
+
+    if (callerOnAcceptedDetails) {
+      await callerOnAcceptedDetails(details, db, context);
+    }
+  };
+
   const result = await syncBaseKoreanCatalog(env, {
     ...options,
     includeDetails,
-    onRejectedDetails
+    onRejectedDetails,
+    onAcceptedDetails
   });
   if (!result?.ok) return result;
 
@@ -91,6 +112,9 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
     ...result,
     recordsPruned,
     recordsAccepted: Number(result.recordsChanged || 0),
+    scheduleFallbacksApplied,
+    scheduleFallbacksPruned,
+    schedulePolicy: "tvmaze_primary_tmdb_next_episode_fallback",
     qualityPolicy: "kr_scripted_with_fiction_genre_prewrite_with_stale_cleanup"
   };
 }

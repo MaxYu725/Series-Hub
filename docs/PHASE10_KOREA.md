@@ -2,7 +2,7 @@
 
 ## Phase 10A — Korean Catalog Foundation
 
-Status: production foundation validated; Phase 10A.1 catalog-quality hardening in progress.
+Status: accepted in production, including Phase 10A.1 catalog-quality hardening.
 
 ### Scope
 
@@ -95,6 +95,8 @@ Migration `0020_phase10a1_korea_catalog_quality.sql` performs the one-time clean
 
 The first post-migration production acceptance run confirmed that only three fiction-qualified rows remained, but also exposed avoidable write/delete churn in the initial quality wrapper: sparse detail records were persisted before being pruned. Phase 10A.1 therefore moves the fiction-genre admission check into the KR detail loop before `persistSeries()`. The base KR sync retains its accepted discovery/budget behavior and exposes an optional admission predicate; the Phase 10 quality wrapper supplies the stricter fiction policy. Runtime syncs no longer use delete-after-write cleanup.
 
+PR #118 closed the remaining stale-row gap. Both base KR-policy rejections and fiction-quality rejections now reach failure-tracked cleanup before a run is marked successful, while KR/US shared rows that remain valid through the US catalog are preserved. Production acceptance confirmed 10 Korean-origin rows, zero KR-only out-of-policy rows, `tmdb_kr=success`, `tmdb=success`, and the unchanged 24-request Korean ceiling.
+
 ### Product behavior
 
 The existing title model is reused:
@@ -134,12 +136,63 @@ Phase 10A / 10A.1 is accepted only when:
 9. normal KR sync applies fiction admission before D1 persistence and does not rely on runtime delete-after-write pruning;
 10. a production re-run confirms accepted/rejected metrics, zero out-of-policy KR rows and healthy US catalog sync.
 
+## Phase 10B — Korean Schedule Coverage
+
+Status: implementation in progress after production baseline.
+
+### Production baseline — 2026-09-14
+
+A read-only production comparison measured every Korean-origin catalog row against the current D1 episode schedule, TVmaze and TMDB:
+- 10 Korean-origin rows
+- 6 with future episodes already in D1
+- 8 mapped to TVmaze
+- 6 with future schedule exposed by TVmaze
+- 8 with TMDB `next_episode_to_air`
+- 0 cases where TVmaze had future schedule but D1 lacked it
+- 2 D1 gaps where TVmaze had no future schedule but TMDB had a next episode
+- 2 rows where neither provider currently published a future episode
+- 0 provider-unavailable rows in the final diagnostic run
+
+The two actionable gaps were:
+- Good Partner (`tmdb 243761`) — TMDB next episode `2026-12-04`, while TVmaze had no future episode
+- Doctor X (`tmdb 293610`) — TMDB next episode `2026-10-09`, with no exact TVmaze mapping
+
+O’PENing and All of Us Are Dead had no future schedule from either provider and are deliberately left without fabricated episode dates.
+
+### Schedule authority policy
+
+Phase 10B keeps TVmaze as the primary episode schedule authority. It does not add a third provider.
+
+TMDB `next_episode_to_air` is used only as a bounded fallback when:
+1. the accepted KR catalog detail already contains a valid future next episode;
+2. D1 has no future TVmaze-owned episode for that show; and
+3. the referenced season already exists in the normalized catalog.
+
+The fallback reuses the TMDB detail response already fetched by the 24-request KR catalog sync. It performs no additional TMDB request and therefore does not change the KR or US request ceilings.
+
+Fallback episode rows use the existing `episodes` table and existing provenance fields. No schema or migration is required. A fallback is identifiable by a TMDB episode ID, no TVmaze episode ID, and a TMDB episode source URL.
+
+When TMDB changes or withdraws its next episode, stale future fallback rows are updated or removed. When TVmaze later publishes a future schedule, TVmaze automatically takes over and future TMDB fallback rows for that show are removed before TVmaze episodes are written.
+
+A TMDB fallback never overwrites an existing TVmaze-owned episode row.
+
+### Phase 10B acceptance gates
+
+Phase 10B is accepted only when:
+1. all existing tests remain green;
+2. a valid TMDB future next episode can populate one fallback episode without an extra network request;
+3. past, missing or malformed TMDB next-episode data never creates a fallback;
+4. TVmaze future schedule prevents TMDB fallback insertion;
+5. TVmaze can replace/remove a previous fallback when it gains future schedule coverage;
+6. a TMDB schedule change updates a TMDB-owned fallback without overwriting TVmaze ownership;
+7. the KR request ceiling remains 24 and the US ceiling remains 48;
+8. production validation confirms the expected schedule gaps close without fabricated dates or US schedule regressions.
+
 ### Deferred
 
-Not part of 10A:
-- Korean-specific TV schedule fallback source
+Not part of 10A/10B:
 - Korean official renewal / production evidence registry
-- US / Korea catalog UI selector
+- US / Korea catalog UI selector (Phase 10C)
 - Japan / Taiwan / Europe expansion
 
-Those are evaluated only after the Korean catalog foundation is proven in production.
+These remain deferred until Phase 10B schedule coverage is production-validated.
