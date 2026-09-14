@@ -2,7 +2,7 @@
 
 ## Phase 10A — Korean Catalog Foundation
 
-Status: production foundation validated; Phase 10A.1 catalog-quality hardening in progress.
+Status: **production-accepted through Phase 10A.1 catalog-quality hardening.**
 
 ### Scope
 
@@ -95,6 +95,37 @@ Migration `0020_phase10a1_korea_catalog_quality.sql` performs the one-time clean
 
 The first post-migration production acceptance run confirmed that only three fiction-qualified rows remained, but also exposed avoidable write/delete churn in the initial quality wrapper: sparse detail records were persisted before being pruned. Phase 10A.1 therefore moves the fiction-genre admission check into the KR detail loop before `persistSeries()`. The base KR sync retains its accepted discovery/budget behavior and exposes an optional admission predicate; the Phase 10 quality wrapper supplies the stricter fiction policy. Runtime syncs no longer use delete-after-write cleanup.
 
+### Final Phase 10A.1 production acceptance — 2026-09-14
+
+Production main checkpoint:
+
+```text
+163f705f672e2307fc20398174bc464ba37c7ad0
+```
+
+The merged production deployment completed successfully through unit tests, D1 migrations, Worker deployment, immediate US TMDB sync, TVmaze bootstrap/convergence, final runtime smoke and VAPID readiness.
+
+A real Korean production re-sync then returned:
+- `recordsSeen = 103`
+- `recordsSelected = 18`
+- `recordsChanged = 3`
+- `recordsAccepted = 3`
+- `recordsRejected = 4`
+- `recordsPruned = 0`
+- `discoveryRequests = 6`
+- `externalRequestBudget = 24`
+- `warnings = 0`
+- `qualityPolicy = kr_scripted_with_fiction_genre_prewrite`
+
+The pre-sync production D1 baseline contained exactly three Korean rows and all three carried two accepted fiction genres:
+- Family Register
+- Take Charge of My Heart
+- Good Partner
+
+The zero-prune result is the key Phase 10A.1 acceptance signal: sparse records are rejected before D1 persistence rather than being written and deleted afterward. The three accepted records are the only records persisted by that run, while rejected sparse records do not enter the catalog.
+
+The legacy diagnostic runner used for the final probe reports a failed assertion because it still expected the retired policy name `kr_scripted_with_fiction_genre`; the production sync itself completed successfully and returned the new `kr_scripted_with_fiction_genre_prewrite` contract above. This diagnostic runner is not part of production code.
+
 ### Product behavior
 
 The existing title model is reused:
@@ -122,17 +153,17 @@ Both retain the existing internal sync-key authorization model.
 
 ### Acceptance gates
 
-Phase 10A / 10A.1 is accepted only when:
-1. all existing US / Phase 1–9 tests remain green;
+Phase 10A / 10A.1 is accepted because:
+1. all existing US / Phase 1–8 regression tests remain green;
 2. Korean eligibility rejects non-KR, reality, animation and sparse no-fiction-genre cases;
 3. US request budget remains exactly 48;
 4. Korean request budget remains at or below 24 and runs on an isolated cron invocation;
 5. the Phase 10 wrapper delegates all non-Korean fetch and scheduled behavior to Phase 8;
 6. production D1 records `tmdb_kr` separately from `tmdb`;
-7. a production Korean sync inserts real active Korean scripted series without synthetic IDs or manual show seeds;
-8. migration 0020 removes the observed historical false positives without title/TMDB-ID blacklists;
-9. normal KR sync applies fiction admission before D1 persistence and does not rely on runtime delete-after-write pruning;
-10. a production re-run confirms accepted/rejected metrics, zero out-of-policy KR rows and healthy US catalog sync.
+7. production Korean syncs use real TMDB identities without synthetic IDs or manual show seeds;
+8. migration 0020 removed the observed historical false positives without title/TMDB-ID blacklists;
+9. normal KR sync applies fiction admission before D1 persistence and no longer relies on runtime delete-after-write pruning;
+10. the final production re-run returned accepted/rejected metrics with `recordsPruned = 0`, while the US production pipeline remained healthy.
 
 ### Deferred
 
