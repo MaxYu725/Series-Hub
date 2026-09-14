@@ -116,12 +116,12 @@ jobs:
                   .filter(Boolean);
 
                 recordsChanged += await replaceTvmazeEpisodes(env.DB, show, relevant);
-          ''',
+          '''.replace("                .map", "          .map").replace("                .filter", "          .filter").replace("                recordsChanged", "        recordsChanged"),
               '''        const relevant = selectRelevantEpisodes(episodes, now)
-                  .map(normalizeTvmazeEpisode)
-                  .filter(Boolean);
+          .map(normalizeTvmazeEpisode)
+          .filter(Boolean);
 
-                recordsChanged += await replaceTvmazeEpisodes(env.DB, show, relevant, now);
+        recordsChanged += await replaceTvmazeEpisodes(env.DB, show, relevant, now);
           '''
           )
 
