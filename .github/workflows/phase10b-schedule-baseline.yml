@@ -79,10 +79,17 @@ jobs:
             throw new Error(`Retries exhausted: ${url}`);
           }
 
+          const tmdbHeaders = {
+            accept: 'application/json',
+            authorization: `Bearer ${tmdbToken}`
+          };
+
           async function tmdbDetails(tmdbId) {
-            return fetchJson(`https://api.themoviedb.org/3/tv/${tmdbId}?append_to_response=external_ids`, {
-              headers: { accept: 'application/json', authorization: `Bearer ${tmdbToken}` }
-            });
+            return fetchJson(`https://api.themoviedb.org/3/tv/${tmdbId}`, { headers: tmdbHeaders });
+          }
+
+          async function tmdbExternalIds(tmdbId) {
+            return fetchJson(`https://api.themoviedb.org/3/tv/${tmdbId}/external_ids`, { headers: tmdbHeaders });
           }
 
           async function lookupTvmaze(imdbId, tvdbId) {
@@ -99,22 +106,47 @@ jobs:
 
           const output = [];
           for (const row of rows) {
-            const details = await tmdbDetails(row.tmdb_id);
-            const ext = details?.external_ids || {};
-            const imdbId = row.imdb_id || ext.imdb_id || null;
-            const tvdbId = row.thetvdb_id || ext.tvdb_id || null;
-            let tvmazeId = row.tvmaze_id || null;
-            let mapped = null;
-            if (tvmazeId) mapped = { id: Number(tvmazeId) };
-            else mapped = await lookupTvmaze(imdbId, tvdbId);
-            if (mapped?.id) tvmazeId = Number(mapped.id);
+            let details = null;
+            let tmdbError = null;
+            try {
+              details = await tmdbDetails(row.tmdb_id);
+            } catch (error) {
+              tmdbError = error instanceof Error ? error.message : String(error);
+            }
+
+            let imdbId = row.imdb_id || null;
+            let tvdbId = Number(row.thetvdb_id) > 0 ? Number(row.thetvdb_id) : null;
+            if (!imdbId && !tvdbId) {
+              try {
+                const ext = await tmdbExternalIds(row.tmdb_id);
+                imdbId = ext?.imdb_id || null;
+                tvdbId = Number(ext?.tvdb_id) > 0 ? Number(ext.tvdb_id) : null;
+              } catch (error) {
+                tmdbError = [tmdbError, error instanceof Error ? error.message : String(error)].filter(Boolean).join(' | ');
+              }
+            }
+
+            let tvmazeId = Number(row.tvmaze_id) > 0 ? Number(row.tvmaze_id) : null;
+            let tvmazeError = null;
+            try {
+              if (!tvmazeId) {
+                const mapped = await lookupTvmaze(imdbId, tvdbId);
+                if (mapped?.id) tvmazeId = Number(mapped.id);
+              }
+            } catch (error) {
+              tvmazeError = error instanceof Error ? error.message : String(error);
+            }
 
             let tvmazeFuture = [];
             if (tvmazeId) {
-              const episodes = await fetchJson(`https://api.tvmaze.com/shows/${tvmazeId}/episodes`);
-              tvmazeFuture = (Array.isArray(episodes) ? episodes : [])
-                .filter((episode) => Number(episode?.season) > 0 && Number(episode?.number) > 0 && typeof episode?.airdate === 'string' && episode.airdate >= today)
-                .sort((a, b) => String(a.airdate).localeCompare(String(b.airdate)) || Number(a.season) - Number(b.season) || Number(a.number) - Number(b.number));
+              try {
+                const episodes = await fetchJson(`https://api.tvmaze.com/shows/${tvmazeId}/episodes`);
+                tvmazeFuture = (Array.isArray(episodes) ? episodes : [])
+                  .filter((episode) => Number(episode?.season) > 0 && Number(episode?.number) > 0 && typeof episode?.airdate === 'string' && episode.airdate >= today)
+                  .sort((a, b) => String(a.airdate).localeCompare(String(b.airdate)) || Number(a.season) - Number(b.season) || Number(a.number) - Number(b.number));
+              } catch (error) {
+                tvmazeError = error instanceof Error ? error.message : String(error);
+              }
             }
 
             const tmdbNext = details?.next_episode_to_air?.air_date || null;
@@ -132,7 +164,9 @@ jobs:
               tvmazeNext: tvmazeFuture[0]?.airdate || null,
               tmdbNext,
               imdbId,
-              tvdbId
+              tvdbId,
+              tmdbError,
+              tvmazeError
             });
           }
 
@@ -145,7 +179,9 @@ jobs:
             tmdbWithNext: count((row) => Boolean(row.tmdbNext)),
             d1GapButTmdbHasNext: count((row) => row.d1FutureCount === 0 && Boolean(row.tmdbNext)),
             d1GapButTvmazeHasFuture: count((row) => row.d1FutureCount === 0 && row.tvmazeFutureCount > 0),
-            noKnownFutureSchedule: count((row) => row.d1FutureCount === 0 && !row.tmdbNext && row.tvmazeFutureCount === 0)
+            noKnownFutureSchedule: count((row) => row.d1FutureCount === 0 && !row.tmdbNext && row.tvmazeFutureCount === 0 && !row.tmdbError && !row.tvmazeError),
+            tmdbUnavailable: count((row) => Boolean(row.tmdbError)),
+            tvmazeUnavailable: count((row) => Boolean(row.tvmazeError))
           };
 
           console.log('PHASE10B_SUMMARY', JSON.stringify(summary));
@@ -161,11 +197,13 @@ jobs:
             `- TMDB with next_episode_to_air: ${summary.tmdbWithNext}`,
             `- D1 gaps where TMDB has next episode: ${summary.d1GapButTmdbHasNext}`,
             `- D1 gaps where TVmaze has future episode: ${summary.d1GapButTvmazeHasFuture}`,
-            `- No future schedule in either provider: ${summary.noKnownFutureSchedule}`,
+            `- No known future schedule with both providers reachable: ${summary.noKnownFutureSchedule}`,
+            `- TMDB unavailable rows: ${summary.tmdbUnavailable}`,
+            `- TVmaze unavailable rows: ${summary.tvmazeUnavailable}`,
             '',
-            '| Show | D1 future | TVmaze future | TMDB next | TVmaze mapped |',
-            '|---|---:|---:|---|---|',
-            ...output.map((row) => `| ${String(row.title || row.tmdbId).replace(/\|/g, '\\|')} | ${row.d1FutureCount} | ${row.tvmazeFutureCount} | ${row.tmdbNext || '-'} | ${row.tvmazeId || '-'} |`)
+            '| Show | D1 future | TVmaze future | TMDB next | TVmaze mapped | Provider error |',
+            '|---|---:|---:|---|---|---|',
+            ...output.map((row) => `| ${String(row.title || row.tmdbId).replace(/\|/g, '\\|')} | ${row.d1FutureCount} | ${row.tvmazeFutureCount} | ${row.tmdbNext || '-'} | ${row.tvmazeId || '-'} | ${String(row.tmdbError || row.tvmazeError || '-').replace(/\|/g, '\\|')} |`)
           ];
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
           NODE
