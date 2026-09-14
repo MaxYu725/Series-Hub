@@ -1,6 +1,6 @@
 import phase8Worker from "./phase8-worker.js";
 import { deriveTmdbSyncKey } from "./index.js";
-import { syncTmdbKoreanCatalog } from "./tmdb-korea.js";
+import { syncTmdbKoreanCatalog } from "./tmdb-korea-quality.js";
 
 const KOREA_SYNC_CRON = "37 */6 * * *";
 
