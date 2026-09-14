@@ -1,0 +1,59 @@
+name: PR118 indent one-shot
+
+on:
+  push:
+    branches:
+      - phase10a1-rejected-row-cleanup
+
+permissions:
+  contents: write
+
+jobs:
+  indent:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase10a1-rejected-row-cleanup
+          fetch-depth: 0
+
+      - name: Normalize target block indentation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("src/tmdb-korea.js")
+          lines = path.read_text().splitlines()
+          matches = [i for i, line in enumerate(lines) if line.strip() == "if (!isIncludedKoreanScriptedSeries(details)) {"]
+          if len(matches) != 1:
+              raise SystemExit(f"expected one target block, found {len(matches)}")
+          i = matches[0]
+          expected = [
+              "recordsRejected += 1;",
+              "if (onRejectedDetails) await onRejectedDetails(details, env.DB);",
+              "continue;",
+              "}",
+          ]
+          actual = [lines[i + offset].strip() for offset in range(1, 5)]
+          if actual != expected:
+              raise SystemExit(f"unexpected target block: {actual}")
+          lines[i] = "      if (!isIncludedKoreanScriptedSeries(details)) {"
+          lines[i + 1] = "        recordsRejected += 1;"
+          lines[i + 2] = "        if (onRejectedDetails) await onRejectedDetails(details, env.DB);"
+          lines[i + 3] = "        continue;"
+          lines[i + 4] = "      }"
+          path.write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Commit indentation and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/pr118-indent-one-shot.yml
+          git add src/tmdb-korea.js
+          git commit -m "Normalize Korean rejection cleanup indentation"
+          git push origin HEAD:phase10a1-rejected-row-cleanup
