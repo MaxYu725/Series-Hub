@@ -28,14 +28,15 @@ export function isIncludedKoreanCatalogSeries(details) {
   return isIncludedKoreanScriptedSeries(details) && hasKoreanFictionGenre(details);
 }
 
-export async function pruneNonFictionKoreanCatalog(db) {
-  if (!db) return 0;
+export async function pruneNonFictionKoreanCatalog(db, syncedSince) {
+  if (!db || !syncedSince) return 0;
 
   const result = await db
     .prepare(
       `DELETE FROM shows
        WHERE tmdb_id IS NOT NULL
          AND (',' || COALESCE(origin_country, '') || ',') LIKE '%,KR,%'
+         AND last_synced_at >= ?1
          AND NOT EXISTS (
            SELECT 1
            FROM show_genres sg
@@ -44,16 +45,20 @@ export async function pruneNonFictionKoreanCatalog(db) {
              AND g.tmdb_genre_id IN (${KOREA_FICTION_GENRE_SQL})
          )`
     )
+    .bind(syncedSince)
     .run();
 
   return Number(result?.meta?.changes || 0);
 }
 
 export async function syncTmdbKoreanCatalog(env, options = {}) {
+  const marker = env?.DB
+    ? await env.DB.prepare("SELECT CURRENT_TIMESTAMP AS started_at").first()
+    : null;
   const result = await syncBaseKoreanCatalog(env, options);
-  if (!result?.ok || !env?.DB) return result;
+  if (!result?.ok || !env?.DB || !marker?.started_at) return result;
 
-  const recordsPruned = await pruneNonFictionKoreanCatalog(env.DB);
+  const recordsPruned = await pruneNonFictionKoreanCatalog(env.DB, marker.started_at);
   return {
     ...result,
     recordsPruned,
