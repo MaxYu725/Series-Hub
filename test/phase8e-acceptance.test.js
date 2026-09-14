@@ -35,10 +35,10 @@ test("clearing global search restores the exact originating Explore mode", () =>
 });
 
 test("all Phase 8 network-backed views retain bounded loading and explicit failure states", () => {
-  assert.match(phase8Ui, /async function fetchFeatured\(region, timeoutMs = 12000\)/);
-  assert.match(phase8Ui, /async function fetchBrowse\(region, timeoutMs = 12000\)/);
-  assert.match(phase8Ui, /async function fetchPersonalPool\(region, timeoutMs = 12000\)/);
-  assert.match(searchUi, /async function fetchSearch\(query, region, timeoutMs = 12000\)/);
+  assert.match(phase8Ui, /async function fetchFeatured\(region, market, timeoutMs = 12000\)/);
+  assert.match(phase8Ui, /async function fetchBrowse\(region, market, timeoutMs = 12000\)/);
+  assert.match(phase8Ui, /async function fetchPersonalPool\(region, market, timeoutMs = 12000\)/);
+  assert.match(searchUi, /async function fetchSearch\(query, region, market, timeoutMs = 12000\)/);
   assert.match(phase8Ui, /探索內容暫時無法使用/);
   assert.match(phase8Ui, /為你推薦暫時無法使用/);
   assert.match(phase8Ui, /劇集瀏覽暫時無法使用/);
