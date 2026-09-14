@@ -130,15 +130,16 @@ export async function syncKoreanTmdbNextEpisodeFallback(db, {
         runtime_minutes, tmdb_id, image_url, source_url, last_synced_at
       ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, ?9, CURRENT_TIMESTAMP)
       ON CONFLICT(season_id, episode_number) DO UPDATE SET
-        name = COALESCE(episodes.name, excluded.name),
-        overview = COALESCE(episodes.overview, excluded.overview),
-        air_date = COALESCE(episodes.air_date, excluded.air_date),
-        runtime_minutes = COALESCE(episodes.runtime_minutes, excluded.runtime_minutes),
+        name = COALESCE(excluded.name, episodes.name),
+        overview = COALESCE(excluded.overview, episodes.overview),
+        air_date = excluded.air_date,
+        runtime_minutes = COALESCE(excluded.runtime_minutes, episodes.runtime_minutes),
         tmdb_id = excluded.tmdb_id,
-        image_url = COALESCE(episodes.image_url, excluded.image_url),
-        source_url = COALESCE(episodes.source_url, excluded.source_url),
+        image_url = COALESCE(excluded.image_url, episodes.image_url),
+        source_url = excluded.source_url,
         last_synced_at = CURRENT_TIMESTAMP,
-        updated_at = CURRENT_TIMESTAMP`
+        updated_at = CURRENT_TIMESTAMP
+      WHERE episodes.tvmaze_id IS NULL`
     )
     .bind(
       seasonId,
