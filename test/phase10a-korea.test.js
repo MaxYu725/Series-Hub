@@ -11,6 +11,7 @@ import {
 import {
   KOREA_FICTION_GENRE_IDS,
   hasKoreanFictionGenre,
+  isEligibleForUsCatalog,
   isIncludedKoreanCatalogSeries
 } from "../src/tmdb-korea-quality.js";
 import {
@@ -82,7 +83,28 @@ test("Phase 10A.1 requires a real fiction genre instead of trusting Scripted alo
   assert.ok(KOREA_FICTION_GENRE_IDS.includes(10766), "Korean daily/soap fiction remains allowed");
 });
 
-test("Phase 10A.1 applies the quality gate before persistence and contains no title blacklist", () => {
+test("Phase 10A.1 preserves shared KR/US rows that remain eligible for the US catalog", () => {
+  const now = new Date("2026-09-14T00:00:00Z");
+  const sharedUsSeries = koreanSeries({
+    id: 999001,
+    origin_country: ["KR", "US"],
+    genres: [],
+    networks: [{ name: "Netflix" }],
+    status: "Returning Series",
+    first_air_date: "2026-01-01",
+    last_episode_to_air: { air_date: "2026-09-10" },
+    seasons: []
+  });
+
+  assert.equal(isIncludedKoreanCatalogSeries(sharedUsSeries), false);
+  assert.equal(isEligibleForUsCatalog(sharedUsSeries, now), true);
+  assert.equal(
+    isEligibleForUsCatalog({ ...sharedUsSeries, networks: [{ name: "tvN" }] }, now),
+    false
+  );
+});
+
+test("Phase 10A.1 rejects new sparse rows before persistence and cleans stale rows inside tracked sync", () => {
   const quality = fs.readFileSync(new URL("../src/tmdb-korea-quality.js", import.meta.url), "utf8");
   const source = fs.readFileSync(new URL("../src/tmdb-korea.js", import.meta.url), "utf8");
   const migration = fs.readFileSync(
@@ -92,15 +114,29 @@ test("Phase 10A.1 applies the quality gate before persistence and contains no ti
   const wrapper = fs.readFileSync(new URL("../src/phase10-worker.js", import.meta.url), "utf8");
 
   assert.match(source, /typeof options\.includeDetails === "function"/);
+  assert.match(source, /typeof options\.onRejectedDetails === "function"/);
   assert.match(source, /recordsRejected \+= 1/);
+  assert.match(source, /await onRejectedDetails\(details, env\.DB\)/);
+  const basePolicyIndex = source.indexOf("if (!isIncludedKoreanScriptedSeries(details)) {");
+  const firstCleanupHookIndex = source.indexOf("await onRejectedDetails(details, env.DB)");
   const qualityGateIndex = source.indexOf("includeDetails && !includeDetails(details)");
+  const qualityCleanupHookIndex = source.lastIndexOf("await onRejectedDetails(details, env.DB)");
   const persistIndex = source.indexOf("await persistSeries(env.DB, normalized)");
+  const successIndex = source.indexOf('const status = warnings.length ? "success_with_warnings" : "success"');
+  assert.ok(basePolicyIndex > 0 && firstCleanupHookIndex > basePolicyIndex && qualityGateIndex > firstCleanupHookIndex, "base-policy rejection must reach stale cleanup before the quality gate");
   assert.ok(qualityGateIndex > 0 && persistIndex > qualityGateIndex, "quality gate must run before D1 persistence");
+  assert.ok(qualityCleanupHookIndex > qualityGateIndex && successIndex > qualityCleanupHookIndex, "cleanup must finish before sync success is recorded");
 
-  assert.match(quality, /includeDetails/);
+  assert.match(quality, /isEligibleForUsCatalog/);
+  assert.match(quality, /isIncludedUsScriptedSeries/);
+  assert.match(quality, /isTargetNetworkSeries/);
+  assert.match(quality, /onRejectedDetails/);
+  assert.match(quality, /DELETE FROM shows/);
+  assert.match(quality, /tmdb_id = \?1/);
+  assert.match(quality, /recordsPruned/);
   assert.match(quality, /recordsAccepted: Number\(result\.recordsChanged/);
-  assert.match(quality, /recordsPruned: 0/);
-  assert.doesNotMatch(quality, /DELETE FROM shows/);
+  assert.doesNotMatch(quality, /204448|123844|219260|219956/);
+  assert.doesNotMatch(quality, /Good Partner|Shinbyung|낭만닥터|외식하는 날/);
 
   assert.match(migration, /NOT EXISTS/);
   assert.match(migration, /show_genres/);
