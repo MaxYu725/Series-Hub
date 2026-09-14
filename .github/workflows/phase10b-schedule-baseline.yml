@@ -33,17 +33,22 @@ jobs:
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ID secret is missing"; exit 1; }
 
       - name: Read production Korean schedule baseline
-        id: d1
         shell: bash
         run: |
           set -euo pipefail
           KR_JSON="$(npx --yes wrangler@"${WRANGLER_VERSION}" d1 execute "${PRODUCTION_DB_NAME}" --remote --json --command \
             "SELECT s.id, s.tmdb_id, s.english_title, s.original_title, s.origin_country, s.status, s.imdb_id, s.thetvdb_id, s.tvmaze_id, s.tvmaze_synced_at, (SELECT COUNT(*) FROM episodes e JOIN seasons se ON se.id = e.season_id WHERE se.show_id = s.id) AS episode_count, (SELECT COUNT(*) FROM episodes e JOIN seasons se ON se.id = e.season_id WHERE se.show_id = s.id AND e.air_date >= date('now')) AS future_episode_count, (SELECT MIN(e.air_date) FROM episodes e JOIN seasons se ON se.id = e.season_id WHERE se.show_id = s.id AND e.air_date >= date('now')) AS next_d1_air_date FROM shows s WHERE (',' || COALESCE(s.origin_country, '') || ',') LIKE '%,KR,%' ORDER BY s.id;")"
           printf '%s\n' "${KR_JSON}"
-          node -e 'const p=JSON.parse(process.env.KR_JSON); const g=Array.isArray(p)?p:[p]; const rows=g.flatMap(x=>Array.isArray(x?.results)?x.results:[]); if(!rows.length) throw new Error("No Korean-origin production rows"); require("fs").writeFileSync("/tmp/phase10b-kr.json", JSON.stringify(rows)); console.log(`Loaded ${rows.length} Korean-origin rows`);' \
-            <<<"" 
-        env:
-          KR_JSON: ${{ env.KR_JSON }}
+          printf '%s' "${KR_JSON}" > /tmp/phase10b-raw.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/phase10b-raw.json', 'utf8'));
+          const groups = Array.isArray(payload) ? payload : [payload];
+          const rows = groups.flatMap((group) => Array.isArray(group?.results) ? group.results : []);
+          if (!rows.length) throw new Error('No Korean-origin production rows');
+          fs.writeFileSync('/tmp/phase10b-kr.json', JSON.stringify(rows));
+          console.log(`Loaded ${rows.length} Korean-origin rows`);
+          NODE
 
       - name: Compare D1 with TMDB and TVmaze schedule coverage
         shell: bash
