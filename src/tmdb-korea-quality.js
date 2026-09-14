@@ -1,4 +1,9 @@
 import {
+  isIncludedUsScriptedSeries,
+  isTargetNetworkSeries,
+  normalizeLifecycle
+} from "./tmdb.js";
+import {
   isIncludedKoreanScriptedSeries,
   syncTmdbKoreanCatalog as syncBaseKoreanCatalog
 } from "./tmdb-korea.js";
@@ -17,6 +22,7 @@ export const KOREA_FICTION_GENRE_IDS = Object.freeze([
 ]);
 
 const KOREA_FICTION_GENRE_ID_SET = new Set(KOREA_FICTION_GENRE_IDS);
+const ACTIVE_CATALOG_STATUSES = new Set(["airing", "upcoming", "planned"]);
 
 export function hasKoreanFictionGenre(details) {
   if (!Array.isArray(details?.genres)) return false;
@@ -27,49 +33,59 @@ export function isIncludedKoreanCatalogSeries(details) {
   return isIncludedKoreanScriptedSeries(details) && hasKoreanFictionGenre(details);
 }
 
-async function pruneRejectedExistingKoreanCatalogSeries(db, tmdbIds) {
-  let recordsPruned = 0;
+export function isEligibleForUsCatalog(details, now = new Date()) {
+  return isIncludedUsScriptedSeries(details) &&
+    isTargetNetworkSeries(details) &&
+    ACTIVE_CATALOG_STATUSES.has(normalizeLifecycle(details, now).status);
+}
 
-  for (const tmdbId of tmdbIds) {
-    const result = await db
-      .prepare(
-        `DELETE FROM shows
-         WHERE tmdb_id = ?1
-           AND (',' || COALESCE(origin_country, '') || ',') LIKE '%,KR,%'`
-      )
-      .bind(tmdbId)
-      .run();
-    recordsPruned += Number(result?.meta?.changes || 0);
-  }
+async function pruneRejectedExistingKoreanCatalogSeries(db, details, now) {
+  if (isEligibleForUsCatalog(details, now)) return 0;
 
-  return recordsPruned;
+  const tmdbId = Number(details?.id);
+  if (!Number.isInteger(tmdbId) || tmdbId <= 0) return 0;
+
+  const result = await db
+    .prepare(
+      `DELETE FROM shows
+       WHERE tmdb_id = ?1
+         AND (',' || COALESCE(origin_country, '') || ',') LIKE '%,KR,%'`
+    )
+    .bind(tmdbId)
+    .run();
+
+  return Number(result?.meta?.changes || 0);
 }
 
 export async function syncTmdbKoreanCatalog(env, options = {}) {
   const callerIncludeDetails = typeof options.includeDetails === "function"
     ? options.includeDetails
     : null;
-  const rejectedQualityTmdbIds = new Set();
-  const includeDetails = (details) => {
-    const qualityIncluded = isIncludedKoreanCatalogSeries(details);
-    const tmdbId = Number(details?.id);
-    if (!qualityIncluded && Number.isInteger(tmdbId) && tmdbId > 0) {
-      rejectedQualityTmdbIds.add(tmdbId);
-    }
+  const callerOnRejectedDetails = typeof options.onRejectedDetails === "function"
+    ? options.onRejectedDetails
+    : null;
+  const qualityNow = options.now instanceof Date && Number.isFinite(options.now.getTime())
+    ? options.now
+    : new Date();
+  let recordsPruned = 0;
 
-    return qualityIncluded &&
-      (!callerIncludeDetails || callerIncludeDetails(details));
+  const includeDetails = (details) =>
+    isIncludedKoreanCatalogSeries(details) &&
+    (!callerIncludeDetails || callerIncludeDetails(details));
+
+  const onRejectedDetails = async (details, db) => {
+    if (!isIncludedKoreanCatalogSeries(details)) {
+      recordsPruned += await pruneRejectedExistingKoreanCatalogSeries(db, details, qualityNow);
+    }
+    if (callerOnRejectedDetails) await callerOnRejectedDetails(details, db);
   };
 
   const result = await syncBaseKoreanCatalog(env, {
     ...options,
-    includeDetails
+    includeDetails,
+    onRejectedDetails
   });
   if (!result?.ok) return result;
-
-  const recordsPruned = rejectedQualityTmdbIds.size
-    ? await pruneRejectedExistingKoreanCatalogSeries(env.DB, rejectedQualityTmdbIds)
-    : 0;
 
   return {
     ...result,
