@@ -54,8 +54,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node <<'NODE'
-          const fs = require('fs');
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
           const rows = JSON.parse(fs.readFileSync('/tmp/phase10b-kr.json', 'utf8'));
           const tmdbToken = process.env.TMDB_API_TOKEN;
           const today = new Date().toISOString().slice(0, 10);
