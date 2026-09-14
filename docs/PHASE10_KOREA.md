@@ -73,7 +73,9 @@ Phase 10A deliberately does not add a market selector yet. Region filtering belo
 
 ### Scheduling
 
-The accepted US scheduled sync remains delegated unchanged. The Phase 10 Worker adds the Korean catalog sync on the existing six-hour TMDB cron as an additional bounded task.
+The accepted US TMDB catalog sync remains unchanged on `17 */6 * * *`, and the accepted TVmaze convergence remains unchanged on `47 * * * *`.
+
+The Korean catalog has its own six-hour trigger at `37 */6 * * *`. This separation is deliberate: the US 48-request budget and Korean 24-request budget run in different Worker invocations instead of being combined into one scheduled execution.
 
 Internal manual endpoint:
 - `POST /api/internal/tmdb-sync-kr`
@@ -89,8 +91,8 @@ Phase 10A is accepted only when:
 1. all existing US / Phase 1–9 tests remain green;
 2. Korean eligibility rejects non-KR, reality and animation cases;
 3. US request budget remains exactly 48;
-4. Korean request budget remains at or below 24;
-5. the Phase 10 wrapper delegates all existing fetch and scheduled behavior to Phase 8;
+4. Korean request budget remains at or below 24 and runs on an isolated cron invocation;
+5. the Phase 10 wrapper delegates all non-Korean fetch and scheduled behavior to Phase 8;
 6. production D1 records `tmdb_kr` separately from `tmdb`;
 7. a production Korean sync inserts real active Korean scripted series without synthetic IDs or manual show seeds;
 8. the first production benchmark records actual KR catalog coverage before Phase 10B schedule conclusions are made.
