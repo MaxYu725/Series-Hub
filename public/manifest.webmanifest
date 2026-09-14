@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Series Hub · 美劇追蹤",
+  "name": "Series Hub · 劇集追蹤",
   "short_name": "Series Hub",
-  "description": "美劇探索、搜尋、播映排程、追蹤、劇集詳情與提醒。",
+  "description": "劇集探索、搜尋、播映排程、追蹤、劇集詳情與提醒。",
   "lang": "zh-Hant",
   "start_url": "/",
   "scope": "/",

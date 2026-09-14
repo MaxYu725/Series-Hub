@@ -1,0 +1,67 @@
+name: Phase 10A Korea catalog sync
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PRODUCTION_URL: "https://series-hub.max-yu-jp.workers.dev"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TMDB_API_TOKEN: ${{ secrets.TMDB_API }}
+
+    steps:
+      - name: Validate TMDB credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TMDB_API_TOKEN:-}" || { echo "TMDB_API secret is missing"; exit 1; }
+
+      - name: Derive internal sync key
+        id: sync_key
+        shell: bash
+        run: |
+          set -euo pipefail
+          SYNC_KEY="$(node -e '
+            const crypto = require("crypto");
+            process.stdout.write(crypto.createHash("sha256").update("series-hub:tmdb-sync:v2:" + process.env.TMDB_API_TOKEN).digest("hex"));
+          ')"
+          echo "::add-mask::${SYNC_KEY}"
+          echo "key=${SYNC_KEY}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run bounded Korean TMDB catalog sync
+        env:
+          SYNC_KEY: ${{ steps.sync_key.outputs.key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SYNC_JSON="$(curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 \
+            -X POST \
+            -H "x-series-hub-sync-key: ${SYNC_KEY}" \
+            "${PRODUCTION_URL}/api/internal/tmdb-sync-kr")"
+          printf '%s\n' "${SYNC_JSON}"
+          SYNC_JSON="${SYNC_JSON}" node -e '
+            const data = JSON.parse(process.env.SYNC_JSON);
+            if (data.ok !== true || data.source !== "tmdb_kr" || data.market !== "KR") process.exit(1);
+            if (Number(data.discoveryRequests || 0) > 6) process.exit(1);
+            if (Number(data.externalRequestBudget || 0) > 24) process.exit(1);
+            if (Number(data.recordsSelected || 0) < 1) process.exit(1);
+          '
+
+      - name: Verify Korean source status
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS_JSON="$(curl --fail --silent --show-error "${PRODUCTION_URL}/api/sync-status?source=tmdb_kr")"
+          printf '%s\n' "${STATUS_JSON}"
+          STATUS_JSON="${STATUS_JSON}" node -e '
+            const payload = JSON.parse(process.env.STATUS_JSON);
+            if (payload.meta?.source !== "tmdb_kr" || payload.meta?.market !== "KR") process.exit(1);
+            if (!payload.data || !["success", "success_with_warnings"].includes(payload.data.status)) process.exit(1);
+          '
