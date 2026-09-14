@@ -19,6 +19,15 @@ jobs:
           ref: phase10c-market-selector
           fetch-depth: 0
 
+      - name: Normalize temporary patch script literals
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('.github/scripts/phase10c-apply.mjs')
+          text = path.read_text()
+          text = text.replace('${marketWhere}', '\\${marketWhere}')
+          path.write_text(text)
+
       - name: Apply Phase 10C market selector patch
         run: node .github/scripts/phase10c-apply.mjs
 
