@@ -220,10 +220,25 @@ Phase 10B / 10B.1 is accepted only when:
 
 All Phase 10B / 10B.1 acceptance gates passed on 2026-09-14.
 
-### Deferred / next milestone
+## Phase 10C — US / Korea Catalog Selector
 
-Not part of 10A/10B:
-- Korean official renewal / production evidence registry
-- Japan / Taiwan / Europe expansion
+Status: accepted in production on 2026-09-14.
 
-Phase 10C — the US / Korea catalog UI selector — is now unblocked and is the next planned milestone.
+The existing catalog, schedule, discovery, browse, recommendation and global-search paths share one `all | US | KR` market selector. `My Shows` remains an unfiltered personal collection. No separate Korean UI/API stack was created. See `PHASE10C_MARKET_SELECTOR.md` for the accepted contract and deployment details.
+
+## Phase 10D — Korean Renewal / Production Evidence
+
+Status: accepted in production on 2026-09-15, including Phase 10D.1 editorial workflow wiring.
+
+The existing Phase 4 lifecycle evidence model now supports bounded official Korean evidence through SBS News and Netflix About News. Production acceptance attached Good Partner season 2 `renewed` evidence and All of Us Are Dead season 2 `filming` evidence to their existing production identities, then verified both per-show and shared lifecycle projections plus operational health. See `PHASE10D_KOREAN_LIFECYCLE.md` for the exact production IDs and provenance.
+
+## Phase 10 closeout / next geographic track
+
+The first non-US market now has accepted catalog ingestion, catalog quality controls, schedule coverage, shared market UI filtering and official lifecycle evidence without a parallel Korea-specific data stack.
+
+Deferred work that remains intentionally outside the accepted Phase 10 scope:
+- additional Korean official publishers only after canonical URL verification;
+- automated lifecycle collectors only after the Phase 4 collector gate;
+- expansion to another geographic catalog market.
+
+The next geographic expansion track is Japan / Taiwan / Europe evaluation. The next market should be selected by source quality, schedule coverage and Chinese-title availability before implementation rather than by adding all regions at once.
