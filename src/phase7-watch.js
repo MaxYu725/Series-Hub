@@ -1,5 +1,6 @@
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
+const TMDB_REQUEST_TIMEOUT_MS = 3000;
 const WATCH_REGIONS = Object.freeze([
   { code: "HK", label: "香港" },
   { code: "US", label: "美國" }
@@ -92,7 +93,8 @@ async function tmdbWatchProvidersRequest(env, tmdbId) {
     headers: {
       accept: "application/json",
       authorization: `Bearer ${env.TMDB_API_TOKEN}`
-    }
+    },
+    signal: AbortSignal.timeout(TMDB_REQUEST_TIMEOUT_MS)
   });
 
   if (!response.ok) {
