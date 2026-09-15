@@ -54,6 +54,8 @@ on:
           - disney_newsroom
           - amc_networks_press
           - amc_global_media_press
+          - sbs_news
+          - netflix_about_news
       source_url:
         description: "Exact official evidence URL"
         required: false

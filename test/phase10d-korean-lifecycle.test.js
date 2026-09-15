@@ -9,11 +9,18 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const migration = readFileSync(join(root, "migrations", "0021_phase10d_korean_lifecycle_sources.sql"), "utf8");
 const docs = readFileSync(join(root, "docs", "PHASE10D_KOREAN_LIFECYCLE.md"), "utf8");
+const editorialWorkflow = readFileSync(join(root, ".github", "workflows", "lifecycle-evidence.yml"), "utf8");
 
 test("Phase 10D registers bounded official SBS and Netflix Korean lifecycle sources", () => {
   assert.match(migration, /'sbs_news'[\s\S]*?'https:\/\/news\.sbs\.co\.kr\/news\/'[\s\S]*?'official'[\s\S]*?1/);
   assert.match(migration, /'netflix_about_news'[\s\S]*?'https:\/\/about\.netflix\.com\/en\/news\/'[\s\S]*?'official'[\s\S]*?1/);
   assert.match(migration, /Registration does not enable automatic scraping/);
+});
+
+test("Phase 10D editorial workflow exposes both registered Korean sources", () => {
+  assert.match(editorialWorkflow, /source_key:[\s\S]*options:[\s\S]*- sbs_news[\s\S]*- netflix_about_news/);
+  assert.match(editorialWorkflow, /INPUT_SOURCE_KEY: \$\{\{ inputs\.source_key \}\}/);
+  assert.match(editorialWorkflow, /\/api\/internal\/lifecycle-evidence/);
 });
 
 test("Phase 10D source scopes accept intended articles and reject sibling paths or hosts", () => {
