@@ -21,8 +21,22 @@ jobs:
       - name: Apply patch
         run: node scripts/us-coverage-hardening-patch.cjs
 
+      - name: Stabilize source-contract assertion
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = 'test/us-coverage-hardening.test.js';
+          let text = fs.readFileSync(path, 'utf8');
+          text = text.replace(
+            '  assert.match(source, /networkCandidatePoolLimit = Math\\.max\\(0, US_DISCOVERY_CANDIDATE_POOL_LIMIT - 40\\)/);\n  assert.match(source, /externalRequestBudget: candidateFeeds\\.length \\+ selectedCandidates\\.length/);\n  assert.match(source, /coveragePolicy: "bounded_new_candidate_priority_with_refresh_reserve"/);\n  assert.match(source, /scheduleLookaheadDays: US_SCHEDULE_LOOKAHEAD_DAYS/);',
+            '  assert.ok(source.includes("const networkCandidatePoolLimit = Math.max(0, US_DISCOVERY_CANDIDATE_POOL_LIMIT - 40);"));\n  assert.ok(source.includes("externalRequestBudget: candidateFeeds.length + selectedCandidates.length"));\n  assert.ok(source.includes("coveragePolicy: \\\"bounded_new_candidate_priority_with_refresh_reserve\\\""));\n  assert.ok(source.includes("scheduleLookaheadDays: US_SCHEDULE_LOOKAHEAD_DAYS"));'
+          );
+          fs.writeFileSync(path, text);
+          NODE
+
       - name: Run unit tests
-        run: node --test
+        run: npm test
 
       - name: Commit formal hardening and remove temporary tooling
         shell: bash
