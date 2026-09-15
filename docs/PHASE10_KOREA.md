@@ -232,13 +232,19 @@ Status: accepted in production on 2026-09-15, including Phase 10D.1 editorial wo
 
 The existing Phase 4 lifecycle evidence model now supports bounded official Korean evidence through SBS News and Netflix About News. Production acceptance attached Good Partner season 2 `renewed` evidence and All of Us Are Dead season 2 `filming` evidence to their existing production identities, then verified both per-show and shared lifecycle projections plus operational health. See `PHASE10D_KOREAN_LIFECYCLE.md` for the exact production IDs and provenance.
 
+## Phase 10E — Korean Catalog Coverage Expansion
+
+Status: implementation candidate after the 2026-09-15 production coverage audit.
+
+The live Korean catalog had reached only 13 active rows even though a bounded read-only TMDB audit found a much larger eligible candidate pool. Phase 10E therefore hardens discovery efficiency before a second geographic market is started. It keeps the 24-request KR ceiling, caps schedule-gap maintenance at four detail slots, prioritizes unseen candidates, rotates broad/schedule discovery pages 1–3, expands schedule look-ahead to 180 days, and pushes the already-accepted fiction/status rules into discovery where safe. See `PHASE10E_KOREA_COVERAGE.md`.
+
 ## Phase 10 closeout / next geographic track
 
-The first non-US market now has accepted catalog ingestion, catalog quality controls, schedule coverage, shared market UI filtering and official lifecycle evidence without a parallel Korea-specific data stack.
+Phase 10A–10D remain production accepted. Phase 10E reopens only Korean catalog coverage efficiency; it does not reopen the accepted schedule, market-selector or lifecycle contracts.
 
-Deferred work that remains intentionally outside the accepted Phase 10 scope:
+Deferred work that remains outside Phase 10E:
 - additional Korean official publishers only after canonical URL verification;
 - automated lifecycle collectors only after the Phase 4 collector gate;
 - expansion to another geographic catalog market.
 
-The next geographic expansion track is Japan / Taiwan / Europe evaluation. The next market should be selected by source quality, schedule coverage and Chinese-title availability before implementation rather than by adding all regions at once.
+Japan / Taiwan / Europe evaluation remains the next geographic track after Phase 10E reaches production acceptance.

@@ -17,6 +17,26 @@ const EXCLUDED_DISCOVER_GENRES = [...EXCLUDED_GENRE_IDS].join("|");
 const KOREA_NETWORK_DISCOVERY_REQUEST_LIMIT = 4;
 const KOREA_RECENT_FIRST_AIR_YEARS = 6;
 
+export const KOREA_FICTION_GENRE_IDS = Object.freeze([
+  18,    // Drama
+  35,    // Comedy
+  37,    // Western
+  80,    // Crime
+  9648,  // Mystery
+  10751, // Family
+  10759, // Action & Adventure
+  10765, // Sci-Fi & Fantasy
+  10766, // Soap
+  10768  // War & Politics
+]);
+const KOREA_FICTION_DISCOVER_GENRES = KOREA_FICTION_GENRE_IDS.join("|");
+
+export const KOREA_DISCOVERY_PAGE_COUNT = 3;
+export const KOREA_SCHEDULE_LOOKAHEAD_DAYS = 180;
+export const KOREA_SCHEDULE_GAP_PRIORITY_LIMIT = 4;
+export const KOREA_DISCOVERY_CANDIDATE_POOL_LIMIT = 60;
+export const KOREA_DISCOVERY_ACTIVE_STATUS_FILTER = "0|1|2|5";
+
 export const KOREA_NETWORK_SEEDS = Object.freeze([
   { name: "KBS2", tmdbNetworkId: 342, recentFirstAirYears: 6 },
   { name: "MBC", tmdbNetworkId: 97, recentFirstAirYears: 6 },
@@ -52,6 +72,36 @@ function recentFirstAirDate(now = new Date()) {
   return `${now.getUTCFullYear() - KOREA_RECENT_FIRST_AIR_YEARS}-01-01`;
 }
 
+export function koreanDiscoveryPage(kind = "broad", now = new Date()) {
+  const timestamp = now instanceof Date && Number.isFinite(now.getTime())
+    ? now.getTime()
+    : Date.now();
+  const sixHourSlot = Math.floor(timestamp / (6 * 60 * 60 * 1000));
+  const offset = kind === "schedule" ? 1 : 0;
+  return 1 + ((sixHourSlot + offset) % KOREA_DISCOVERY_PAGE_COUNT);
+}
+
+export function koreanBroadDiscoveryParams(now = new Date()) {
+  return {
+    "first_air_date.gte": recentFirstAirDate(now),
+    with_status: KOREA_DISCOVERY_ACTIVE_STATUS_FILTER
+  };
+}
+
+export function koreanScheduleDiscoveryParams(now = new Date()) {
+  return {
+    "air_date.gte": todayUtc(now),
+    "air_date.lte": daysAheadDate(KOREA_SCHEDULE_LOOKAHEAD_DAYS, now)
+  };
+}
+
+export function koreanNetworkDiscoveryParams(seed, now = new Date()) {
+  return {
+    ...networkDiscoveryParams(seed, now),
+    with_status: KOREA_DISCOVERY_ACTIVE_STATUS_FILTER
+  };
+}
+
 async function tmdbRequest(env, pathname, params = {}) {
   if (!env.TMDB_API_TOKEN) throw new Error("TMDB_API_TOKEN is not configured");
 
@@ -85,6 +135,7 @@ async function discoverKoreanCandidates(env, page, extraParams = {}) {
     sort_by: "popularity.desc",
     with_origin_country: "KR",
     with_type: "2|4",
+    with_genres: KOREA_FICTION_DISCOVER_GENRES,
     without_genres: EXCLUDED_DISCOVER_GENRES,
     ...extraParams
   });
@@ -358,8 +409,8 @@ function uniqueCandidateCount(feeds) {
 
 export async function selectKoreanScheduleGapCandidates(db, limit, now = new Date()) {
   const boundedLimit = Math.min(
-    Math.max(Number(limit) || KOREA_TMDB_SYNC_BUDGET.detailRequests, 1),
-    KOREA_TMDB_SYNC_BUDGET.detailRequests
+    Math.max(Number(limit) || KOREA_SCHEDULE_GAP_PRIORITY_LIMIT, 1),
+    KOREA_SCHEDULE_GAP_PRIORITY_LIMIT
   );
   const today = todayUtc(now);
   const result = await db
@@ -378,9 +429,9 @@ export async function selectKoreanScheduleGapCandidates(db, limit, now = new Dat
              AND e.air_date >= ?1
          )
        ORDER BY
+         COALESCE(s.last_synced_at, '1970-01-01') ASC,
          CASE WHEN s.next_air_date IS NULL THEN 1 ELSE 0 END,
          s.next_air_date ASC,
-         COALESCE(s.last_synced_at, '1970-01-01') ASC,
          s.id ASC
        LIMIT ?2`
     )
@@ -404,6 +455,56 @@ export function mergePriorityCandidates(priorityCandidates, discoveredCandidates
     if (merged.length >= boundedLimit) break;
   }
   return merged;
+}
+
+export async function loadExistingActiveKoreanTmdbIds(db) {
+  const result = await db
+    .prepare(
+      `SELECT tmdb_id
+       FROM shows
+       WHERE tmdb_id IS NOT NULL
+         AND (',' || COALESCE(origin_country, '') || ',') LIKE '%,KR,%'
+         AND status IN ('airing', 'upcoming', 'planned')`
+    )
+    .all();
+
+  return new Set(
+    (result.results || [])
+      .map((row) => Number(row.tmdb_id))
+      .filter((id) => Number.isInteger(id) && id > 0)
+  );
+}
+
+export function prioritizeKoreanCoverageCandidates(
+  scheduleGapCandidates,
+  discoveryCandidates,
+  existingTmdbIds,
+  limit
+) {
+  const existing = existingTmdbIds instanceof Set
+    ? existingTmdbIds
+    : new Set(existingTmdbIds || []);
+  const newDiscoveryCandidates = [];
+  const existingDiscoveryCandidates = [];
+
+  for (const candidate of discoveryCandidates || []) {
+    const id = Number(candidate?.id);
+    if (!Number.isInteger(id) || id <= 0) continue;
+    if (existing.has(id)) existingDiscoveryCandidates.push(candidate);
+    else newDiscoveryCandidates.push(candidate);
+  }
+
+  const selectedCandidates = mergePriorityCandidates(
+    scheduleGapCandidates,
+    [...newDiscoveryCandidates, ...existingDiscoveryCandidates],
+    limit
+  );
+
+  return {
+    selectedCandidates,
+    newDiscoveryCandidates,
+    existingDiscoveryCandidates
+  };
 }
 
 export async function syncTmdbKoreanCatalog(env, options = {}) {
@@ -452,23 +553,32 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
     }));
     const networkFeeds = [];
     for (const { seed, page } of networkDiscoveries) {
-      const result = await discoverKoreanCandidates(env, page, networkDiscoveryParams(seed, now));
+      const result = await discoverKoreanCandidates(env, page, koreanNetworkDiscoveryParams(seed, now));
       networkFeeds.push(result.results || []);
     }
 
-    const scheduled = await discoverKoreanCandidates(env, 1, {
-      "air_date.gte": todayUtc(now),
-      "air_date.lte": daysAheadDate(90, now)
-    });
+    const schedulePage = koreanDiscoveryPage("schedule", now);
+    const scheduled = await discoverKoreanCandidates(
+      env,
+      schedulePage,
+      koreanScheduleDiscoveryParams(now)
+    );
     const scheduleFeeds = [scheduled.results || []];
 
-    const broad = await discoverKoreanCandidates(env, 1, {
-      "first_air_date.gte": recentFirstAirDate(now)
-    });
+    const broadPage = koreanDiscoveryPage("broad", now);
+    const broad = await discoverKoreanCandidates(
+      env,
+      broadPage,
+      koreanBroadDiscoveryParams(now)
+    );
     const broadFeeds = [broad.results || []];
 
     const candidateFeeds = [...networkFeeds, ...scheduleFeeds, ...broadFeeds];
-    const scheduleGapCandidates = await selectKoreanScheduleGapCandidates(env.DB, detailLimit, now);
+    const scheduleGapCandidates = await selectKoreanScheduleGapCandidates(
+      env.DB,
+      KOREA_SCHEDULE_GAP_PRIORITY_LIMIT,
+      now
+    );
     recordsSeen = uniqueCandidateCount([...candidateFeeds, scheduleGapCandidates]);
     const candidateOffset = candidateRotationOffset(candidateFeeds, detailLimit, now);
     const activeFeedCount = Math.max(
@@ -492,16 +602,23 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
       ...scheduleFeeds.map(() => candidateOffset),
       ...broadFeeds.map(() => candidateOffset)
     ];
-    const discoveredCandidates = selectRoundRobinCandidates(
+    const discoveredCandidatePool = selectRoundRobinCandidates(
       candidateFeeds,
-      detailLimit,
+      KOREA_DISCOVERY_CANDIDATE_POOL_LIMIT,
       candidateOffsets
     );
-    const selectedCandidates = mergePriorityCandidates(
+    const existingActiveKoreanTmdbIds = await loadExistingActiveKoreanTmdbIds(env.DB);
+    const coverageSelection = prioritizeKoreanCoverageCandidates(
       scheduleGapCandidates,
-      discoveredCandidates,
+      discoveredCandidatePool,
+      existingActiveKoreanTmdbIds,
       detailLimit
     );
+    const {
+      selectedCandidates,
+      newDiscoveryCandidates,
+      existingDiscoveryCandidates
+    } = coverageSelection;
     const detailsResults = await fetchDetailsInBatches(env, selectedCandidates);
 
     for (const entry of detailsResults) {
@@ -549,6 +666,14 @@ export async function syncTmdbKoreanCatalog(env, options = {}) {
       recordsSeen,
       recordsSelected: selectedCandidates.length,
       scheduleGapCandidates: scheduleGapCandidates.length,
+      scheduleGapPriorityLimit: KOREA_SCHEDULE_GAP_PRIORITY_LIMIT,
+      discoveredCandidatePool: discoveredCandidatePool.length,
+      newDiscoveryCandidates: newDiscoveryCandidates.length,
+      existingDiscoveryCandidates: existingDiscoveryCandidates.length,
+      broadPage,
+      schedulePage,
+      scheduleLookaheadDays: KOREA_SCHEDULE_LOOKAHEAD_DAYS,
+      coveragePolicy: "bounded_gap_then_new_candidate_priority",
       recordsChanged,
       recordsRejected,
       discoveryRequests: candidateFeeds.length,
