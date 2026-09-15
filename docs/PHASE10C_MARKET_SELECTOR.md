@@ -1,6 +1,6 @@
 # Phase 10C — US / Korea Catalog Selector
 
-Status: implementation candidate.
+Status: production accepted on 2026-09-14.
 
 ## Goal
 
@@ -59,3 +59,9 @@ Phase 10C is accepted only when:
 6. My Shows remains unfiltered by market;
 7. invalid market values safely fall back to `all`;
 8. production validation confirms both US and KR selections return real catalog data without affecting sync health or request ceilings.
+
+All Phase 10C acceptance gates passed on 2026-09-14. PR #124 was squash-merged as `c8fbf48f340f9529f573b59172a638a9bce1fc71`, and the merged-main Cloudflare deployment completed successfully.
+
+## Next milestone
+
+Phase 10D — Korean Renewal / Production Evidence — extends the existing Phase 4 official lifecycle evidence model to the Korean catalog before the project expands to another geographic market.
