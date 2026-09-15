@@ -7,6 +7,14 @@ const EXCLUDED_GENRE_IDS = new Set([16, 99, 10762, 10763, 10764, 10767]);
 const EXCLUDED_DISCOVER_GENRES = [...EXCLUDED_GENRE_IDS].join("|");
 const NETWORK_DISCOVERY_REQUEST_LIMIT = 6;
 const NETWORK_DISCOVERY_PAGE_COUNT = 3;
+export const US_DISCOVERY_PAGE_COUNT = 3;
+export const US_SCHEDULE_LOOKAHEAD_DAYS = 180;
+export const US_DISCOVERY_CANDIDATE_POOL_LIMIT = 120;
+export const US_NEW_CANDIDATE_PRIORITY_LIMIT = 32;
+export const US_SCHEDULE_NEW_PRIORITY_LIMIT = 12;
+export const US_NETWORK_NEW_PRIORITY_LIMIT = 16;
+export const US_BROAD_NEW_PRIORITY_LIMIT = 4;
+export const US_DISCOVERY_ACTIVE_STATUS_FILTER = "0|1|2|5";
 const NETWORK_CANDIDATE_ROTATION_EPOCH = Date.parse("2026-09-09T00:00:00.000Z");
 
 export const CORE_NETWORK_SEEDS = Object.freeze([
@@ -98,6 +106,33 @@ export function networkDiscoveryParams(seed, now = new Date()) {
   }
 
   return params;
+}
+
+export function usDiscoveryPage(kind = "broad", now = new Date()) {
+  const timestamp = now instanceof Date && Number.isFinite(now.getTime())
+    ? now.getTime()
+    : Date.now();
+  const sixHourSlot = Math.floor(timestamp / (6 * 60 * 60 * 1000));
+  const offset = kind === "schedule" ? 1 : 0;
+  return 1 + ((sixHourSlot + offset) % US_DISCOVERY_PAGE_COUNT);
+}
+
+export function usBroadDiscoveryParams() {
+  return { with_status: US_DISCOVERY_ACTIVE_STATUS_FILTER };
+}
+
+export function usScheduleDiscoveryParams(now = new Date()) {
+  return {
+    "air_date.gte": todayUtc(now),
+    "air_date.lte": daysAheadDate(US_SCHEDULE_LOOKAHEAD_DAYS, now)
+  };
+}
+
+export function usNetworkDiscoveryParams(seed, now = new Date()) {
+  return {
+    ...networkDiscoveryParams(seed, now),
+    with_status: US_DISCOVERY_ACTIVE_STATUS_FILTER
+  };
 }
 
 export function networkDiscoveryPage(seed, now = new Date()) {
@@ -765,6 +800,99 @@ export function selectRoundRobinCandidates(
   return selected;
 }
 
+export async function loadExistingActiveUsTmdbIds(db) {
+  const result = await db
+    .prepare(
+      `SELECT tmdb_id
+       FROM shows
+       WHERE tmdb_id IS NOT NULL
+         AND (',' || COALESCE(origin_country, '') || ',') LIKE '%,US,%'
+         AND status IN ('airing', 'upcoming', 'planned')`
+    )
+    .all();
+
+  return new Set(
+    (result.results || [])
+      .map((row) => Number(row.tmdb_id))
+      .filter((id) => Number.isInteger(id) && id > 0)
+  );
+}
+
+export function prioritizeUsCoverageCandidates(
+  networkCandidates,
+  scheduleCandidates,
+  broadCandidates,
+  existingTmdbIds,
+  limit = TMDB_SYNC_BUDGET.detailRequests,
+  newPriorityLimit = US_NEW_CANDIDATE_PRIORITY_LIMIT
+) {
+  const existing = existingTmdbIds instanceof Set
+    ? existingTmdbIds
+    : new Set(existingTmdbIds || []);
+  const boundedLimit = Math.max(0, Math.trunc(Number(limit) || 0));
+  const boundedNewLimit = Math.min(
+    boundedLimit,
+    Math.max(0, Math.trunc(Number(newPriorityLimit) || 0))
+  );
+  const buckets = [
+    { name: "schedule", candidates: scheduleCandidates || [], quota: US_SCHEDULE_NEW_PRIORITY_LIMIT },
+    { name: "network", candidates: networkCandidates || [], quota: US_NETWORK_NEW_PRIORITY_LIMIT },
+    { name: "broad", candidates: broadCandidates || [], quota: US_BROAD_NEW_PRIORITY_LIMIT }
+  ];
+  const seen = new Set();
+  const newBuckets = new Map(buckets.map((bucket) => [bucket.name, []]));
+  const existingDiscoveryCandidates = [];
+
+  for (const bucket of buckets) {
+    for (const candidate of bucket.candidates) {
+      const id = Number(candidate?.id);
+      if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+      seen.add(id);
+      if (existing.has(id)) existingDiscoveryCandidates.push(candidate);
+      else newBuckets.get(bucket.name).push(candidate);
+    }
+  }
+
+  const newDiscoveryCandidates = buckets.flatMap((bucket) => newBuckets.get(bucket.name));
+  const selectedCandidates = [];
+  const selectedIds = new Set();
+  const pushCandidate = (candidate) => {
+    const id = Number(candidate?.id);
+    if (!Number.isInteger(id) || id <= 0 || selectedIds.has(id) || selectedCandidates.length >= boundedLimit) return false;
+    selectedIds.add(id);
+    selectedCandidates.push(candidate);
+    return true;
+  };
+
+  let newSelected = 0;
+  for (const bucket of buckets) {
+    let bucketSelected = 0;
+    for (const candidate of newBuckets.get(bucket.name)) {
+      if (newSelected >= boundedNewLimit || bucketSelected >= bucket.quota) break;
+      if (pushCandidate(candidate)) {
+        newSelected += 1;
+        bucketSelected += 1;
+      }
+    }
+  }
+
+  for (const candidate of newDiscoveryCandidates) {
+    if (newSelected >= boundedNewLimit) break;
+    if (pushCandidate(candidate)) newSelected += 1;
+  }
+
+  for (const candidate of existingDiscoveryCandidates) pushCandidate(candidate);
+  for (const candidate of newDiscoveryCandidates) pushCandidate(candidate);
+
+  return {
+    selectedCandidates,
+    newDiscoveryCandidates,
+    existingDiscoveryCandidates,
+    newCandidatesSelected: selectedCandidates.filter((candidate) => !existing.has(Number(candidate.id))).length,
+    existingCandidatesSelected: selectedCandidates.filter((candidate) => existing.has(Number(candidate.id))).length
+  };
+}
+
 export async function syncTmdbCatalog(env, options = {}) {
   if (!env.DB) throw new Error("D1 binding DB is required");
   if (!env.TMDB_API_TOKEN) {
@@ -775,8 +903,6 @@ export async function syncTmdbCatalog(env, options = {}) {
     };
   }
 
-  const broadPages = Math.min(Math.max(Number(options.pages) || 1, 1), 1);
-  const schedulePages = Math.min(Math.max(Number(options.schedulePages) || 1, 1), 1);
   const detailLimit = Math.min(
     Math.max(Number(options.detailLimit) || TMDB_SYNC_BUDGET.detailRequests, 1),
     TMDB_SYNC_BUDGET.detailRequests
@@ -792,7 +918,9 @@ export async function syncTmdbCatalog(env, options = {}) {
   const warnings = [];
 
   try {
-    const now = new Date();
+    const now = options.now instanceof Date && Number.isFinite(options.now.getTime())
+      ? options.now
+      : new Date();
     const activeNetworkSeeds = selectNetworkSeedsForSync(
       CORE_NETWORK_SEEDS,
       TMDB_SYNC_BUDGET.networkDiscoveryRequests,
@@ -804,24 +932,17 @@ export async function syncTmdbCatalog(env, options = {}) {
     }));
     const networkFeeds = [];
     for (const { seed, page } of networkDiscoveries) {
-      const networkResult = await discoverCandidates(env, page, networkDiscoveryParams(seed, now));
+      const networkResult = await discoverCandidates(env, page, usNetworkDiscoveryParams(seed, now));
       networkFeeds.push(networkResult.results || []);
     }
 
-    const scheduleFeeds = [];
-    for (let page = 1; page <= schedulePages; page += 1) {
-      const scheduled = await discoverCandidates(env, page, {
-        "air_date.gte": todayUtc(now),
-        "air_date.lte": daysAheadDate(90, now)
-      });
-      scheduleFeeds.push(scheduled.results || []);
-    }
+    const schedulePage = usDiscoveryPage("schedule", now);
+    const scheduled = await discoverCandidates(env, schedulePage, usScheduleDiscoveryParams(now));
+    const scheduleFeeds = [scheduled.results || []];
 
-    const broadFeeds = [];
-    for (let page = 1; page <= broadPages; page += 1) {
-      const discovered = await discoverCandidates(env, page);
-      broadFeeds.push(discovered.results || []);
-    }
+    const broadPage = usDiscoveryPage("broad", now);
+    const discovered = await discoverCandidates(env, broadPage, usBroadDiscoveryParams(now));
+    const broadFeeds = [discovered.results || []];
 
     const candidateFeeds = [...networkFeeds, ...scheduleFeeds, ...broadFeeds];
     recordsSeen = uniqueCandidateCount(candidateFeeds);
@@ -840,16 +961,42 @@ export async function syncTmdbCatalog(env, options = {}) {
         now
       )
     );
-    const candidateOffsets = [
-      ...networkCandidateOffsets,
-      ...scheduleFeeds.map(() => candidateOffset),
-      ...broadFeeds.map(() => candidateOffset)
-    ];
-    const selectedCandidates = selectRoundRobinCandidates(
-      candidateFeeds,
-      detailLimit,
-      candidateOffsets
+    const networkCandidatePoolLimit = Math.max(0, US_DISCOVERY_CANDIDATE_POOL_LIMIT - 40);
+    const networkCandidatePool = selectRoundRobinCandidates(
+      networkFeeds,
+      networkCandidatePoolLimit,
+      networkCandidateOffsets
     );
+    const scheduleCandidatePool = selectRoundRobinCandidates(
+      scheduleFeeds,
+      20,
+      [candidateOffset]
+    );
+    const broadCandidatePool = selectRoundRobinCandidates(
+      broadFeeds,
+      20,
+      [candidateOffset]
+    );
+    const discoveredCandidatePool = uniqueCandidateCount([
+      networkCandidatePool,
+      scheduleCandidatePool,
+      broadCandidatePool
+    ]);
+    const existingActiveUsTmdbIds = await loadExistingActiveUsTmdbIds(env.DB);
+    const coverageSelection = prioritizeUsCoverageCandidates(
+      networkCandidatePool,
+      scheduleCandidatePool,
+      broadCandidatePool,
+      existingActiveUsTmdbIds,
+      detailLimit
+    );
+    const {
+      selectedCandidates,
+      newDiscoveryCandidates,
+      existingDiscoveryCandidates,
+      newCandidatesSelected,
+      existingCandidatesSelected
+    } = coverageSelection;
     const detailsResults = await fetchDetailsInBatches(env, selectedCandidates);
 
     for (const entry of detailsResults) {
@@ -864,7 +1011,7 @@ export async function syncTmdbCatalog(env, options = {}) {
       if (!isIncludedUsScriptedSeries(details)) continue;
       if (!isTargetNetworkSeries(details)) continue;
 
-      const normalized = normalizeTmdbSeries(details);
+      const normalized = normalizeTmdbSeries(details, now);
       if (!ACTIVE_CATALOG_STATUSES.has(normalized.status)) continue;
 
       await persistSeries(env.DB, normalized);
@@ -887,6 +1034,16 @@ export async function syncTmdbCatalog(env, options = {}) {
       recordsSeen,
       recordsSelected: selectedCandidates.length,
       candidateOffset,
+      discoveredCandidatePool,
+      newDiscoveryCandidates: newDiscoveryCandidates.length,
+      existingDiscoveryCandidates: existingDiscoveryCandidates.length,
+      newCandidatesSelected,
+      existingCandidatesSelected,
+      newCandidatePriorityLimit: US_NEW_CANDIDATE_PRIORITY_LIMIT,
+      broadPage,
+      schedulePage,
+      scheduleLookaheadDays: US_SCHEDULE_LOOKAHEAD_DAYS,
+      coveragePolicy: "bounded_new_candidate_priority_with_refresh_reserve",
       recordsChanged,
       discoveryRequests: candidateFeeds.length,
       networkSeeds: activeNetworkSeeds.map((seed) => seed.name),
