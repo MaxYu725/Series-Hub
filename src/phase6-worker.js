@@ -4,6 +4,7 @@ import { normalizeTitleRegion, withResolvedChineseTitle } from "./title-aliases.
 import { normalizeCatalogMarket } from "./market.js";
 
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
+const TMDB_REQUEST_TIMEOUT_MS = 3000;
 const REGION_LANGUAGE = Object.freeze({ HK: "zh-HK", TW: "zh-TW", CN: "zh-CN" });
 
 function json(data, init = {}) {
@@ -36,7 +37,8 @@ async function localizeDetailBody(env, body, region) {
       headers: {
         accept: "application/json",
         authorization: `Bearer ${env.TMDB_API_TOKEN}`
-      }
+      },
+      signal: AbortSignal.timeout(TMDB_REQUEST_TIMEOUT_MS)
     });
     if (!response.ok) return body;
 
