@@ -139,7 +139,8 @@ function polishTrailers() {
     subheading.textContent = "其他影片";
     list.before(subheading);
   }
-  subheading.hidden = list.children.length === 0;
+  const hideSubheading = list.children.length === 0;
+  if (subheading.hidden !== hideSubheading) subheading.hidden = hideSubheading;
 }
 
 function arrangeImages() {
@@ -298,7 +299,10 @@ function queuePolish() {
 
 const content = document.querySelector("#detail-content");
 if (content) {
-  const observer = new MutationObserver(queuePolish);
-  observer.observe(content, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  const subtreeObserver = new MutationObserver(queuePolish);
+  subtreeObserver.observe(content, { childList: true, subtree: true });
+
+  const visibilityObserver = new MutationObserver(queuePolish);
+  visibilityObserver.observe(content, { attributes: true, attributeFilter: ["hidden"] });
 }
 queuePolish();
