@@ -10,6 +10,7 @@ Phase 4 adds official renewal, cancellation and production-state evidence withou
 - **4D — second-source production acceptance:** prove the same evidence contract against Amazon Entertainment with Reacher season 5.
 - **4E — multi-source acceptance:** validate WBD/HBO and Netflix official news against existing production catalog identities.
 - **4F — FOX acceptance and catalog coverage repair:** repair FOX discovery/persistence blind spots, naturally ingest a current FOX scripted title, then attach identity-guarded FOXFLASH lifecycle evidence.
+- **Phase 10D Korean extension:** reuse the same lifecycle contract for Korean catalog evidence through bounded SBS News and Netflix About News official sources.
 - **Later collector phase:** automate only source formats that prove stable enough to parse without weakening provenance, source URL validation or show/season identity rules.
 
 ## Evidence model
@@ -59,7 +60,7 @@ Each event retains:
 
 `official` confidence is accepted only from a source registered with `trust_level=official`. The submitted URL must match that source's registered HTTPS host and path prefix.
 
-Verified source registry through Phase 4F:
+Verified source registry through Phase 10D:
 
 | Source key | Display name | Allowed base |
 | --- | --- | --- |
@@ -69,6 +70,8 @@ Verified source registry through Phase 4F:
 | `netflix_media_center` | Netflix Media Center | `https://media.netflix.com/` |
 | `netflix_tudum` | Netflix Tudum | `https://www.netflix.com/tudum/` |
 | `fox_flash` | FOXFLASH | `https://www.foxflash.com/` |
+| `sbs_news` | SBS News | `https://news.sbs.co.kr/news/` |
+| `netflix_about_news` | Netflix About News | `https://about.netflix.com/en/news/` |
 
 The registry is a whitelist, not a scraper list. Registering a source does not authorize automatic extraction and does not make every page on that domain relevant lifecycle evidence.
 
@@ -79,6 +82,8 @@ Do not paste long source text into D1. `evidence_note` is a short editorial summ
 Phase 4C uses the public `aboutamazon.com/news/entertainment/` pages rather than an authenticated Amazon MGM Studios press/admin surface. Evidence must remain publicly inspectable from the stored URL.
 
 Netflix Media Center remains valid for official title/property material. Phase 4E registers Netflix Tudum separately because dated public lifecycle news and production updates are published there; provenance should identify the surface actually carrying the evidence instead of treating all Netflix pages as one source.
+
+Phase 10D applies the same rule to Korea: SBS News and Netflix About News are registered as distinct bounded official surfaces instead of broadening an existing source to unrelated hosts or paths. They remain editorial sources and do not enable automatic collection.
 
 ## Public projection
 
@@ -121,7 +126,7 @@ The evidence key is deterministic from show, season, event type, source and publ
 
 ## Production acceptance
 
-Completed acceptance through Phase 4F:
+Completed acceptance through Phase 10D:
 
 1. `Silo` — season 3 renewed; season 4 renewed and identified as final via Apple TV Press.
 2. `For All Mankind` — season 6 renewed as final and conservatively normalized as `pre_production` from Apple TV Press wording.
@@ -129,6 +134,8 @@ Completed acceptance through Phase 4F:
 4. `House of the Dragon` — season 4 renewal via WBD/HBO Pressroom while catalog lifecycle remains independent.
 5. `Wednesday` — season 3 renewal plus independent `filming` evidence via Netflix Tudum.
 6. `Murder in a Small Town` — naturally ingested as Series Hub ID 431 / TMDB 241549 after Phase 4F catalog repairs; season 3 renewal is anchored to the May 7, 2026 FOXFLASH announcement.
+7. `Good Partner` — Series Hub ID 3177 / TMDB 243761; season 2 renewal decision stored as lifecycle event 17 from SBS News while filming/broadcast timing remains uninferred.
+8. `All of Us Are Dead` — Series Hub ID 3233 / TMDB 99966; season 2 `filming` stored as lifecycle event 18 from Netflix About News after the official production announcement.
 
 ### Phase 4F catalog findings
 
@@ -140,6 +147,12 @@ FOX evidence was deliberately blocked until a current FOX scripted title existed
 The same investigation also corrected `show_genres(show_id, genre_id)` persistence to match the Phase 1 schema.
 
 Production acceptance after these repairs resolved `Murder in a Small Town` as catalog `planned`, latest catalog season 2, networks `FOX · Global TV`, with no lifecycle events before the FOX seed.
+
+### Phase 10D Korean lifecycle findings
+
+The Korean extension required no second lifecycle schema, API or rendering path. The existing protected editorial endpoint accepted the two newly registered official sources, resolved both season 2 rows already present in production, and exposed the resulting evidence through both the per-show endpoint and shared lifecycle index.
+
+The browser-operated `Lifecycle evidence editorial` workflow was extended only by adding `sbs_news` and `netflix_about_news` to its bounded source choice list. Catalog and schedule sync request budgets and provider ownership remained unchanged.
 
 ## Audit policy
 
