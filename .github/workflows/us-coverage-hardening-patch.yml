@@ -1,0 +1,37 @@
+name: US coverage hardening patch
+
+on:
+  push:
+    branches:
+      - us-coverage-hardening-final
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'chore: stage US coverage hardening patcher'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: us-coverage-hardening-final
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: node scripts/us-coverage-hardening-patch.cjs
+
+      - name: Run unit tests
+        run: node --test
+
+      - name: Commit formal hardening and remove temporary tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "MaxYu725"
+          git config user.email "maxyu0725@outlook.com"
+          git rm -f .github/workflows/us-coverage-hardening-patch.yml scripts/us-coverage-hardening-patch.cjs
+          git add src/tmdb.js test/us-coverage-hardening.test.js docs/US_COVERAGE_HARDENING.md
+          git commit -m "Harden US catalog discovery coverage"
+          git push origin HEAD:us-coverage-hardening-final
