@@ -4,23 +4,12 @@ import {
   normalizeLifecycle
 } from "./tmdb.js";
 import {
+  KOREA_FICTION_GENRE_IDS,
   isIncludedKoreanScriptedSeries,
   syncTmdbKoreanCatalog as syncBaseKoreanCatalog
 } from "./tmdb-korea.js";
+export { KOREA_FICTION_GENRE_IDS } from "./tmdb-korea.js";
 import { syncKoreanTmdbNextEpisodeFallback } from "./tmdb-korea-schedule.js";
-
-export const KOREA_FICTION_GENRE_IDS = Object.freeze([
-  18,    // Drama
-  35,    // Comedy
-  37,    // Western
-  80,    // Crime
-  9648,  // Mystery
-  10751, // Family
-  10759, // Action & Adventure
-  10765, // Sci-Fi & Fantasy
-  10766, // Soap
-  10768  // War & Politics
-]);
 
 const KOREA_FICTION_GENRE_ID_SET = new Set(KOREA_FICTION_GENRE_IDS);
 const ACTIVE_CATALOG_STATUSES = new Set(["airing", "upcoming", "planned"]);

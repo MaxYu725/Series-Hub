@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import {
+  KOREA_SCHEDULE_GAP_PRIORITY_LIMIT,
   KOREA_TMDB_SYNC_BUDGET,
   mergePriorityCandidates,
   selectKoreanScheduleGapCandidates
@@ -50,7 +51,7 @@ test("Phase 10B.1 selects active KR rows without future TVmaze schedule inside d
   assert.equal(db.calls.length, 1);
   assert.deepEqual(db.calls[0].binds, [
     "2026-09-14",
-    KOREA_TMDB_SYNC_BUDGET.detailRequests
+    KOREA_SCHEDULE_GAP_PRIORITY_LIMIT
   ]);
   assert.match(db.calls[0].sql, /origin_country.*KR/s);
   assert.match(db.calls[0].sql, /status IN \('airing', 'upcoming', 'planned'\)/);
@@ -82,8 +83,9 @@ test("Phase 10B.1 never expands the Korean external request ceiling", () => {
 
   assert.equal(KOREA_TMDB_SYNC_BUDGET.totalExternalRequests, 24);
   assert.equal(KOREA_TMDB_SYNC_BUDGET.detailRequests, 18);
-  assert.match(source, /selectKoreanScheduleGapCandidates\(env\.DB, detailLimit, now\)/);
-  assert.match(source, /mergePriorityCandidates\(\s*scheduleGapCandidates,\s*discoveredCandidates,\s*detailLimit\s*\)/s);
+  assert.equal(KOREA_SCHEDULE_GAP_PRIORITY_LIMIT, 4);
+  assert.match(source, /selectKoreanScheduleGapCandidates\(\s*env\.DB,\s*KOREA_SCHEDULE_GAP_PRIORITY_LIMIT,\s*now\s*\)/s);
+  assert.match(source, /prioritizeKoreanCoverageCandidates\(\s*scheduleGapCandidates,\s*discoveredCandidatePool,\s*existingActiveKoreanTmdbIds,\s*detailLimit\s*\)/s);
   assert.match(source, /externalRequestBudget: candidateFeeds\.length \+ selectedCandidates\.length/);
   assert.match(source, /scheduleGapCandidates: scheduleGapCandidates\.length/);
 });
