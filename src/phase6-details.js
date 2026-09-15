@@ -2,6 +2,7 @@ import { normalizeTitleRegion, withResolvedChineseTitle } from "./title-aliases.
 
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
+const TMDB_REQUEST_TIMEOUT_MS = 3000;
 const YOUTUBE_KEY_PATTERN = /^[A-Za-z0-9_-]{6,32}$/;
 
 function imageUrl(path, size = "w780") {
@@ -21,7 +22,8 @@ async function tmdbDetailRequest(env, tmdbId) {
     headers: {
       accept: "application/json",
       authorization: `Bearer ${env.TMDB_API_TOKEN}`
-    }
+    },
+    signal: AbortSignal.timeout(TMDB_REQUEST_TIMEOUT_MS)
   });
 
   if (!response.ok) {
